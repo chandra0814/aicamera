@@ -73,7 +73,7 @@ public final class DeviceCapabilityProfiler: DeviceCapabilityProfiling {
         let maxZoom = 1.0
         #endif
 
-        CameraCapability(
+        return CameraCapability(
             id: device.uniqueID,
             position: device.position.lensPilotPosition,
             lensType: device.deviceType.lensPilotLensType,
