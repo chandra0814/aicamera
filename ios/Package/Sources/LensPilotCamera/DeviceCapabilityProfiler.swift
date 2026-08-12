@@ -13,6 +13,7 @@ public final class DeviceCapabilityProfiler: DeviceCapabilityProfiling {
     public init() {}
 
     public func profileCurrentDevice() -> DeviceCapability {
+        #if os(iOS)
         let discovery = AVCaptureDevice.DiscoverySession(
             deviceTypes: Self.discoveryDeviceTypes,
             mediaType: .video,
@@ -43,6 +44,24 @@ public final class DeviceCapabilityProfiler: DeviceCapabilityProfiling {
             thermalClass: ProcessInfo.processInfo.thermalState.lensPilotName,
             measuredCameraLatency: nil
         )
+        #else
+        DeviceCapability(
+            manufacturer: "Apple",
+            model: Self.deviceModelName,
+            physicalCameras: [],
+            rawSupported: false,
+            depthSupported: false,
+            manualExposureSupported: false,
+            manualFocusSupported: false,
+            manualWhiteBalanceSupported: false,
+            hdrSupported: false,
+            nightExtensionSupported: false,
+            portraitExtensionSupported: false,
+            stabilizationModes: [],
+            thermalClass: ProcessInfo.processInfo.thermalState.lensPilotName,
+            measuredCameraLatency: nil
+        )
+        #endif
     }
 
     private static func mapCameraCapability(_ device: AVCaptureDevice) -> CameraCapability {
@@ -50,14 +69,20 @@ public final class DeviceCapabilityProfiler: DeviceCapabilityProfiling {
             id: device.uniqueID,
             position: device.position.lensPilotPosition,
             lensType: device.deviceType.lensPilotLensType,
+            #if os(iOS)
             minZoom: Double(device.minAvailableVideoZoomFactor),
             maxZoom: Double(device.maxAvailableVideoZoomFactor),
+            #else
+            minZoom: 1,
+            maxZoom: 1,
+            #endif
             supportsFocusLock: device.isFocusModeSupported(.locked),
             supportsExposureLock: device.isExposureModeSupported(.locked) || device.isExposureModeSupported(.custom)
         )
     }
 
     private static func supportedStabilizationModes(formats: [AVCaptureDevice.Format]) -> [String] {
+        #if os(iOS)
         let modes = formats.flatMap { format in
             AVCaptureVideoStabilizationMode.allCases.filter { mode in
                 format.isVideoStabilizationModeSupported(mode)
@@ -66,6 +91,9 @@ public final class DeviceCapabilityProfiler: DeviceCapabilityProfiling {
         .map(\.lensPilotName)
 
         return Array(Set(modes)).sorted()
+        #else
+        []
+        #endif
     }
 }
 
@@ -138,6 +166,7 @@ private extension AVCaptureDevice.DeviceType {
     }
 }
 
+#if os(iOS)
 private extension AVCaptureVideoStabilizationMode {
     static var allCases: [AVCaptureVideoStabilizationMode] {
         [.off, .standard, .cinematic, .cinematicExtended, .auto]
@@ -160,6 +189,7 @@ private extension AVCaptureVideoStabilizationMode {
         }
     }
 }
+#endif
 
 private extension ProcessInfo.ThermalState {
     var lensPilotName: String {
