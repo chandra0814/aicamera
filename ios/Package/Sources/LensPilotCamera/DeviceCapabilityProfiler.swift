@@ -65,17 +65,20 @@ public final class DeviceCapabilityProfiler: DeviceCapabilityProfiling {
     }
 
     private static func mapCameraCapability(_ device: AVCaptureDevice) -> CameraCapability {
+        #if os(iOS)
+        let minZoom = Double(device.minAvailableVideoZoomFactor)
+        let maxZoom = Double(device.maxAvailableVideoZoomFactor)
+        #else
+        let minZoom = 1.0
+        let maxZoom = 1.0
+        #endif
+
         CameraCapability(
             id: device.uniqueID,
             position: device.position.lensPilotPosition,
             lensType: device.deviceType.lensPilotLensType,
-            #if os(iOS)
-            minZoom: Double(device.minAvailableVideoZoomFactor),
-            maxZoom: Double(device.maxAvailableVideoZoomFactor),
-            #else
-            minZoom: 1,
-            maxZoom: 1,
-            #endif
+            minZoom: minZoom,
+            maxZoom: maxZoom,
             supportsFocusLock: device.isFocusModeSupported(.locked),
             supportsExposureLock: device.isExposureModeSupported(.locked) || device.isExposureModeSupported(.custom)
         )
