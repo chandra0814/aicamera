@@ -110,7 +110,9 @@ public final class CameraSessionController: NSObject, CameraSessionControlling {
         if !session.outputs.contains(photoOutput), session.canAddOutput(photoOutput) {
             session.addOutput(photoOutput)
             photoOutput.isHighResolutionCaptureEnabled = true
-            photoOutput.maxPhotoQualityPrioritization = .quality
+            if #available(iOS 13.0, macOS 13.0, *) {
+                photoOutput.maxPhotoQualityPrioritization = .quality
+            }
         }
 
         if !session.outputs.contains(videoDataOutput), session.canAddOutput(videoDataOutput) {

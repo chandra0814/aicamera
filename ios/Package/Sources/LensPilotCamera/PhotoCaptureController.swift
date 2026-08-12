@@ -17,13 +17,17 @@ public final class PhotoCaptureController: NSObject, PhotoCapturing {
             self.continuation = continuation
 
             let settings = AVCapturePhotoSettings()
-            settings.photoQualityPrioritization = .quality
+            if #available(iOS 13.0, macOS 13.0, *) {
+                settings.photoQualityPrioritization = .quality
+            }
 
+            #if os(iOS)
             if output.availablePhotoCodecTypes.contains(.hevc) {
                 settings.embeddedThumbnailPhotoFormat = [
                     AVVideoCodecKey: AVVideoCodecType.jpeg
                 ]
             }
+            #endif
 
             output.capturePhoto(with: settings, delegate: self)
         }

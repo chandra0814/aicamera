@@ -14,15 +14,7 @@ public final class DeviceCapabilityProfiler: DeviceCapabilityProfiling {
 
     public func profileCurrentDevice() -> DeviceCapability {
         let discovery = AVCaptureDevice.DiscoverySession(
-            deviceTypes: [
-                .builtInWideAngleCamera,
-                .builtInUltraWideCamera,
-                .builtInTelephotoCamera,
-                .builtInDualCamera,
-                .builtInDualWideCamera,
-                .builtInTripleCamera,
-                .builtInTrueDepthCamera
-            ],
+            deviceTypes: Self.discoveryDeviceTypes,
             mediaType: .video,
             position: .unspecified
         )
@@ -78,6 +70,24 @@ public final class DeviceCapabilityProfiler: DeviceCapabilityProfiling {
 }
 
 private extension DeviceCapabilityProfiler {
+    static var discoveryDeviceTypes: [AVCaptureDevice.DeviceType] {
+        #if os(iOS)
+        [
+            .builtInWideAngleCamera,
+            .builtInUltraWideCamera,
+            .builtInTelephotoCamera,
+            .builtInDualCamera,
+            .builtInDualWideCamera,
+            .builtInTripleCamera,
+            .builtInTrueDepthCamera
+        ]
+        #else
+        [
+            .builtInWideAngleCamera
+        ]
+        #endif
+    }
+
     static var deviceModelName: String {
         #if canImport(UIKit)
         UIDevice.current.model
@@ -104,6 +114,7 @@ private extension AVCaptureDevice.Position {
 
 private extension AVCaptureDevice.DeviceType {
     var lensPilotLensType: CameraCapability.LensType {
+        #if os(iOS)
         switch self {
         case .builtInUltraWideCamera:
             return .ultraWide
@@ -116,6 +127,14 @@ private extension AVCaptureDevice.DeviceType {
         default:
             return .unknown
         }
+        #else
+        switch self {
+        case .builtInWideAngleCamera:
+            return .wide
+        default:
+            return .unknown
+        }
+        #endif
     }
 }
 
