@@ -1,7 +1,9 @@
 import AVFoundation
 import Foundation
 import LensPilotCore
+#if canImport(UIKit)
 import UIKit
+#endif
 
 public protocol DeviceCapabilityProfiling {
     func profileCurrentDevice() -> DeviceCapability
@@ -35,7 +37,7 @@ public final class DeviceCapabilityProfiler: DeviceCapabilityProfiling {
 
         return DeviceCapability(
             manufacturer: "Apple",
-            model: UIDevice.current.model,
+            model: Self.deviceModelName,
             physicalCameras: cameras,
             rawSupported: AVCapturePhotoOutput().availableRawPhotoPixelFormatTypes.isEmpty == false,
             depthSupported: depthSupported,
@@ -72,6 +74,16 @@ public final class DeviceCapabilityProfiler: DeviceCapabilityProfiling {
         .map(\.lensPilotName)
 
         return Array(Set(modes)).sorted()
+    }
+}
+
+private extension DeviceCapabilityProfiler {
+    static var deviceModelName: String {
+        #if canImport(UIKit)
+        UIDevice.current.model
+        #else
+        Host.current().localizedName ?? "Mac"
+        #endif
     }
 }
 

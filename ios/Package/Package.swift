@@ -4,7 +4,10 @@ import PackageDescription
 
 let package = Package(
     name: "LensPilot",
-    platforms: [.iOS(.v17)],
+    platforms: [
+        .iOS(.v17),
+        .macOS(.v12)
+    ],
     products: [
         .library(name: "LensPilotCore", targets: ["LensPilotCore"]),
         .library(name: "LensPilotCamera", targets: ["LensPilotCamera"]),
