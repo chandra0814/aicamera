@@ -1,0 +1,41 @@
+{
+  "id": "shot_cinematic_portrait_001",
+  "version": "1.0",
+  "source": "text",
+  "originalPrompt": "Give me a cinematic portrait with natural skin and a clean background.",
+  "domain": "portrait",
+  "subject": {
+    "primary": "person",
+    "count": 1,
+    "priority": "subject",
+    "identityRecognitionAllowed": false
+  },
+  "style": {
+    "name": "cinematic",
+    "mood": "dramatic",
+    "colorIntent": "warm_highlights_cool_shadows",
+    "skinTreatment": "natural"
+  },
+  "composition": {
+    "framing": "environmental",
+    "headroom": "balanced",
+    "backgroundPriority": "clean",
+    "horizonPlacement": "auto"
+  },
+  "cameraIntent": {
+    "targetLens": "two_x_if_available",
+    "perspective": "eye_level",
+    "exposureStrategy": "prioritize_faces",
+    "focusStrategy": "subject_eye",
+    "depthIntent": "strong_subject_separation"
+  },
+  "constraints": {
+    "realityMode": "natural",
+    "cloudAllowed": false,
+    "generativeEditsAllowed": false,
+    "userSafetyStrictness": "conservative",
+    "singlePhoneOnly": true
+  },
+  "confidence": 0.89,
+  "missingInfo": []
+}

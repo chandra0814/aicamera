@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lenspilot.ai/schemas/device-capability.schema.json",
+  "title": "DeviceCapability",
+  "type": "object",
+  "required": ["manufacturer", "model", "physicalCameras", "rawSupported", "depthSupported", "manualExposureSupported", "manualFocusSupported", "manualWhiteBalanceSupported", "hdrSupported", "nightExtensionSupported", "portraitExtensionSupported", "stabilizationModes"],
+  "additionalProperties": false,
+  "properties": {
+    "manufacturer": { "type": "string" },
+    "model": { "type": "string" },
+    "physicalCameras": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "position", "lensType"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string" },
+          "position": { "enum": ["front", "back", "external", "unknown"] },
+          "lensType": { "enum": ["ultra_wide", "wide", "telephoto", "true_depth", "unknown"] },
+          "minZoom": { "type": "number" },
+          "maxZoom": { "type": "number" },
+          "supportsFocusLock": { "type": "boolean" },
+          "supportsExposureLock": { "type": "boolean" }
+        }
+      }
+    },
+    "rawSupported": { "type": "boolean" },
+    "depthSupported": { "type": "boolean" },
+    "manualExposureSupported": { "type": "boolean" },
+    "manualFocusSupported": { "type": "boolean" },
+    "manualWhiteBalanceSupported": { "type": "boolean" },
+    "hdrSupported": { "type": "boolean" },
+    "nightExtensionSupported": { "type": "boolean" },
+    "portraitExtensionSupported": { "type": "boolean" },
+    "stabilizationModes": { "type": "array", "items": { "type": "string" } },
+    "thermalClass": { "type": "string" },
+    "measuredCameraLatency": { "type": "number", "minimum": 0 }
+  }
+}

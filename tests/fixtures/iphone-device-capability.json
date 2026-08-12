@@ -1,0 +1,44 @@
+{
+  "manufacturer": "Apple",
+  "model": "iPhone MVP Test Device",
+  "physicalCameras": [
+    {
+      "id": "back_wide",
+      "position": "back",
+      "lensType": "wide",
+      "minZoom": 1,
+      "maxZoom": 5,
+      "supportsFocusLock": true,
+      "supportsExposureLock": true
+    },
+    {
+      "id": "back_tele",
+      "position": "back",
+      "lensType": "telephoto",
+      "minZoom": 2,
+      "maxZoom": 15,
+      "supportsFocusLock": true,
+      "supportsExposureLock": true
+    },
+    {
+      "id": "front_wide",
+      "position": "front",
+      "lensType": "wide",
+      "minZoom": 1,
+      "maxZoom": 2,
+      "supportsFocusLock": true,
+      "supportsExposureLock": true
+    }
+  ],
+  "rawSupported": true,
+  "depthSupported": true,
+  "manualExposureSupported": true,
+  "manualFocusSupported": true,
+  "manualWhiteBalanceSupported": true,
+  "hdrSupported": true,
+  "nightExtensionSupported": false,
+  "portraitExtensionSupported": true,
+  "stabilizationModes": ["standard", "cinematic"],
+  "thermalClass": "nominal",
+  "measuredCameraLatency": 180
+}

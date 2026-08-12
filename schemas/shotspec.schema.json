@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lenspilot.ai/schemas/shotspec.schema.json",
+  "title": "ShotSpec",
+  "type": "object",
+  "required": ["id", "version", "source", "domain", "subject", "style", "composition", "cameraIntent", "constraints", "confidence", "missingInfo"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "version": { "const": "1.0" },
+    "source": { "enum": ["text", "voice", "preset", "reference_image", "hybrid"] },
+    "originalPrompt": { "type": "string" },
+    "domain": { "enum": ["portrait", "landscape", "travel", "lifestyle", "night", "reference"] },
+    "subject": {
+      "type": "object",
+      "required": ["primary", "priority", "identityRecognitionAllowed"],
+      "additionalProperties": false,
+      "properties": {
+        "primary": { "enum": ["person", "people", "landscape", "vehicle", "object", "unknown"] },
+        "count": { "type": "integer", "minimum": 0 },
+        "priority": { "enum": ["subject", "environment", "balanced"] },
+        "identityRecognitionAllowed": { "const": false }
+      }
+    },
+    "style": {
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "enum": ["natural", "cinematic", "professional", "travel", "portrait", "night", "sky", "lifestyle", "custom"] },
+        "mood": { "enum": ["bright", "dramatic", "soft", "luxury", "documentary", "moody"] },
+        "colorIntent": { "enum": ["natural", "warm_highlights", "cool_shadows", "warm_highlights_cool_shadows", "high_contrast", "low_contrast"] },
+        "skinTreatment": { "enum": ["natural", "soft_but_realistic", "none"] }
+      }
+    },
+    "composition": {
+      "type": "object",
+      "required": ["framing"],
+      "additionalProperties": false,
+      "properties": {
+        "framing": { "enum": ["close", "medium", "wide", "environmental", "three_quarter", "symmetrical", "rule_of_thirds"] },
+        "headroom": { "enum": ["minimal", "balanced", "more_space"] },
+        "skyPriority": { "enum": ["low", "medium", "high"] },
+        "backgroundPriority": { "enum": ["clean", "contextual", "dramatic", "sunset", "architecture", "nature"] },
+        "horizonPlacement": { "enum": ["lower_third", "center", "upper_third", "auto"] }
+      }
+    },
+    "cameraIntent": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "targetLens": { "enum": ["ultra_wide", "wide", "two_x_if_available", "telephoto_if_available", "auto"] },
+        "perspective": { "enum": ["eye_level", "low_angle", "high_angle", "straight_on", "auto"] },
+        "exposureStrategy": { "enum": ["protect_highlights", "prioritize_faces", "balanced", "night_stability"] },
+        "focusStrategy": { "enum": ["subject_eye", "subject_center", "hyperfocal", "auto"] },
+        "depthIntent": { "enum": ["natural_depth", "strong_subject_separation", "deep_focus", "auto"] }
+      }
+    },
+    "constraints": {
+      "type": "object",
+      "required": ["realityMode", "cloudAllowed", "generativeEditsAllowed", "userSafetyStrictness", "singlePhoneOnly"],
+      "additionalProperties": false,
+      "properties": {
+        "realityMode": { "enum": ["natural", "enhanced", "creative"] },
+        "cloudAllowed": { "type": "boolean" },
+        "generativeEditsAllowed": { "type": "boolean" },
+        "userSafetyStrictness": { "enum": ["standard", "conservative"] },
+        "singlePhoneOnly": { "const": true }
+      }
+    },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "missingInfo": { "type": "array", "items": { "type": "string" } }
+  }
+}

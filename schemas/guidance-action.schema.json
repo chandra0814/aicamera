@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lenspilot.ai/schemas/guidance-action.schema.json",
+  "title": "GuidanceAction",
+  "type": "object",
+  "required": ["id", "actor", "action", "confidence", "reason", "expectedGain", "priority", "ttlMs", "suppressOppositeUntilMs"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "actor": { "enum": ["photographer", "subject", "camera", "processing"] },
+    "action": {
+      "enum": [
+        "move_left",
+        "move_right",
+        "move_forward",
+        "move_backward",
+        "raise_camera",
+        "lower_camera",
+        "rotate_clockwise",
+        "rotate_counterclockwise",
+        "switch_lens",
+        "adjust_zoom",
+        "adjust_exposure",
+        "turn_shoulders",
+        "turn_face",
+        "hold_steady",
+        "capture_now",
+        "if_safe_move"
+      ]
+    },
+    "magnitude": { "type": "number" },
+    "unit": { "enum": ["meter", "centimeter", "degree", "zoom_factor", "ev"] },
+    "direction": { "enum": ["left", "right", "up", "down", "toward_light", "away_from_background"] },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "reason": {
+      "enum": [
+        "improve_subject_background_separation",
+        "level_horizon",
+        "protect_highlights",
+        "improve_face_light",
+        "reduce_clutter",
+        "match_reference",
+        "improve_pose",
+        "increase_sky",
+        "reduce_motion_blur",
+        "ready_to_capture"
+      ]
+    },
+    "expectedGain": { "type": "number", "minimum": 0, "maximum": 1 },
+    "safetyQualifier": { "enum": ["if_safe", "do_not_move"] },
+    "priority": { "type": "integer", "minimum": 0, "maximum": 100 },
+    "ttlMs": { "type": "integer", "minimum": 0 },
+    "suppressOppositeUntilMs": { "type": "integer", "minimum": 0 }
+  }
+}

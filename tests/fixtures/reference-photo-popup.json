@@ -1,0 +1,27 @@
+{
+  "id": "ref_beach_portrait_001",
+  "source": "photo_library",
+  "localAssetUri": "ph://local-reference-asset",
+  "thumbnailUri": "cache://thumbnails/ref_beach_portrait_001.jpg",
+  "analysisStatus": "ready",
+  "extractedFeatures": {
+    "framing": "environmental portrait with upper-third sky",
+    "apparentFocalLength": "50mm equivalent",
+    "cameraHeight": "eye_level",
+    "subjectScale": 0.42,
+    "poseHints": ["shoulders angled slightly", "face toward light"],
+    "lightingDirection": "front-left warm sunset light",
+    "colorMood": "warm highlights with natural skin",
+    "depthStyle": "moderate subject separation",
+    "achievableTranslationNotes": ["Use natural mode; increase sky through camera angle, not sky replacement."]
+  },
+  "display": {
+    "showCameraPopup": true,
+    "popupPosition": "top_right",
+    "viewerState": "collapsed_popup"
+  },
+  "privacy": {
+    "cloudAnalysisUsed": false,
+    "userConsentedToCloudAnalysis": false
+  }
+}

@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lenspilot.ai/schemas/shotplan.schema.json",
+  "title": "ShotPlan",
+  "type": "object",
+  "required": ["id", "shotSpecId", "achievability", "cameraControls", "photographerChanges", "subjectDirections", "compositionTarget", "processingIntent", "previewConfiguration", "capturePolicy"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "shotSpecId": { "type": "string", "minLength": 1 },
+    "achievability": {
+      "type": "object",
+      "required": ["natural", "enhanced", "creative", "limitingFactors"],
+      "additionalProperties": false,
+      "properties": {
+        "natural": { "type": "number", "minimum": 0, "maximum": 1 },
+        "enhanced": { "type": "number", "minimum": 0, "maximum": 1 },
+        "creative": { "type": "number", "minimum": 0, "maximum": 1 },
+        "limitingFactors": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "cameraControls": {
+      "type": "object",
+      "required": ["recommendedLens", "targetZoom", "targetFocusMode", "captureFormat"],
+      "additionalProperties": false,
+      "properties": {
+        "recommendedLens": { "type": "string" },
+        "targetZoom": { "type": "number", "minimum": 0 },
+        "targetExposureBias": { "type": "number" },
+        "targetFocusMode": { "enum": ["auto", "locked", "manual_if_available"] },
+        "targetWhiteBalance": { "enum": ["auto", "daylight", "cloudy", "warm", "cool", "manual_if_available"] },
+        "stabilizationMode": { "type": "string" },
+        "captureFormat": { "enum": ["heif", "jpeg", "raw_plus_heif"] }
+      }
+    },
+    "photographerChanges": { "type": "array", "items": { "$ref": "guidance-action.schema.json" } },
+    "subjectDirections": { "type": "array", "items": { "$ref": "guidance-action.schema.json" } },
+    "compositionTarget": {
+      "type": "object",
+      "required": ["subjectBounds", "crop"],
+      "additionalProperties": false,
+      "properties": {
+        "subjectBounds": { "$ref": "#/$defs/normalizedRectangle" },
+        "horizonY": { "type": "number", "minimum": 0, "maximum": 1 },
+        "crop": { "$ref": "#/$defs/normalizedRectangle" }
+      }
+    },
+    "processingIntent": {
+      "type": "object",
+      "required": ["realityMode", "toneCurve", "colorTreatment", "depthEffect"],
+      "additionalProperties": false,
+      "properties": {
+        "realityMode": { "enum": ["natural", "enhanced", "creative"] },
+        "toneCurve": { "enum": ["natural", "cinematic_soft_contrast", "high_dynamic_range", "night_noise_control"] },
+        "colorTreatment": { "type": "string" },
+        "depthEffect": { "enum": ["none", "natural", "portrait_if_available", "post_depth_blur"] }
+      }
+    },
+    "previewConfiguration": {
+      "type": "object",
+      "required": ["label", "operations"],
+      "additionalProperties": false,
+      "properties": {
+        "label": { "enum": ["capture_realistic", "enhanced_realistic", "ai_enhancement_required"] },
+        "operations": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "capturePolicy": {
+      "type": "object",
+      "required": ["mode", "trigger", "readinessThreshold"],
+      "additionalProperties": false,
+      "properties": {
+        "mode": { "enum": ["single", "burst"] },
+        "burstFrameCount": { "type": "integer", "minimum": 1 },
+        "trigger": { "enum": ["manual", "ready_assist", "auto_when_stable"] },
+        "readinessThreshold": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    }
+  },
+  "$defs": {
+    "normalizedRectangle": {
+      "type": "object",
+      "required": ["x", "y", "width", "height"],
+      "additionalProperties": false,
+      "properties": {
+        "x": { "type": "number", "minimum": 0, "maximum": 1 },
+        "y": { "type": "number", "minimum": 0, "maximum": 1 },
+        "width": { "type": "number", "minimum": 0, "maximum": 1 },
+        "height": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    }
+  }
+}

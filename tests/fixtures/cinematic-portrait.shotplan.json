@@ -1,0 +1,57 @@
+{
+  "id": "plan_cinematic_portrait_001",
+  "shotSpecId": "shot_cinematic_portrait_001",
+  "achievability": {
+    "natural": 0.84,
+    "enhanced": 0.88,
+    "creative": 0.94,
+    "limitingFactors": []
+  },
+  "cameraControls": {
+    "recommendedLens": "telephoto",
+    "targetZoom": 2,
+    "targetExposureBias": 0,
+    "targetFocusMode": "locked",
+    "targetWhiteBalance": "auto",
+    "stabilizationMode": "standard",
+    "captureFormat": "heif"
+  },
+  "photographerChanges": [
+    {
+      "id": "guide_left_001",
+      "actor": "photographer",
+      "action": "move_left",
+      "magnitude": 0.25,
+      "unit": "meter",
+      "direction": "left",
+      "confidence": 0.7,
+      "reason": "improve_subject_background_separation",
+      "expectedGain": 0.12,
+      "safetyQualifier": "if_safe",
+      "priority": 80,
+      "ttlMs": 3500,
+      "suppressOppositeUntilMs": 5000
+    }
+  ],
+  "subjectDirections": [],
+  "compositionTarget": {
+    "subjectBounds": { "x": 0.3, "y": 0.18, "width": 0.4, "height": 0.66 },
+    "crop": { "x": 0, "y": 0, "width": 1, "height": 1 }
+  },
+  "processingIntent": {
+    "realityMode": "natural",
+    "toneCurve": "cinematic_soft_contrast",
+    "colorTreatment": "warm_highlights_cool_shadows",
+    "depthEffect": "portrait_if_available"
+  },
+  "previewConfiguration": {
+    "label": "capture_realistic",
+    "operations": ["crop_simulation", "exposure_bias", "tone_preview", "composition_overlay"]
+  },
+  "capturePolicy": {
+    "mode": "burst",
+    "burstFrameCount": 5,
+    "trigger": "ready_assist",
+    "readinessThreshold": 0.92
+  }
+}

@@ -1,0 +1,63 @@
+name: LensPilot Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  ai-fixtures:
+    name: AI fixture validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Validate JSON files
+        shell: bash
+        run: |
+          node - <<'NODE'
+          const fs = require("fs");
+          const path = require("path");
+
+          function walk(dir) {
+            return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+              const full = path.join(dir, entry.name);
+              if (entry.isDirectory() && ![".git", "node_modules"].includes(entry.name)) return walk(full);
+              return entry.isFile() && entry.name.endsWith(".json") ? [full] : [];
+            });
+          }
+
+          for (const file of walk(process.cwd())) {
+            JSON.parse(fs.readFileSync(file, "utf8"));
+            console.log(file);
+          }
+          NODE
+
+      - name: Run AI core validation
+        working-directory: shared/typescript
+        run: npm run validate
+
+  swift-package:
+    name: Swift package tests
+    runs-on: macos-15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Run Swift tests when package exists
+        shell: bash
+        run: |
+          if [ -f ios/Package/Package.swift ]; then
+            cd ios/Package
+            swift test
+          else
+            echo "ios/Package/Package.swift not present; skipping Swift package tests."
+          fi

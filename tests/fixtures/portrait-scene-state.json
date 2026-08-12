@@ -1,0 +1,83 @@
+{
+  "timestamp": "2026-08-12T15:10:00.000Z",
+  "frameId": "frame_portrait_001",
+  "cameraState": {
+    "lensId": "back_wide",
+    "focalLength35mmEquivalent": 24,
+    "zoomFactor": 1,
+    "exposureBias": 0,
+    "orientation": "portrait",
+    "rollDegrees": 3.8,
+    "pitchDegrees": 4
+  },
+  "deviceThermal": "nominal",
+  "scene": {
+    "category": "portrait",
+    "confidence": 0.86,
+    "lighting": {
+      "exposureMean": 0.54,
+      "highlightClipping": 0.18,
+      "shadowClipping": 0.08,
+      "faceLightQuality": 0.48,
+      "direction": "front_left",
+      "dynamicRangeRisk": 0.34
+    },
+    "horizon": {
+      "y": 0.47,
+      "rollDegrees": 3.8,
+      "confidence": 0.81
+    },
+    "sky": {
+      "visibleFraction": 0.22,
+      "sunsetLikelihood": 0.38,
+      "cloudInterest": 0.44,
+      "highlightRisk": 0.18
+    }
+  },
+  "subjects": [
+    {
+      "id": "subject_001",
+      "type": "person",
+      "bounds": { "x": 0.42, "y": 0.22, "width": 0.33, "height": 0.58 },
+      "segmentationAvailable": true,
+      "pose": {
+        "shouldersAngleDegrees": 4,
+        "faceYawDegrees": -8,
+        "eyeLineConfidence": 0.78,
+        "handAwkwardnessRisk": 0.22
+      },
+      "face": {
+        "eyeOpenProbability": 0.91,
+        "expressionStability": 0.76,
+        "sharpnessProbability": 0.83,
+        "skinExposureScore": 0.72
+      },
+      "distanceEstimateMeters": 2.1,
+      "confidence": 0.9
+    }
+  ],
+  "background": {
+    "clutterScore": 0.66,
+    "brightDistractionScore": 0.34,
+    "poleBehindHeadRisk": 0.18,
+    "randomPeopleRisk": 0.12,
+    "horizonIntersectionRisk": 0.2,
+    "cleanerDirection": "left"
+  },
+  "motion": {
+    "cameraShake": 0.18,
+    "subjectMotion": 0.12,
+    "blurRisk": 0.2
+  },
+  "composition": {
+    "subjectPlacementScore": 0.61,
+    "headroomScore": 0.72,
+    "balanceScore": 0.58,
+    "negativeSpaceScore": 0.52
+  },
+  "safety": {
+    "hazards": [],
+    "movementGuidanceAllowed": true,
+    "confidence": 0.82
+  }
+}

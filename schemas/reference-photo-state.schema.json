@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lenspilot.ai/schemas/reference-photo-state.schema.json",
+  "title": "ReferencePhotoState",
+  "type": "object",
+  "required": ["id", "source", "localAssetUri", "thumbnailUri", "analysisStatus", "display", "privacy"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "source": { "enum": ["photo_library", "camera_capture", "shared_file"] },
+    "localAssetUri": { "type": "string", "minLength": 1 },
+    "thumbnailUri": { "type": "string", "minLength": 1 },
+    "analysisStatus": { "enum": ["not_started", "analyzing", "ready", "failed"] },
+    "extractedFeatures": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "framing": { "type": "string" },
+        "apparentFocalLength": { "type": "string" },
+        "cameraHeight": { "enum": ["low", "eye_level", "high", "unknown"] },
+        "subjectScale": { "type": "number", "minimum": 0, "maximum": 1 },
+        "poseHints": { "type": "array", "items": { "type": "string" } },
+        "lightingDirection": { "type": "string" },
+        "colorMood": { "type": "string" },
+        "depthStyle": { "type": "string" },
+        "achievableTranslationNotes": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "display": {
+      "type": "object",
+      "required": ["showCameraPopup", "popupPosition", "viewerState"],
+      "additionalProperties": false,
+      "properties": {
+        "showCameraPopup": { "type": "boolean" },
+        "popupPosition": { "enum": ["top_left", "top_right", "bottom_left", "bottom_right"] },
+        "viewerState": { "enum": ["collapsed_popup", "full_reference", "reference_vs_target"] }
+      }
+    },
+    "privacy": {
+      "type": "object",
+      "required": ["cloudAnalysisUsed", "userConsentedToCloudAnalysis"],
+      "additionalProperties": false,
+      "properties": {
+        "cloudAnalysisUsed": { "type": "boolean" },
+        "userConsentedToCloudAnalysis": { "type": "boolean" }
+      }
+    }
+  }
+}
