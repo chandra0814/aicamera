@@ -98,7 +98,7 @@ public struct BasicShotPlanner: ShotPlanning {
                 confidence: horizon.confidence,
                 reason: .levelHorizon,
                 expectedGain: 0.14,
-                safetyQualifier: nil,
+                safetyQualifier: .ifSafe,
                 priority: 95,
                 ttlMs: 3500,
                 suppressOppositeUntilMs: 5000

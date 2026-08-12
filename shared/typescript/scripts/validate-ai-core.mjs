@@ -95,7 +95,7 @@ function plan(shotSpec, sceneState, deviceCapability) {
   const recommendedLens = deviceCapability.physicalCameras.some((camera) => camera.lensType === "telephoto") ? "telephoto" : "wide";
   const photographerChanges = [];
   if (Math.abs(sceneState.scene.horizon.rollDegrees) > 2.5) {
-    photographerChanges.push(action("level_horizon", "photographer", sceneState.scene.horizon.rollDegrees > 0 ? "rotate_counterclockwise" : "rotate_clockwise", "level_horizon", 95, undefined));
+    photographerChanges.push(action("level_horizon", "photographer", sceneState.scene.horizon.rollDegrees > 0 ? "rotate_counterclockwise" : "rotate_clockwise", "level_horizon", 95, "if_safe"));
   }
   if (sceneState.background.clutterScore > 0.55 && sceneState.safety.movementGuidanceAllowed) {
     photographerChanges.push(action("reduce_background_clutter", "photographer", "move_left", "reduce_clutter", 88, "if_safe"));

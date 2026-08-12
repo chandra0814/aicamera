@@ -122,6 +122,7 @@ export class ShotPlanner {
         confidence: sceneState.scene.horizon.confidence,
         reason: "level_horizon",
         expectedGain: 0.14,
+        safetyQualifier: "if_safe",
         priority: 95,
       }));
     }
