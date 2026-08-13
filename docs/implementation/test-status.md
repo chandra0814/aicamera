@@ -9,6 +9,7 @@
   - telephoto lens recommendation from fixture device capabilities
   - normalized Target Match
   - safety-qualified movement guidance
+- `LensPilotVisionTests` on macOS CI, covering the `SceneDebugState` to native `SceneState` bridge.
 
 ## Not Runnable Here
 

@@ -19,6 +19,7 @@ let package = Package(
         .target(name: "LensPilotCamera", dependencies: ["LensPilotCore"]),
         .target(name: "LensPilotVision", dependencies: ["LensPilotCore"]),
         .target(name: "LensPilotDirector", dependencies: ["LensPilotCore"]),
-        .testTarget(name: "LensPilotCoreTests", dependencies: ["LensPilotCore"])
+        .testTarget(name: "LensPilotCoreTests", dependencies: ["LensPilotCore"]),
+        .testTarget(name: "LensPilotVisionTests", dependencies: ["LensPilotVision"])
     ]
 )

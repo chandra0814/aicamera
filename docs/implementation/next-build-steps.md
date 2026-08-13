@@ -10,9 +10,15 @@
    - `NSCameraUsageDescription`
    - `NSPhotoLibraryUsageDescription`
    - `NSMicrophoneUsageDescription` later, when voice input is wired.
-6. Connect `AVCaptureVideoDataOutput` to `FrameAnalyzer`.
-7. Feed `SceneDebugState` into `SinglePhoneDirectorState`.
-8. Replace `activateMockReference()` with a real `PhotosPicker` flow.
+6. Replace `activateMockReference()` with a real `PhotosPicker` flow.
+7. Add live result review after capture, using the ranked burst output.
+8. Add more on-device metrics for horizon roll, face quality, pose, segmentation, and motion stability.
+
+## Completed Single-Phone Runtime Work
+
+- `AVCaptureVideoDataOutput` now feeds `FrameAnalyzer` through the camera screen frame-analysis coordinator.
+- `SceneDebugState` now maps into native `SceneState`, so the on-device AI guidance can refresh from live frames instead of only using placeholder state.
+- The live scene bridge is covered by `LensPilotVisionTests`.
 
 ## Single-Phone Verification Checklist
 

@@ -4,6 +4,7 @@ import Foundation
 import LensPilotCamera
 import LensPilotCore
 import LensPilotDirector
+import LensPilotVision
 
 @MainActor
 final class CameraScreenViewModel: ObservableObject {
@@ -14,6 +15,7 @@ final class CameraScreenViewModel: ObservableObject {
     @Published private(set) var deviceCapability: DeviceCapability?
     @Published private(set) var currentShotSpec: ShotSpec?
     @Published private(set) var currentShotPlan: ShotPlan?
+    @Published private(set) var latestSceneDebugState: SceneDebugState?
     @Published var intentText = "Give me a cinematic portrait"
     @Published var usesFrontCameraForSelfShot = false
     @Published var lastCaptureData: Data?
@@ -21,7 +23,11 @@ final class CameraScreenViewModel: ObservableObject {
 
     private let capabilityProfiler = DeviceCapabilityProfiler()
     private let aiCore = LensPilotAiCore()
+    private let sceneStateBuilder = SceneStateBuilder()
+    private let frameAnalyzer = FrameAnalyzer()
     private let photoCaptureController = PhotoCaptureController()
+    private lazy var frameAnalysisCoordinator = CameraFrameAnalysisCoordinator(analyzer: frameAnalyzer)
+    private var isFrameAnalysisConnected = false
 
     func start() {
         Task {
@@ -37,6 +43,7 @@ final class CameraScreenViewModel: ObservableObject {
             }
 
             await configureCamera()
+            connectFrameAnalysisIfNeeded()
             deviceCapability = capabilityProfiler.profileCurrentDevice()
             makePlanFromIntent()
             await camera.start()
@@ -44,6 +51,8 @@ final class CameraScreenViewModel: ObservableObject {
     }
 
     func stop() {
+        camera.videoDataOutput.setSampleBufferDelegate(nil, queue: nil)
+        isFrameAnalysisConnected = false
         Task {
             await camera.stop()
         }
@@ -57,10 +66,19 @@ final class CameraScreenViewModel: ObservableObject {
     }
 
     func makePlanFromIntent() {
+        runAi(sceneState: currentSceneState())
+    }
+
+    private func handleSceneDebugState(_ debugState: SceneDebugState) {
+        latestSceneDebugState = debugState
+        runAi(sceneState: sceneState(from: debugState))
+    }
+
+    private func runAi(sceneState: SceneState) {
         let capability = deviceCapability ?? fallbackCapability()
         let result = aiCore.run(
             prompt: intentText,
-            sceneState: placeholderSceneState(),
+            sceneState: sceneState,
             deviceCapability: capability
         )
 
@@ -106,6 +124,19 @@ final class CameraScreenViewModel: ObservableObject {
         }
     }
 
+    private func connectFrameAnalysisIfNeeded() {
+        guard !isFrameAnalysisConnected else { return }
+
+        frameAnalysisCoordinator.onSceneDebugState = { [weak self] debugState in
+            self?.handleSceneDebugState(debugState)
+        }
+        camera.videoDataOutput.setSampleBufferDelegate(
+            frameAnalysisCoordinator,
+            queue: frameAnalysisCoordinator.sampleBufferQueue
+        )
+        isFrameAnalysisConnected = true
+    }
+
     private func configureCamera() async {
         do {
             try await camera.configure(position: usesFrontCameraForSelfShot ? .front : .back)
@@ -124,6 +155,12 @@ final class CameraScreenViewModel: ObservableObject {
             return "Raise camera slightly"
         case .lowerCamera:
             return "Lower camera slightly"
+        case .rotateClockwise:
+            return action.safetyQualifier == .ifSafe ? "If safe, rotate slightly right" : "Rotate slightly right"
+        case .rotateCounterclockwise:
+            return action.safetyQualifier == .ifSafe ? "If safe, rotate slightly left" : "Rotate slightly left"
+        case .adjustExposure:
+            return "Lower exposure to protect highlights"
         case .holdSteady:
             return "Hold steady"
         case .captureNow:
@@ -168,6 +205,21 @@ final class CameraScreenViewModel: ObservableObject {
             stabilizationModes: ["standard"],
             thermalClass: nil,
             measuredCameraLatency: nil
+        )
+    }
+
+    private func currentSceneState() -> SceneState {
+        guard let latestSceneDebugState else {
+            return placeholderSceneState()
+        }
+
+        return sceneState(from: latestSceneDebugState)
+    }
+
+    private func sceneState(from debugState: SceneDebugState) -> SceneState {
+        sceneStateBuilder.makeSceneState(
+            from: debugState,
+            usesFrontCameraForSelfShot: usesFrontCameraForSelfShot
         )
     }
 

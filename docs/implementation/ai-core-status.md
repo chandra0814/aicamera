@@ -13,6 +13,7 @@ This implementation completes the MVP AI control skeleton, not the final product
 - Single-phone invariant: `ShotSpec.constraints.singlePhoneOnly` is required and true.
 - Native Swift AI core: iOS now has on-device `SceneState`, `LensPilotAiCore`, `TargetMatchEngine`, `GuidancePolicy`, `PreviewSafetyEngine`, and `BestShotRanker` equivalents.
 - App wiring: the iOS camera screen view model calls the native AI core and displays AI guidance plus Target Match from scene inputs.
+- Live scene bridge: `FrameAnalyzer` output now maps `SceneDebugState` into native `SceneState`, and the camera screen refreshes AI guidance from analyzed live frames.
 
 ## Not Yet Production AI
 
@@ -30,8 +31,7 @@ LensPilot must remain a reliable camera first. A deterministic AI core lets us p
 
 ## Required Next AI Work
 
-1. Feed real iOS `SceneDebugState` into native `SceneState` instead of the current placeholder scene.
-2. Add on-device pose, segmentation, horizon, and exposure metrics.
-3. Build a benchmark set for portrait, landscape, sky, clutter, backlight, and horizon problems.
-4. Calibrate sub-score weights against blind preference tests.
-5. Add optional cloud reasoning only for event-triggered creative interpretation.
+1. Add on-device pose, segmentation, horizon roll, face quality, and motion stability metrics.
+2. Build a benchmark set for portrait, landscape, sky, clutter, backlight, and horizon problems.
+3. Calibrate sub-score weights against blind preference tests.
+4. Add optional cloud reasoning only for event-triggered creative interpretation.
