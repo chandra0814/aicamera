@@ -5,7 +5,6 @@ import LensPilotCamera
 import LensPilotCore
 import LensPilotDirector
 import LensPilotVision
-import PhotosUI
 
 struct CaptureReviewPresentation: Identifiable {
     let id: String
@@ -103,19 +102,16 @@ final class CameraScreenViewModel: ObservableObject {
         )
     }
 
-    func activateReferencePhoto(from item: PhotosPickerItem?) async {
-        guard let item else { return }
+    func activateReferencePhoto(imageData: Data, assetIdentifier: String?) {
+        referenceImageData = imageData
+        activateReferencePhoto(assetIdentifier: assetIdentifier)
+    }
 
-        do {
-            guard let imageData = try await item.loadTransferable(type: Data.self) else {
-                errorMessage = "Reference photo could not be loaded."
-                return
-            }
-
-            referenceImageData = imageData
-            activateReferencePhoto(assetIdentifier: item.itemIdentifier)
-        } catch {
+    func failReferencePhotoLoad(_ error: Error? = nil) {
+        if let error {
             errorMessage = "Reference photo failed: \(error.localizedDescription)"
+        } else {
+            errorMessage = "Reference photo could not be loaded."
         }
     }
 

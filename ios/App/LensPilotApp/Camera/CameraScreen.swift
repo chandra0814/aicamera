@@ -58,7 +58,7 @@ struct CameraScreen: View {
         }
         .onChange(of: selectedReferenceItem) { _, item in
             Task {
-                await viewModel.activateReferencePhoto(from: item)
+                await activateReferencePhoto(from: item)
                 selectedReferenceItem = nil
             }
         }
@@ -173,6 +173,22 @@ struct CameraScreen: View {
         #else
         return nil
         #endif
+    }
+
+    @MainActor
+    private func activateReferencePhoto(from item: PhotosPickerItem?) async {
+        guard let item else { return }
+
+        do {
+            guard let imageData = try await item.loadTransferable(type: Data.self) else {
+                viewModel.failReferencePhotoLoad()
+                return
+            }
+
+            viewModel.activateReferencePhoto(imageData: imageData, assetIdentifier: item.itemIdentifier)
+        } catch {
+            viewModel.failReferencePhotoLoad(error)
+        }
     }
 
     private func image(from data: Data) -> Image? {
