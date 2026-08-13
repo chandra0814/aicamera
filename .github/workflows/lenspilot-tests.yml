@@ -61,3 +61,25 @@ jobs:
           else
             echo "ios/Package/Package.swift not present; skipping Swift package tests."
           fi
+
+  ios-app:
+    name: iOS app build
+    runs-on: macos-15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Build LensPilot app target
+        shell: bash
+        run: |
+          if [ -d ios/App/LensPilotApp/LensPilotApp.xcodeproj ]; then
+            xcodebuild \
+              -project ios/App/LensPilotApp/LensPilotApp.xcodeproj \
+              -scheme LensPilotApp \
+              -configuration Debug \
+              -destination 'generic/platform=iOS' \
+              CODE_SIGNING_ALLOWED=NO \
+              build
+          else
+            echo "LensPilotApp.xcodeproj not present; skipping iOS app build."
+          fi

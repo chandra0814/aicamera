@@ -11,6 +11,7 @@
   - safety-qualified movement guidance
 - `LensPilotVisionTests` on macOS CI, covering the `SceneDebugState` to native `SceneState` bridge.
 - `LensPilotCoreTests` on macOS CI, covering burst capture review ranking and empty-burst handling.
+- GitHub Actions `iOS app build`, covering the SwiftUI app target, local package dependency wiring, camera screen, reference picker, popup, and result review compilation.
 
 ## Not Runnable Here
 
@@ -31,3 +32,9 @@ swift test
 ```
 
 from `ios/Package`.
+
+GitHub Actions additionally runs:
+
+```bash
+xcodebuild -project ios/App/LensPilotApp/LensPilotApp.xcodeproj -scheme LensPilotApp -configuration Debug -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
+```
