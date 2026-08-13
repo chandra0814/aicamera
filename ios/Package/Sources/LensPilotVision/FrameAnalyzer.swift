@@ -25,7 +25,12 @@ public actor FrameAnalyzer: FrameAnalyzing {
         let exposureWarning = exposureWarning(for: pixelBuffer)
         let faceMetrics = await detectFaceMetrics(in: pixelBuffer, exposureWarning: exposureWarning)
         let poseMetrics = await detectPoseMetrics(in: pixelBuffer)
-        let segmentationAvailable = !personBounds.isEmpty && await detectPersonSegmentation(in: pixelBuffer)
+        let segmentationAvailable: Bool
+        if personBounds.isEmpty {
+            segmentationAvailable = false
+        } else {
+            segmentationAvailable = await detectPersonSegmentation(in: pixelBuffer)
+        }
         let horizon = luminanceSample.flatMap(horizonMetric)
         let latencyMs = Date().timeIntervalSince(startedAt) * 1000
         let motion = motionMetric(

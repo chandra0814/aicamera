@@ -15,7 +15,7 @@ public struct SceneStateBuilder: Sendable {
         let lighting = lightingState(for: debugState.exposureWarning)
         let motion = motionState(for: debugState)
         let horizon = horizonState(for: debugState)
-        let subjects = debugState.personBounds.enumerated().map { index, bounds in
+        let subjects: [SubjectObservation] = debugState.personBounds.enumerated().map { index, bounds in
             let faceMetric = nearestFaceMetric(to: bounds, in: debugState.faceMetrics)
             let poseMetric = nearestPoseMetric(to: bounds, in: debugState.poseMetrics)
             let faceQuality = faceQualityState(
@@ -28,7 +28,7 @@ public struct SceneStateBuilder: Sendable {
                 + (poseMetric == nil ? 0 : 0.06)
                 + (debugState.segmentationAvailable ? 0.04 : 0)
 
-            SubjectObservation(
+            return SubjectObservation(
                 id: "person_\(index + 1)_\(debugState.frameId)",
                 type: .person,
                 bounds: bounds.normalizedRectangle,
