@@ -16,8 +16,8 @@
 ## Latest Verification
 
 - Local `.\scripts\test-all.ps1` passed JSON validation and TypeScript AI fixture validation on Windows.
-- Swift package tests passed in GitHub Actions run #14 for commit `9fa7f2c`.
-- The iOS app build still failed in run #14, but the compiler diagnostic was hidden inside clipped Xcode output. The workflow now tees `xcodebuild.log`, prints focused compiler errors, and uploads the full log artifact on every iOS build.
+- Swift package tests passed in GitHub Actions run #15 for commit `964f993`.
+- The iOS app build failed in run #15 because Xcode could not type-check the motion frame-delta expression in `FrameAnalyzer.swift` quickly enough. That expression has been split into explicit loop steps for the next CI run.
 
 ## Not Runnable Here
 

@@ -270,9 +270,12 @@ public actor FrameAnalyzer: FrameAnalyzing {
             )
         }
 
-        let frameDelta = zip(sample.values, previousMotionReference.luminanceValues)
-            .map { abs($0 - $1) }
-            .reduce(0, +) / Double(sample.values.count)
+        var totalFrameDelta = 0.0
+        for (currentValue, previousValue) in zip(sample.values, previousMotionReference.luminanceValues) {
+            totalFrameDelta += abs(currentValue - previousValue)
+        }
+
+        let frameDelta = totalFrameDelta / Double(sample.values.count)
         let cameraShake = clamp01(frameDelta * 3.2 + latencyRisk * 0.14)
         let subjectMotion = subjectMotionScore(
             current: centers,
