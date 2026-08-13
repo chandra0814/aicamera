@@ -14,6 +14,7 @@ This implementation completes the MVP AI control skeleton, not the final product
 - Native Swift AI core: iOS now has on-device `SceneState`, `LensPilotAiCore`, `TargetMatchEngine`, `GuidancePolicy`, `PreviewSafetyEngine`, and `BestShotRanker` equivalents.
 - App wiring: the iOS camera screen view model calls the native AI core and displays AI guidance plus Target Match from scene inputs.
 - Live scene bridge: `FrameAnalyzer` output now maps `SceneDebugState` into native `SceneState`, and the camera screen refreshes AI guidance from analyzed live frames.
+- Reference-photo loop: selected library images stay on-device, appear in the camera popup, and open in the same-phone full reference viewer.
 
 ## Not Yet Production AI
 

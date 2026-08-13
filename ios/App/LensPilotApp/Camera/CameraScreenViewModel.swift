@@ -5,6 +5,7 @@ import LensPilotCamera
 import LensPilotCore
 import LensPilotDirector
 import LensPilotVision
+import PhotosUI
 
 @MainActor
 final class CameraScreenViewModel: ObservableObject {
@@ -16,6 +17,7 @@ final class CameraScreenViewModel: ObservableObject {
     @Published private(set) var currentShotSpec: ShotSpec?
     @Published private(set) var currentShotPlan: ShotPlan?
     @Published private(set) var latestSceneDebugState: SceneDebugState?
+    @Published private(set) var referenceImageData: Data?
     @Published var intentText = "Give me a cinematic portrait"
     @Published var usesFrontCameraForSelfShot = false
     @Published var lastCaptureData: Data?
@@ -90,23 +92,41 @@ final class CameraScreenViewModel: ObservableObject {
         )
     }
 
-    func activateMockReference() {
+    func activateReferencePhoto(from item: PhotosPickerItem?) async {
+        guard let item else { return }
+
+        do {
+            guard let imageData = try await item.loadTransferable(type: Data.self) else {
+                errorMessage = "Reference photo could not be loaded."
+                return
+            }
+
+            referenceImageData = imageData
+            activateReferencePhoto(assetIdentifier: item.itemIdentifier)
+        } catch {
+            errorMessage = "Reference photo failed: \(error.localizedDescription)"
+        }
+    }
+
+    private func activateReferencePhoto(assetIdentifier: String?) {
+        let referenceId = "ref_\(UUID().uuidString.lowercased())"
+        let assetPath = assetIdentifier.map { "ph://\($0)" } ?? "local://\(referenceId)"
         let reference = ReferencePhotoState(
-            id: "ref_local_preview",
+            id: referenceId,
             source: .photoLibrary,
-            localAssetUri: "ph://selected-reference",
-            thumbnailUri: "cache://selected-reference-thumb.jpg",
+            localAssetUri: assetPath,
+            thumbnailUri: "memory://\(referenceId)/thumbnail",
             analysisStatus: .ready,
             extractedFeatures: ReferencePhotoFeatures(
-                framing: "Environmental portrait",
-                apparentFocalLength: "50mm equivalent",
-                cameraHeight: "eye_level",
-                subjectScale: 0.42,
-                poseHints: ["Angle shoulders slightly", "Turn face toward light"],
-                lightingDirection: "front-left",
-                colorMood: "warm highlights with natural skin",
-                depthStyle: "moderate separation",
-                achievableTranslationNotes: ["Use camera angle and framing first."]
+                framing: nil,
+                apparentFocalLength: nil,
+                cameraHeight: nil,
+                subjectScale: nil,
+                poseHints: [],
+                lightingDirection: nil,
+                colorMood: nil,
+                depthStyle: nil,
+                achievableTranslationNotes: ["Reference loaded on this phone. Match it with camera angle, light, and framing."]
             ),
             display: .init(showCameraPopup: true, popupPosition: .topRight, viewerState: .collapsedPopup),
             privacy: .init(cloudAnalysisUsed: false, userConsentedToCloudAnalysis: false)

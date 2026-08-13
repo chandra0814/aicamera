@@ -3,10 +3,12 @@ import SwiftUI
 
 public struct ReferencePhotoPopupView: View {
     private let referencePhoto: ReferencePhotoState
+    private let thumbnail: Image?
     private let onSelect: () -> Void
 
-    public init(referencePhoto: ReferencePhotoState, onSelect: @escaping () -> Void) {
+    public init(referencePhoto: ReferencePhotoState, thumbnail: Image? = nil, onSelect: @escaping () -> Void) {
         self.referencePhoto = referencePhoto
+        self.thumbnail = thumbnail
         self.onSelect = onSelect
     }
 
@@ -18,11 +20,18 @@ public struct ReferencePhotoPopupView: View {
                         .fill(.black.opacity(0.45))
                         .aspectRatio(4.0 / 5.0, contentMode: .fit)
 
-                    Image(systemName: "photo")
-                        .font(.title2)
-                        .foregroundStyle(.white)
+                    if let thumbnail {
+                        thumbnail
+                            .resizable()
+                            .scaledToFill()
+                    } else {
+                        Image(systemName: "photo")
+                            .font(.title2)
+                            .foregroundStyle(.white)
+                    }
                 }
                 .frame(width: 72, height: 90)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
                 .overlay(alignment: .topTrailing) {
                     statusIndicator
                         .padding(5)
@@ -63,9 +72,11 @@ public struct ReferencePhotoPopupView: View {
 
 public struct CameraOverlayChrome: View {
     @ObservedObject private var state: SinglePhoneDirectorState
+    private let referenceThumbnail: Image?
 
-    public init(state: SinglePhoneDirectorState) {
+    public init(state: SinglePhoneDirectorState, referenceThumbnail: Image? = nil) {
         self.state = state
+        self.referenceThumbnail = referenceThumbnail
     }
 
     public var body: some View {
@@ -74,7 +85,7 @@ public struct CameraOverlayChrome: View {
                 HStack {
                     Spacer()
                     if let referencePhoto = state.referencePhoto, referencePhoto.display.showCameraPopup {
-                        ReferencePhotoPopupView(referencePhoto: referencePhoto) {
+                        ReferencePhotoPopupView(referencePhoto: referencePhoto, thumbnail: referenceThumbnail) {
                             state.openReferenceViewer()
                         }
                     }

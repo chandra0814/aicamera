@@ -1,16 +1,22 @@
 import LensPilotCamera
 import LensPilotDirector
+import PhotosUI
 import SwiftUI
+
+#if canImport(UIKit)
+import UIKit
+#endif
 
 struct CameraScreen: View {
     @StateObject private var viewModel = CameraScreenViewModel()
+    @State private var selectedReferenceItem: PhotosPickerItem?
 
     var body: some View {
         ZStack {
             CameraPreviewView(session: viewModel.camera.session)
                 .ignoresSafeArea()
 
-            CameraOverlayChrome(state: viewModel.directorState)
+            CameraOverlayChrome(state: viewModel.directorState, referenceThumbnail: referenceImage)
 
             VStack {
                 topBar
@@ -29,10 +35,16 @@ struct CameraScreen: View {
                 }
             }
         )) {
-            ReferenceViewer(state: viewModel.directorState)
+            ReferenceViewer(state: viewModel.directorState, referenceImage: referenceImage)
         }
         .task {
             viewModel.start()
+        }
+        .onChange(of: selectedReferenceItem) { _, item in
+            Task {
+                await viewModel.activateReferencePhoto(from: item)
+                selectedReferenceItem = nil
+            }
         }
         .onDisappear {
             viewModel.stop()
@@ -86,9 +98,7 @@ struct CameraScreen: View {
             }
 
             HStack(spacing: 16) {
-                Button {
-                    viewModel.activateMockReference()
-                } label: {
+                PhotosPicker(selection: $selectedReferenceItem, matching: .images, photoLibrary: .shared()) {
                     Image(systemName: "photo.on.rectangle")
                         .font(.headline)
                         .frame(width: 52, height: 52)
@@ -123,5 +133,20 @@ struct CameraScreen: View {
                 .accessibilityLabel("Simulate ready state")
             }
         }
+    }
+
+    private var referenceImage: Image? {
+        #if canImport(UIKit)
+        guard
+            let data = viewModel.referenceImageData,
+            let uiImage = UIImage(data: data)
+        else {
+            return nil
+        }
+
+        return Image(uiImage: uiImage)
+        #else
+        return nil
+        #endif
     }
 }

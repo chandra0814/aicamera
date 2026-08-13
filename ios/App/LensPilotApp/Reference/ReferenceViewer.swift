@@ -3,6 +3,12 @@ import SwiftUI
 
 struct ReferenceViewer: View {
     @ObservedObject var state: SinglePhoneDirectorState
+    let referenceImage: Image?
+
+    init(state: SinglePhoneDirectorState, referenceImage: Image? = nil) {
+        self.state = state
+        self.referenceImage = referenceImage
+    }
 
     var body: some View {
         NavigationStack {
@@ -12,9 +18,16 @@ struct ReferenceViewer: View {
                         .fill(.black.opacity(0.86))
                         .aspectRatio(4.0 / 5.0, contentMode: .fit)
 
-                    Image(systemName: "photo")
-                        .font(.system(size: 48, weight: .regular))
-                        .foregroundStyle(.white.opacity(0.85))
+                    if let referenceImage {
+                        referenceImage
+                            .resizable()
+                            .scaledToFit()
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                    } else {
+                        Image(systemName: "photo")
+                            .font(.system(size: 48, weight: .regular))
+                            .foregroundStyle(.white.opacity(0.85))
+                    }
                 }
                 .padding(.horizontal, 24)
 
