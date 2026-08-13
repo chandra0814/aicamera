@@ -13,21 +13,30 @@ public struct SceneStateBuilder: Sendable {
             lhs.width * lhs.height < rhs.width * rhs.height
         }
         let lighting = lightingState(for: debugState.exposureWarning)
+        let motion = motionState(for: debugState)
+        let horizon = horizonState(for: debugState)
         let subjects = debugState.personBounds.enumerated().map { index, bounds in
+            let faceMetric = nearestFaceMetric(to: bounds, in: debugState.faceMetrics)
+            let poseMetric = nearestPoseMetric(to: bounds, in: debugState.poseMetrics)
+            let faceQuality = faceQualityState(
+                from: faceMetric,
+                lighting: lighting,
+                motion: motion
+            )
+            let pose = poseState(from: poseMetric, faceMetric: faceMetric)
+            let confidenceBoost = (faceMetric == nil ? 0 : 0.08)
+                + (poseMetric == nil ? 0 : 0.06)
+                + (debugState.segmentationAvailable ? 0.04 : 0)
+
             SubjectObservation(
                 id: "person_\(index + 1)_\(debugState.frameId)",
                 type: .person,
                 bounds: bounds.normalizedRectangle,
-                segmentationAvailable: false,
-                pose: nil,
-                face: FaceQualityState(
-                    eyeOpenProbability: nil,
-                    expressionStability: nil,
-                    sharpnessProbability: 1 - motionState(for: debugState).blurRisk,
-                    skinExposureScore: lighting.faceLightQuality
-                ),
+                segmentationAvailable: debugState.segmentationAvailable,
+                pose: pose,
+                face: faceQuality,
                 distanceEstimateMeters: nil,
-                confidence: 0.72
+                confidence: clamp01(0.72 + confidenceBoost)
             )
         }
 
@@ -40,20 +49,20 @@ public struct SceneStateBuilder: Sendable {
                 zoomFactor: 1,
                 exposureBias: 0,
                 orientation: .portrait,
-                rollDegrees: 0,
+                rollDegrees: horizon?.rollDegrees ?? 0,
                 pitchDegrees: nil
             ),
             deviceThermal: thermalState,
             scene: SceneSummary(
                 category: subjects.isEmpty ? .unknown : .portrait,
-                confidence: subjects.isEmpty ? 0.42 : 0.74,
+                confidence: subjects.isEmpty ? 0.42 : clamp01(0.74 + (debugState.faceMetrics.isEmpty ? 0 : 0.06)),
                 lighting: lighting,
-                horizon: debugState.horizonY.map { HorizonState(y: clamp01($0), rollDegrees: 0, confidence: 0.45) },
+                horizon: horizon,
                 sky: nil
             ),
             subjects: subjects,
             background: backgroundState(for: debugState, primarySubject: primarySubject),
-            motion: motionState(for: debugState),
+            motion: motion,
             composition: compositionState(for: primarySubject),
             safety: SafetyState(hazards: [], movementGuidanceAllowed: true, confidence: 0.72)
         )
@@ -105,22 +114,71 @@ public struct SceneStateBuilder: Sendable {
         let randomPeopleRisk = clamp01(Double(extraPeople) * 0.22)
         let brightDistraction = debugState.exposureWarning == .clippedHighlights ? 0.46 : 0.18
         let clutter = clamp01(0.24 + randomPeopleRisk + brightDistraction * 0.35)
+        let hasHorizon = debugState.horizon != nil || debugState.horizonY != nil
 
         return BackgroundState(
             clutterScore: clutter,
             brightDistractionScore: brightDistraction,
             poleBehindHeadRisk: 0.08,
             randomPeopleRisk: randomPeopleRisk,
-            horizonIntersectionRisk: debugState.horizonY == nil ? 0.16 : 0.08,
+            horizonIntersectionRisk: hasHorizon ? 0.08 : 0.16,
             cleanerDirection: cleanerDirection(for: primarySubject)
         )
     }
 
     private func motionState(for debugState: SceneDebugState) -> MotionState {
+        if let motion = debugState.motion {
+            return MotionState(
+                cameraShake: clamp01(motion.cameraShake),
+                subjectMotion: clamp01(motion.subjectMotion),
+                blurRisk: clamp01(motion.blurRisk)
+            )
+        }
+
         let latency = debugState.frameLatencyMs ?? 0
         let latencyRisk = clamp01((latency - 80) / 240)
         let blurRisk = clamp01(0.16 + latencyRisk * 0.24)
         return MotionState(cameraShake: blurRisk * 0.6, subjectMotion: blurRisk * 0.4, blurRisk: blurRisk)
+    }
+
+    private func horizonState(for debugState: SceneDebugState) -> HorizonState? {
+        if let horizon = debugState.horizon {
+            return HorizonState(
+                y: clamp01(horizon.y),
+                rollDegrees: horizon.rollDegrees,
+                confidence: clamp01(horizon.confidence)
+            )
+        }
+
+        return debugState.horizonY.map {
+            HorizonState(y: clamp01($0), rollDegrees: 0, confidence: 0.45)
+        }
+    }
+
+    private func faceQualityState(
+        from metric: FaceDebugMetric?,
+        lighting: LightingState,
+        motion: MotionState
+    ) -> FaceQualityState {
+        FaceQualityState(
+            eyeOpenProbability: metric?.eyeOpenProbability,
+            expressionStability: metric?.expressionStability,
+            sharpnessProbability: metric?.sharpnessProbability ?? (1 - motion.blurRisk),
+            skinExposureScore: metric?.skinExposureScore ?? lighting.faceLightQuality
+        )
+    }
+
+    private func poseState(from metric: PoseDebugMetric?, faceMetric: FaceDebugMetric?) -> PoseState? {
+        guard metric != nil || faceMetric?.faceYawDegrees != nil else {
+            return nil
+        }
+
+        return PoseState(
+            shouldersAngleDegrees: metric?.shouldersAngleDegrees,
+            faceYawDegrees: faceMetric?.faceYawDegrees,
+            eyeLineConfidence: metric?.eyeLineConfidence ?? faceMetric?.eyeOpenProbability,
+            handAwkwardnessRisk: metric?.handAwkwardnessRisk
+        )
     }
 
     private func compositionState(for primarySubject: NormalizedRect?) -> CompositionState {
@@ -162,9 +220,36 @@ public struct SceneStateBuilder: Sendable {
         let sizeDistance = abs(a.width * a.height - b.width * b.height)
         return clamp01(1 - centerDistance * 1.8 - sizeDistance)
     }
+
+    private func nearestFaceMetric(to subject: NormalizedRect, in metrics: [FaceDebugMetric]) -> FaceDebugMetric? {
+        metrics.min { lhs, rhs in
+            centerDistance(subject, lhs.bounds) < centerDistance(subject, rhs.bounds)
+        }
+    }
+
+    private func nearestPoseMetric(to subject: NormalizedRect, in metrics: [PoseDebugMetric]) -> PoseDebugMetric? {
+        metrics.compactMap { metric -> (metric: PoseDebugMetric, distance: Double)? in
+            guard let bounds = metric.bounds else { return nil }
+            return (metric, centerDistance(subject, bounds))
+        }
+        .min { lhs, rhs in lhs.distance < rhs.distance }?
+        .metric
+    }
+
+    private func centerDistance(_ a: NormalizedRect, _ b: NormalizedRect) -> Double {
+        hypot(a.centerX - b.centerX, a.centerY - b.centerY)
+    }
 }
 
 private extension NormalizedRect {
+    var centerX: Double {
+        x + width / 2
+    }
+
+    var centerY: Double {
+        y + height / 2
+    }
+
     var normalizedRectangle: NormalizedRectangle {
         NormalizedRectangle(x: x, y: y, width: width, height: height)
     }

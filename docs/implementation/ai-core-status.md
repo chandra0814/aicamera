@@ -14,6 +14,7 @@ This implementation completes the MVP AI control skeleton, not the final product
 - Native Swift AI core: iOS now has on-device `SceneState`, `LensPilotAiCore`, `TargetMatchEngine`, `GuidancePolicy`, `PreviewSafetyEngine`, and `BestShotRanker` equivalents.
 - App wiring: the iOS camera screen view model calls the native AI core and displays AI guidance plus Target Match from scene inputs.
 - Live scene bridge: `FrameAnalyzer` output now maps `SceneDebugState` into native `SceneState`, and the camera screen refreshes AI guidance from analyzed live frames.
+- Live quality metrics: `FrameAnalyzer` now derives horizon roll, face quality, pose, segmentation availability, and motion stability signals on-device.
 - Reference-photo loop: selected library images stay on-device, appear in the camera popup, and open in the same-phone full reference viewer.
 - Capture review loop: the app captures a plan-sized burst, ranks frame candidates on-device, and presents the best result plus alternatives.
 
@@ -33,7 +34,6 @@ LensPilot must remain a reliable camera first. A deterministic AI core lets us p
 
 ## Required Next AI Work
 
-1. Add on-device pose, segmentation, horizon roll, face quality, and motion stability metrics.
-2. Build a benchmark set for portrait, landscape, sky, clutter, backlight, and horizon problems.
-3. Calibrate sub-score weights against blind preference tests.
-4. Add optional cloud reasoning only for event-triggered creative interpretation.
+1. Build a benchmark set for portrait, landscape, sky, clutter, backlight, and horizon problems.
+2. Calibrate sub-score weights against blind preference tests.
+3. Add optional cloud reasoning only for event-triggered creative interpretation.

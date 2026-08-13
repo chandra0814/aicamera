@@ -9,7 +9,7 @@
   - telephoto lens recommendation from fixture device capabilities
   - normalized Target Match
   - safety-qualified movement guidance
-- `LensPilotVisionTests` on macOS CI, covering the `SceneDebugState` to native `SceneState` bridge.
+- `LensPilotVisionTests` on macOS CI, covering the `SceneDebugState` to native `SceneState` bridge and on-device quality metric mapping.
 - `LensPilotCoreTests` on macOS CI, covering burst capture review ranking and empty-burst handling.
 - GitHub Actions `iOS app build`, covering the SwiftUI app target, local package dependency wiring, camera screen, reference picker, popup, and result review compilation.
 
