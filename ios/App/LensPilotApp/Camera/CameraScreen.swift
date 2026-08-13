@@ -1,3 +1,4 @@
+import Foundation
 import LensPilotCamera
 import LensPilotDirector
 import PhotosUI
@@ -36,6 +37,21 @@ struct CameraScreen: View {
             }
         )) {
             ReferenceViewer(state: viewModel.directorState, referenceImage: referenceImage)
+        }
+        .sheet(item: Binding<CaptureReviewPresentation?>(
+            get: { viewModel.captureReview },
+            set: { review in
+                if case .none = review {
+                    viewModel.dismissCaptureReview()
+                }
+            }
+        )) { review in
+            CaptureResultReviewView(
+                rankedShots: review.rankedShots,
+                bestImage: image(from: review.bestPhotoData)
+            ) {
+                viewModel.dismissCaptureReview()
+            }
         }
         .task {
             viewModel.start()
@@ -110,16 +126,25 @@ struct CameraScreen: View {
                 Button {
                     viewModel.capture()
                 } label: {
-                    Circle()
-                        .fill(.white)
-                        .frame(width: 74, height: 74)
-                        .overlay(
-                            Circle()
-                                .stroke(.black.opacity(0.55), lineWidth: 3)
-                                .padding(6)
-                        )
+                    ZStack {
+                        Circle()
+                            .fill(.white)
+                            .frame(width: 74, height: 74)
+                            .overlay(
+                                Circle()
+                                    .stroke(.black.opacity(0.55), lineWidth: 3)
+                                    .padding(6)
+                            )
+
+                        if viewModel.isCapturing {
+                            ProgressView()
+                                .tint(.black)
+                        }
+                    }
                 }
                 .accessibilityLabel("Capture photo")
+                .disabled(viewModel.isCapturing)
+                .opacity(viewModel.isCapturing ? 0.78 : 1)
 
                 Button {
                     viewModel.directorState.updateGuidance(instruction: "Hold steady", targetMatch: 0.92)
@@ -141,6 +166,18 @@ struct CameraScreen: View {
             let data = viewModel.referenceImageData,
             let uiImage = UIImage(data: data)
         else {
+            return nil
+        }
+
+        return Image(uiImage: uiImage)
+        #else
+        return nil
+        #endif
+    }
+
+    private func image(from data: Data) -> Image? {
+        #if canImport(UIKit)
+        guard let uiImage = UIImage(data: data) else {
             return nil
         }
 

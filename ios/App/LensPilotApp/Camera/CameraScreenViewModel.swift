@@ -7,6 +7,12 @@ import LensPilotDirector
 import LensPilotVision
 import PhotosUI
 
+struct CaptureReviewPresentation: Identifiable {
+    let id: String
+    let bestPhotoData: Data
+    let rankedShots: [RankedShot]
+}
+
 @MainActor
 final class CameraScreenViewModel: ObservableObject {
     let camera = CameraSessionController()
@@ -16,8 +22,11 @@ final class CameraScreenViewModel: ObservableObject {
     @Published private(set) var deviceCapability: DeviceCapability?
     @Published private(set) var currentShotSpec: ShotSpec?
     @Published private(set) var currentShotPlan: ShotPlan?
+    @Published private(set) var currentTargetMatch: TargetMatchScore?
     @Published private(set) var latestSceneDebugState: SceneDebugState?
     @Published private(set) var referenceImageData: Data?
+    @Published private(set) var captureReview: CaptureReviewPresentation?
+    @Published private(set) var isCapturing = false
     @Published var intentText = "Give me a cinematic portrait"
     @Published var usesFrontCameraForSelfShot = false
     @Published var lastCaptureData: Data?
@@ -28,6 +37,7 @@ final class CameraScreenViewModel: ObservableObject {
     private let sceneStateBuilder = SceneStateBuilder()
     private let frameAnalyzer = FrameAnalyzer()
     private let photoCaptureController = PhotoCaptureController()
+    private let captureReviewBuilder = CaptureReviewBuilder()
     private lazy var frameAnalysisCoordinator = CameraFrameAnalysisCoordinator(analyzer: frameAnalyzer)
     private var isFrameAnalysisConnected = false
 
@@ -86,6 +96,7 @@ final class CameraScreenViewModel: ObservableObject {
 
         currentShotSpec = result.shotSpec
         currentShotPlan = result.shotPlan
+        currentTargetMatch = result.targetMatch
         directorState.updateGuidance(
             instruction: result.guidanceAction.map(Self.instructionText),
             targetMatch: result.targetMatch.overall
@@ -135,13 +146,52 @@ final class CameraScreenViewModel: ObservableObject {
     }
 
     func capture() {
+        guard !isCapturing else { return }
+        isCapturing = true
+
         Task {
+            defer {
+                isCapturing = false
+            }
+
             do {
-                lastCaptureData = try await photoCaptureController.capturePhoto(using: camera.photoOutput)
+                let burstCount = currentShotPlan?.capturePolicy.burstFrameCount ?? 1
+                let frames = try await photoCaptureController.captureBurst(count: burstCount, using: camera.photoOutput)
+                presentCaptureReview(for: frames)
             } catch {
                 errorMessage = "Capture failed: \(error.localizedDescription)"
             }
         }
+    }
+
+    func dismissCaptureReview() {
+        captureReview = nil
+    }
+
+    private func presentCaptureReview(for frames: [Data]) {
+        guard !frames.isEmpty else {
+            errorMessage = "Capture did not return a photo."
+            return
+        }
+
+        let frameMetrics = frames.enumerated().map { index, data in
+            CaptureFrameMetric(
+                id: "capture_\(index + 1)",
+                sequenceIndex: index,
+                byteCount: data.count
+            )
+        }
+        let review = captureReviewBuilder.makeReview(frames: frameMetrics, targetMatch: currentTargetMatch)
+        let bestShotId = review.bestShotId ?? frameMetrics[0].id
+        let bestIndex = frameMetrics.firstIndex { $0.id == bestShotId } ?? 0
+        let bestPhotoData = frames[bestIndex]
+
+        lastCaptureData = bestPhotoData
+        captureReview = CaptureReviewPresentation(
+            id: "review_\(UUID().uuidString.lowercased())",
+            bestPhotoData: bestPhotoData,
+            rankedShots: review.rankedShots
+        )
     }
 
     private func connectFrameAnalysisIfNeeded() {

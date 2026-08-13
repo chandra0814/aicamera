@@ -30,6 +30,36 @@ final class AiCoreTests: XCTestCase {
         XCTAssertEqual(ranked.dropFirst().map(\.label), [.alternative, .alternative])
     }
 
+    func testCaptureReviewBuilderRanksBurstFrames() {
+        let aiResult = LensPilotAiCore().run(
+            prompt: "Give me a cinematic portrait with natural skin and a clean background.",
+            sceneState: Self.portraitScene(),
+            deviceCapability: Self.deviceCapability()
+        )
+
+        let review = CaptureReviewBuilder().makeReview(
+            frames: [
+                CaptureFrameMetric(id: "capture_1", sequenceIndex: 0, byteCount: 18_400),
+                CaptureFrameMetric(id: "capture_2", sequenceIndex: 1, byteCount: 18_940),
+                CaptureFrameMetric(id: "capture_3", sequenceIndex: 2, byteCount: 18_280),
+                CaptureFrameMetric(id: "capture_4", sequenceIndex: 3, byteCount: 18_120)
+            ],
+            targetMatch: aiResult.targetMatch
+        )
+
+        XCTAssertEqual(review.rankedShots.count, 3)
+        XCTAssertEqual(review.rankedShots.first?.label, .best)
+        XCTAssertNotNil(review.bestShotId)
+        XCTAssertTrue(review.rankedShots.allSatisfy { $0.score >= 0 && $0.score <= 1 })
+    }
+
+    func testCaptureReviewBuilderHandlesEmptyBurst() {
+        let review = CaptureReviewBuilder().makeReview(frames: [], targetMatch: nil)
+
+        XCTAssertTrue(review.rankedShots.isEmpty)
+        XCTAssertNil(review.bestShotId)
+    }
+
     private static func portraitScene() -> SceneState {
         SceneState(
             timestamp: Date(timeIntervalSince1970: 0),

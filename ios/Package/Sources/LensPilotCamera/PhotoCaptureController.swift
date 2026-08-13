@@ -3,6 +3,7 @@ import Foundation
 
 public protocol PhotoCapturing {
     func capturePhoto(using output: AVCapturePhotoOutput) async throws -> Data
+    func captureBurst(count: Int, using output: AVCapturePhotoOutput) async throws -> [Data]
 }
 
 public final class PhotoCaptureController: NSObject, PhotoCapturing {
@@ -31,6 +32,18 @@ public final class PhotoCaptureController: NSObject, PhotoCapturing {
 
             output.capturePhoto(with: settings, delegate: self)
         }
+    }
+
+    public func captureBurst(count: Int, using output: AVCapturePhotoOutput) async throws -> [Data] {
+        let frameCount = max(1, min(count, 8))
+        var frames: [Data] = []
+        frames.reserveCapacity(frameCount)
+
+        for _ in 0..<frameCount {
+            frames.append(try await capturePhoto(using: output))
+        }
+
+        return frames
     }
 }
 

@@ -10,6 +10,7 @@
   - normalized Target Match
   - safety-qualified movement guidance
 - `LensPilotVisionTests` on macOS CI, covering the `SceneDebugState` to native `SceneState` bridge.
+- `LensPilotCoreTests` on macOS CI, covering burst capture review ranking and empty-burst handling.
 
 ## Not Runnable Here
 
