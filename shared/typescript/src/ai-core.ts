@@ -10,6 +10,36 @@ export interface AiPipelineResult {
   previewSafety: PreviewSafety;
 }
 
+export interface TargetMatchCalibration {
+  horizonRollFullPenaltyDegrees: number;
+  eyeLevelPitchFullPenaltyDegrees: number;
+  highlightClippingPenalty: number;
+  shadowClippingPenalty: number;
+  backgroundClutterPenalty: number;
+  poleBehindHeadPenalty: number;
+  dynamicRangeLightingPenalty: number;
+  motionBlurPenalty: number;
+  missingHorizonScore: number;
+  missingFaceLightQuality: number;
+  missingPoseScore: number;
+  nonPortraitCameraAngleScore: number;
+}
+
+export const defaultTargetMatchCalibration: TargetMatchCalibration = {
+  horizonRollFullPenaltyDegrees: 12,
+  eyeLevelPitchFullPenaltyDegrees: 35,
+  highlightClippingPenalty: 0.8,
+  shadowClippingPenalty: 0.6,
+  backgroundClutterPenalty: 0.55,
+  poleBehindHeadPenalty: 0.25,
+  dynamicRangeLightingPenalty: 0.2,
+  motionBlurPenalty: 1,
+  missingHorizonScore: 0.72,
+  missingFaceLightQuality: 0.65,
+  missingPoseScore: 0.72,
+  nonPortraitCameraAngleScore: 0.75,
+};
+
 export interface TargetMatchScore {
   composition: number;
   subjectPosition: number;
@@ -224,18 +254,20 @@ export class GuidancePolicy {
 }
 
 export class TargetMatchEngine {
+  constructor(private readonly calibration: TargetMatchCalibration = defaultTargetMatchCalibration) {}
+
   score(shotSpec: ShotSpec, shotPlan: ShotPlan, sceneState: SceneState): TargetMatchScore {
     const subject = sceneState.subjects[0];
     const target = shotPlan.compositionTarget.subjectBounds;
     const subjectPosition = subject ? rectSimilarity(subject.bounds, target) : 0.25;
-    const horizon = sceneState.scene.horizon ? clamp01(1 - Math.abs(sceneState.scene.horizon.rollDegrees) / 12) : 0.72;
-    const exposure = clamp01(1 - sceneState.scene.lighting.highlightClipping * 0.8 - sceneState.scene.lighting.shadowClipping * 0.6);
-    const background = clamp01(1 - sceneState.background.clutterScore * 0.55 - sceneState.background.poleBehindHeadRisk * 0.25);
-    const lighting = clamp01((sceneState.scene.lighting.faceLightQuality ?? 0.65) - sceneState.scene.lighting.dynamicRangeRisk * 0.2);
-    const pose = clamp01(subject?.face?.eyeOpenProbability ?? 0.72);
-    const sharpnessProbability = clamp01(1 - sceneState.motion.blurRisk);
+    const horizon = sceneState.scene.horizon ? clamp01(1 - Math.abs(sceneState.scene.horizon.rollDegrees) / Math.max(this.calibration.horizonRollFullPenaltyDegrees, 0.001)) : this.calibration.missingHorizonScore;
+    const exposure = clamp01(1 - sceneState.scene.lighting.highlightClipping * this.calibration.highlightClippingPenalty - sceneState.scene.lighting.shadowClipping * this.calibration.shadowClippingPenalty);
+    const background = clamp01(1 - sceneState.background.clutterScore * this.calibration.backgroundClutterPenalty - sceneState.background.poleBehindHeadRisk * this.calibration.poleBehindHeadPenalty);
+    const lighting = clamp01((sceneState.scene.lighting.faceLightQuality ?? this.calibration.missingFaceLightQuality) - sceneState.scene.lighting.dynamicRangeRisk * this.calibration.dynamicRangeLightingPenalty);
+    const pose = clamp01(subject?.face?.eyeOpenProbability ?? this.calibration.missingPoseScore);
+    const sharpnessProbability = clamp01(1 - sceneState.motion.blurRisk * this.calibration.motionBlurPenalty);
     const composition = average([subjectPosition, sceneState.composition.balanceScore, sceneState.composition.subjectPlacementScore]);
-    const cameraAngle = shotSpec.cameraIntent.perspective === "eye_level" ? clamp01(1 - Math.abs(sceneState.cameraState.pitchDegrees ?? 0) / 35) : 0.75;
+    const cameraAngle = shotSpec.cameraIntent.perspective === "eye_level" ? clamp01(1 - Math.abs(sceneState.cameraState.pitchDegrees ?? 0) / Math.max(this.calibration.eyeLevelPitchFullPenaltyDegrees, 0.001)) : this.calibration.nonPortraitCameraAngleScore;
     const intentMatch = average([composition, lighting, background, exposure]);
 
     const scores = {

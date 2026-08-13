@@ -18,11 +18,12 @@ This implementation completes the MVP AI control skeleton, not the final product
 - Reference-photo loop: selected library images stay on-device, appear in the camera popup, and open in the same-phone full reference viewer.
 - Capture review loop: the app captures a plan-sized burst, ranks frame candidates on-device, and presents the best result plus alternatives.
 - AI guidance benchmark suite: six deterministic calibration cases now cover cluttered portrait, tilted horizon, sunset highlight protection, motion blur, backlit face guidance, and ready-to-capture.
+- Target Match calibration scaffold: scoring weights are explicit in Swift and TypeScript, and CI validates the calibration manifest.
 
 ## Not Yet Production AI
 
 - No trained aesthetic model yet.
-- No calibrated target-match dataset yet.
+- No real iPhone target-match calibration dataset yet.
 - No Core ML/TFLite production model bundle yet.
 - No cloud VLM/LLM adapter yet.
 - No generative preview engine yet.
@@ -36,5 +37,6 @@ LensPilot must remain a reliable camera first. A deterministic AI core lets us p
 ## Required Next AI Work
 
 1. Collect real portrait, landscape, sky, clutter, backlight, horizon, and motion samples from iPhone captures.
-2. Tune benchmark thresholds and sub-score weights against blind preference tests.
-3. Add optional cloud reasoning only for event-triggered creative interpretation.
+2. Add those samples to `tests/calibration/target-match-calibration.json` with blind preference labels.
+3. Tune benchmark thresholds and sub-score weights against blind preference tests.
+4. Add optional cloud reasoning only for event-triggered creative interpretation.

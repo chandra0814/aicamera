@@ -48,6 +48,51 @@ public struct AiPipelineResult: Codable, Equatable, Sendable {
     public let previewSafety: PreviewSafety
 }
 
+public struct TargetMatchCalibration: Codable, Equatable, Sendable {
+    public static let standard = TargetMatchCalibration()
+
+    public let horizonRollFullPenaltyDegrees: Double
+    public let eyeLevelPitchFullPenaltyDegrees: Double
+    public let highlightClippingPenalty: Double
+    public let shadowClippingPenalty: Double
+    public let backgroundClutterPenalty: Double
+    public let poleBehindHeadPenalty: Double
+    public let dynamicRangeLightingPenalty: Double
+    public let motionBlurPenalty: Double
+    public let missingHorizonScore: Double
+    public let missingFaceLightQuality: Double
+    public let missingPoseScore: Double
+    public let nonPortraitCameraAngleScore: Double
+
+    public init(
+        horizonRollFullPenaltyDegrees: Double = 12,
+        eyeLevelPitchFullPenaltyDegrees: Double = 35,
+        highlightClippingPenalty: Double = 0.8,
+        shadowClippingPenalty: Double = 0.6,
+        backgroundClutterPenalty: Double = 0.55,
+        poleBehindHeadPenalty: Double = 0.25,
+        dynamicRangeLightingPenalty: Double = 0.2,
+        motionBlurPenalty: Double = 1,
+        missingHorizonScore: Double = 0.72,
+        missingFaceLightQuality: Double = 0.65,
+        missingPoseScore: Double = 0.72,
+        nonPortraitCameraAngleScore: Double = 0.75
+    ) {
+        self.horizonRollFullPenaltyDegrees = horizonRollFullPenaltyDegrees
+        self.eyeLevelPitchFullPenaltyDegrees = eyeLevelPitchFullPenaltyDegrees
+        self.highlightClippingPenalty = highlightClippingPenalty
+        self.shadowClippingPenalty = shadowClippingPenalty
+        self.backgroundClutterPenalty = backgroundClutterPenalty
+        self.poleBehindHeadPenalty = poleBehindHeadPenalty
+        self.dynamicRangeLightingPenalty = dynamicRangeLightingPenalty
+        self.motionBlurPenalty = motionBlurPenalty
+        self.missingHorizonScore = missingHorizonScore
+        self.missingFaceLightQuality = missingFaceLightQuality
+        self.missingPoseScore = missingPoseScore
+        self.nonPortraitCameraAngleScore = nonPortraitCameraAngleScore
+    }
+}
+
 public struct GuidancePolicy: Sendable {
     public init() {}
 
@@ -67,21 +112,25 @@ public struct GuidancePolicy: Sendable {
 }
 
 public struct TargetMatchEngine: Sendable {
-    public init() {}
+    private let calibration: TargetMatchCalibration
+
+    public init(calibration: TargetMatchCalibration = .standard) {
+        self.calibration = calibration
+    }
 
     public func score(shotSpec: ShotSpec, shotPlan: ShotPlan, sceneState: SceneState) -> TargetMatchScore {
         let subject = sceneState.subjects.first
         let target = shotPlan.compositionTarget.subjectBounds
         let subjectPosition = subject.map { rectSimilarity($0.bounds, target) } ?? 0.25
-        let horizon = sceneState.scene.horizon.map { clamp01(1 - abs($0.rollDegrees) / 12) } ?? 0.72
-        let exposure = clamp01(1 - sceneState.scene.lighting.highlightClipping * 0.8 - sceneState.scene.lighting.shadowClipping * 0.6)
-        let background = clamp01(1 - sceneState.background.clutterScore * 0.55 - sceneState.background.poleBehindHeadRisk * 0.25)
-        let lighting = clamp01((sceneState.scene.lighting.faceLightQuality ?? 0.65) - sceneState.scene.lighting.dynamicRangeRisk * 0.2)
-        let pose = clamp01(subject?.face?.eyeOpenProbability ?? 0.72)
-        let sharpness = clamp01(1 - sceneState.motion.blurRisk)
+        let horizon = sceneState.scene.horizon.map { clamp01(1 - abs($0.rollDegrees) / max(calibration.horizonRollFullPenaltyDegrees, 0.001)) } ?? calibration.missingHorizonScore
+        let exposure = clamp01(1 - sceneState.scene.lighting.highlightClipping * calibration.highlightClippingPenalty - sceneState.scene.lighting.shadowClipping * calibration.shadowClippingPenalty)
+        let background = clamp01(1 - sceneState.background.clutterScore * calibration.backgroundClutterPenalty - sceneState.background.poleBehindHeadRisk * calibration.poleBehindHeadPenalty)
+        let lighting = clamp01((sceneState.scene.lighting.faceLightQuality ?? calibration.missingFaceLightQuality) - sceneState.scene.lighting.dynamicRangeRisk * calibration.dynamicRangeLightingPenalty)
+        let pose = clamp01(subject?.face?.eyeOpenProbability ?? calibration.missingPoseScore)
+        let sharpness = clamp01(1 - sceneState.motion.blurRisk * calibration.motionBlurPenalty)
         let composition = average([subjectPosition, sceneState.composition.balanceScore, sceneState.composition.subjectPlacementScore])
         let pitch = sceneState.cameraState.pitchDegrees ?? 0
-        let cameraAngle = shotSpec.cameraIntent.perspective == .eyeLevel ? clamp01(1 - abs(pitch) / 35) : 0.75
+        let cameraAngle = shotSpec.cameraIntent.perspective == .eyeLevel ? clamp01(1 - abs(pitch) / max(calibration.eyeLevelPitchFullPenaltyDegrees, 0.001)) : calibration.nonPortraitCameraAngleScore
         let intentMatch = average([composition, lighting, background, exposure])
 
         return TargetMatchScore(

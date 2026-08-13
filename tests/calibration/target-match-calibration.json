@@ -1,0 +1,63 @@
+{
+  "version": "2026.08.13",
+  "description": "Target Match calibration manifest for single-phone LensPilot captures.",
+  "collectionPlan": {
+    "singlePhoneOnly": true,
+    "realCaptureTargetCount": 24,
+    "minimumBlindReviewers": 2,
+    "requiredDomains": [
+      "portrait",
+      "landscape",
+      "lifestyle",
+      "night"
+    ]
+  },
+  "targetMatchCalibration": {
+    "horizonRollFullPenaltyDegrees": 12,
+    "eyeLevelPitchFullPenaltyDegrees": 35,
+    "highlightClippingPenalty": 0.8,
+    "shadowClippingPenalty": 0.6,
+    "backgroundClutterPenalty": 0.55,
+    "poleBehindHeadPenalty": 0.25,
+    "dynamicRangeLightingPenalty": 0.2,
+    "motionBlurPenalty": 1,
+    "missingHorizonScore": 0.72,
+    "missingFaceLightQuality": 0.65,
+    "missingPoseScore": 0.72,
+    "nonPortraitCameraAngleScore": 0.75
+  },
+  "samples": [
+    {
+      "id": "fixture_seed_portrait_clutter",
+      "sampleKind": "fixture_seed",
+      "prompt": "Give me a cinematic portrait with natural skin and a clean background.",
+      "deviceCapabilityPath": "../fixtures/iphone-device-capability.json",
+      "sceneStatePath": "../fixtures/portrait-scene-state.json",
+      "blindPreference": {
+        "reviewCount": 0,
+        "preferredGuidanceReason": "reduce_clutter",
+        "rankedWeaknesses": [
+          "lighting",
+          "background",
+          "horizon"
+        ],
+        "notes": "Seed fixture keeps scoring stable until captured iPhone samples with blind preferences are added."
+      },
+      "expected": {
+        "singlePhoneOnly": true,
+        "targetMatch": {
+          "overall": {
+            "min": 0.71,
+            "max": 0.72
+          },
+          "background": {
+            "max": 0.6
+          },
+          "lighting": {
+            "max": 0.42
+          }
+        }
+      }
+    }
+  ]
+}

@@ -30,6 +30,33 @@ final class AiCoreTests: XCTestCase {
         XCTAssertEqual(ranked.dropFirst().map(\.label), [.alternative, .alternative])
     }
 
+    func testTargetMatchCalibrationCanTuneBackgroundPenalty() {
+        let shotSpec = ShotSpecFactory().makeShotSpec(
+            from: "Give me a cinematic portrait with natural skin and a clean background.",
+            source: .text
+        )
+        let shotPlan = BasicShotPlanner().makeInitialPlan(
+            for: shotSpec,
+            sceneState: Self.portraitScene(),
+            deviceCapability: Self.deviceCapability()
+        )
+        let defaultScore = TargetMatchEngine().score(
+            shotSpec: shotSpec,
+            shotPlan: shotPlan,
+            sceneState: Self.portraitScene()
+        )
+        let softerBackgroundCalibration = TargetMatchCalibration(backgroundClutterPenalty: 0.25)
+        let tunedScore = TargetMatchEngine(calibration: softerBackgroundCalibration).score(
+            shotSpec: shotSpec,
+            shotPlan: shotPlan,
+            sceneState: Self.portraitScene()
+        )
+
+        XCTAssertEqual(TargetMatchCalibration.standard.backgroundClutterPenalty, 0.55, accuracy: 0.0001)
+        XCTAssertGreaterThan(tunedScore.background, defaultScore.background)
+        XCTAssertGreaterThan(tunedScore.intentMatch, defaultScore.intentMatch)
+    }
+
     func testCaptureReviewBuilderRanksBurstFrames() {
         let aiResult = LensPilotAiCore().run(
             prompt: "Give me a cinematic portrait with natural skin and a clean background.",
