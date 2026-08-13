@@ -11,13 +11,14 @@
   - safety-qualified movement guidance
 - `LensPilotVisionTests` on macOS CI, covering the `SceneDebugState` to native `SceneState` bridge and on-device quality metric mapping.
 - `LensPilotCoreTests` on macOS CI, covering burst capture review ranking and empty-burst handling.
+- `AiBenchmarkTests` on macOS CI, covering the deterministic single-phone guidance benchmark suite.
 - GitHub Actions `iOS app build`, covering the SwiftUI app target, local package dependency wiring, camera screen, reference picker, popup, and result review compilation.
 
 ## Latest Verification
 
-- Local `.\scripts\test-all.ps1` passed JSON validation and TypeScript AI fixture validation on Windows.
-- Swift package tests passed in GitHub Actions run #15 for commit `964f993`.
-- The iOS app build failed in run #15 because Xcode could not type-check the motion frame-delta expression in `FrameAnalyzer.swift` quickly enough. That expression has been split into explicit loop steps for the next CI run.
+- GitHub Actions run #16 passed AI fixture validation, Swift package tests, and the iOS app build for commit `c31b69b`.
+- Local `.\scripts\test-all.ps1` passed JSON validation, TypeScript AI fixture validation, and six deterministic AI guidance benchmarks on Windows.
+- The new Swift benchmark test is queued for the next macOS CI run because this Windows workspace does not have Swift/Xcode installed.
 
 ## Not Runnable Here
 

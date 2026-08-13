@@ -1,0 +1,498 @@
+{
+  "version": "2026.08.13",
+  "description": "Single-phone AI guidance benchmarks for early deterministic calibration.",
+  "cases": [
+    {
+      "id": "portrait_clutter_left",
+      "prompt": "Give me a cinematic portrait with a clean background.",
+      "sceneState": {
+        "timestamp": "2026-08-13T15:00:00Z",
+        "frameId": "benchmark_portrait_clutter_left",
+        "cameraState": {
+          "lensId": "back_wide",
+          "focalLength35mmEquivalent": 26,
+          "zoomFactor": 1,
+          "exposureBias": 0,
+          "orientation": "portrait",
+          "rollDegrees": 0.6,
+          "pitchDegrees": 3
+        },
+        "deviceThermal": "nominal",
+        "scene": {
+          "category": "portrait",
+          "confidence": 0.88,
+          "lighting": {
+            "exposureMean": 0.56,
+            "highlightClipping": 0.12,
+            "shadowClipping": 0.07,
+            "faceLightQuality": 0.72,
+            "direction": "front_left",
+            "dynamicRangeRisk": 0.24
+          },
+          "horizon": {
+            "y": 0.49,
+            "rollDegrees": 0.6,
+            "confidence": 0.76
+          },
+          "sky": {
+            "visibleFraction": 0.12,
+            "sunsetLikelihood": 0.18,
+            "cloudInterest": 0.22,
+            "highlightRisk": 0.12
+          }
+        },
+        "subjects": [
+          {
+            "id": "subject_portrait_001",
+            "type": "person",
+            "bounds": { "x": 0.43, "y": 0.2, "width": 0.34, "height": 0.6 },
+            "segmentationAvailable": true,
+            "pose": {
+              "shouldersAngleDegrees": 2,
+              "faceYawDegrees": -4,
+              "eyeLineConfidence": 0.83,
+              "handAwkwardnessRisk": 0.18
+            },
+            "face": {
+              "eyeOpenProbability": 0.92,
+              "expressionStability": 0.82,
+              "sharpnessProbability": 0.86,
+              "skinExposureScore": 0.78
+            },
+            "distanceEstimateMeters": 2.2,
+            "confidence": 0.91
+          }
+        ],
+        "background": {
+          "clutterScore": 0.74,
+          "brightDistractionScore": 0.26,
+          "poleBehindHeadRisk": 0.12,
+          "randomPeopleRisk": 0.18,
+          "horizonIntersectionRisk": 0.14,
+          "cleanerDirection": "left"
+        },
+        "motion": {
+          "cameraShake": 0.1,
+          "subjectMotion": 0.08,
+          "blurRisk": 0.14
+        },
+        "composition": {
+          "subjectPlacementScore": 0.62,
+          "headroomScore": 0.72,
+          "balanceScore": 0.61,
+          "negativeSpaceScore": 0.5
+        },
+        "safety": {
+          "hazards": [],
+          "movementGuidanceAllowed": true,
+          "confidence": 0.86
+        }
+      },
+      "expected": {
+        "domain": "portrait",
+        "recommendedLens": "telephoto",
+        "guidance": {
+          "actor": "photographer",
+          "action": "move_left",
+          "reason": "reduce_clutter",
+          "safetyQualifier": "if_safe"
+        },
+        "minOverallTargetMatch": 0.65,
+        "maxBackgroundScore": 0.6
+      }
+    },
+    {
+      "id": "landscape_tilted_horizon",
+      "prompt": "Capture a cinematic sunset landscape with the mountains and sky.",
+      "sceneState": {
+        "timestamp": "2026-08-13T15:01:00Z",
+        "frameId": "benchmark_landscape_tilted_horizon",
+        "cameraState": {
+          "lensId": "back_wide",
+          "focalLength35mmEquivalent": 24,
+          "zoomFactor": 1,
+          "exposureBias": 0,
+          "orientation": "landscape_left",
+          "rollDegrees": 6.5,
+          "pitchDegrees": 1
+        },
+        "deviceThermal": "nominal",
+        "scene": {
+          "category": "landscape",
+          "confidence": 0.9,
+          "lighting": {
+            "exposureMean": 0.58,
+            "highlightClipping": 0.16,
+            "shadowClipping": 0.09,
+            "direction": "front",
+            "dynamicRangeRisk": 0.3
+          },
+          "horizon": {
+            "y": 0.42,
+            "rollDegrees": 6.5,
+            "confidence": 0.88
+          },
+          "sky": {
+            "visibleFraction": 0.48,
+            "sunsetLikelihood": 0.64,
+            "cloudInterest": 0.58,
+            "highlightRisk": 0.2
+          }
+        },
+        "subjects": [],
+        "background": {
+          "clutterScore": 0.22,
+          "brightDistractionScore": 0.18,
+          "poleBehindHeadRisk": 0,
+          "randomPeopleRisk": 0.04,
+          "horizonIntersectionRisk": 0.48,
+          "cleanerDirection": "unknown"
+        },
+        "motion": {
+          "cameraShake": 0.08,
+          "subjectMotion": 0.03,
+          "blurRisk": 0.1
+        },
+        "composition": {
+          "subjectPlacementScore": 0.78,
+          "balanceScore": 0.66,
+          "leadingLinesScore": 0.44,
+          "negativeSpaceScore": 0.62
+        },
+        "safety": {
+          "hazards": [],
+          "movementGuidanceAllowed": true,
+          "confidence": 0.82
+        }
+      },
+      "expected": {
+        "domain": "landscape",
+        "recommendedLens": "wide",
+        "targetExposureBias": -0.3,
+        "guidance": {
+          "actor": "photographer",
+          "action": "rotate_counterclockwise",
+          "reason": "level_horizon",
+          "safetyQualifier": "if_safe"
+        },
+        "maxHorizonScore": 0.5
+      }
+    },
+    {
+      "id": "sunset_highlight_protection",
+      "prompt": "Capture a dramatic sunset sky over the lake.",
+      "sceneState": {
+        "timestamp": "2026-08-13T15:02:00Z",
+        "frameId": "benchmark_sunset_highlight_protection",
+        "cameraState": {
+          "lensId": "back_wide",
+          "focalLength35mmEquivalent": 24,
+          "zoomFactor": 1,
+          "exposureBias": 0,
+          "orientation": "landscape_left",
+          "rollDegrees": 0.8,
+          "pitchDegrees": 0
+        },
+        "deviceThermal": "nominal",
+        "scene": {
+          "category": "landscape",
+          "confidence": 0.87,
+          "lighting": {
+            "exposureMean": 0.72,
+            "highlightClipping": 0.38,
+            "shadowClipping": 0.05,
+            "direction": "backlit",
+            "dynamicRangeRisk": 0.68
+          },
+          "horizon": {
+            "y": 0.36,
+            "rollDegrees": 0.8,
+            "confidence": 0.74
+          },
+          "sky": {
+            "visibleFraction": 0.64,
+            "sunsetLikelihood": 0.86,
+            "cloudInterest": 0.62,
+            "highlightRisk": 0.52
+          }
+        },
+        "subjects": [],
+        "background": {
+          "clutterScore": 0.18,
+          "brightDistractionScore": 0.44,
+          "poleBehindHeadRisk": 0,
+          "randomPeopleRisk": 0,
+          "horizonIntersectionRisk": 0.18,
+          "cleanerDirection": "unknown"
+        },
+        "motion": {
+          "cameraShake": 0.09,
+          "subjectMotion": 0.02,
+          "blurRisk": 0.12
+        },
+        "composition": {
+          "subjectPlacementScore": 0.8,
+          "balanceScore": 0.72,
+          "leadingLinesScore": 0.38,
+          "negativeSpaceScore": 0.68
+        },
+        "safety": {
+          "hazards": [],
+          "movementGuidanceAllowed": true,
+          "confidence": 0.86
+        }
+      },
+      "expected": {
+        "domain": "landscape",
+        "recommendedLens": "wide",
+        "targetExposureBias": -0.3,
+        "guidance": {
+          "actor": "camera",
+          "action": "adjust_exposure",
+          "reason": "protect_highlights"
+        },
+        "maxExposureScore": 0.68
+      }
+    },
+    {
+      "id": "motion_blur_hold_steady",
+      "prompt": "Take a natural photo of the street market.",
+      "sceneState": {
+        "timestamp": "2026-08-13T15:03:00Z",
+        "frameId": "benchmark_motion_blur_hold_steady",
+        "cameraState": {
+          "lensId": "back_wide",
+          "focalLength35mmEquivalent": 26,
+          "zoomFactor": 1,
+          "exposureBias": 0,
+          "orientation": "portrait",
+          "rollDegrees": 1.1,
+          "pitchDegrees": 2
+        },
+        "deviceThermal": "nominal",
+        "scene": {
+          "category": "cityscape",
+          "confidence": 0.8,
+          "lighting": {
+            "exposureMean": 0.5,
+            "highlightClipping": 0.1,
+            "shadowClipping": 0.16,
+            "direction": "side",
+            "dynamicRangeRisk": 0.28
+          },
+          "horizon": {
+            "y": 0.5,
+            "rollDegrees": 1.1,
+            "confidence": 0.62
+          }
+        },
+        "subjects": [],
+        "background": {
+          "clutterScore": 0.44,
+          "brightDistractionScore": 0.24,
+          "poleBehindHeadRisk": 0,
+          "randomPeopleRisk": 0.28,
+          "horizonIntersectionRisk": 0.16,
+          "cleanerDirection": "unknown"
+        },
+        "motion": {
+          "cameraShake": 0.48,
+          "subjectMotion": 0.4,
+          "blurRisk": 0.72
+        },
+        "composition": {
+          "subjectPlacementScore": 0.58,
+          "balanceScore": 0.57,
+          "negativeSpaceScore": 0.34
+        },
+        "safety": {
+          "hazards": ["traffic"],
+          "movementGuidanceAllowed": false,
+          "confidence": 0.9
+        }
+      },
+      "expected": {
+        "domain": "lifestyle",
+        "recommendedLens": "wide",
+        "guidance": {
+          "actor": "photographer",
+          "action": "hold_steady",
+          "reason": "reduce_motion_blur"
+        },
+        "maxSharpnessProbability": 0.35
+      }
+    },
+    {
+      "id": "portrait_backlit_face",
+      "prompt": "Take a natural portrait of me.",
+      "sceneState": {
+        "timestamp": "2026-08-13T15:04:00Z",
+        "frameId": "benchmark_portrait_backlit_face",
+        "cameraState": {
+          "lensId": "front_wide",
+          "focalLength35mmEquivalent": 24,
+          "zoomFactor": 1,
+          "exposureBias": 0,
+          "orientation": "portrait",
+          "rollDegrees": 0.4,
+          "pitchDegrees": 5
+        },
+        "deviceThermal": "nominal",
+        "scene": {
+          "category": "portrait",
+          "confidence": 0.84,
+          "lighting": {
+            "exposureMean": 0.48,
+            "highlightClipping": 0.14,
+            "shadowClipping": 0.24,
+            "faceLightQuality": 0.34,
+            "direction": "backlit",
+            "dynamicRangeRisk": 0.52
+          },
+          "horizon": {
+            "y": 0.48,
+            "rollDegrees": 0.4,
+            "confidence": 0.58
+          },
+          "sky": {
+            "visibleFraction": 0.18,
+            "sunsetLikelihood": 0.26,
+            "cloudInterest": 0.28,
+            "highlightRisk": 0.16
+          }
+        },
+        "subjects": [
+          {
+            "id": "subject_self_001",
+            "type": "person",
+            "bounds": { "x": 0.35, "y": 0.18, "width": 0.42, "height": 0.68 },
+            "segmentationAvailable": true,
+            "pose": {
+              "shouldersAngleDegrees": 1,
+              "faceYawDegrees": -2,
+              "eyeLineConfidence": 0.82,
+              "handAwkwardnessRisk": 0.16
+            },
+            "face": {
+              "eyeOpenProbability": 0.88,
+              "expressionStability": 0.8,
+              "sharpnessProbability": 0.82,
+              "skinExposureScore": 0.46
+            },
+            "distanceEstimateMeters": 0.8,
+            "confidence": 0.9
+          }
+        ],
+        "background": {
+          "clutterScore": 0.28,
+          "brightDistractionScore": 0.36,
+          "poleBehindHeadRisk": 0.04,
+          "randomPeopleRisk": 0.02,
+          "horizonIntersectionRisk": 0.12,
+          "cleanerDirection": "unknown"
+        },
+        "motion": {
+          "cameraShake": 0.12,
+          "subjectMotion": 0.08,
+          "blurRisk": 0.18
+        },
+        "composition": {
+          "subjectPlacementScore": 0.7,
+          "headroomScore": 0.74,
+          "balanceScore": 0.68,
+          "negativeSpaceScore": 0.42
+        },
+        "safety": {
+          "hazards": [],
+          "movementGuidanceAllowed": true,
+          "confidence": 0.88
+        }
+      },
+      "expected": {
+        "domain": "portrait",
+        "recommendedLens": "telephoto",
+        "guidance": {
+          "actor": "subject",
+          "action": "turn_face",
+          "reason": "improve_face_light"
+        },
+        "maxLightingScore": 0.35
+      }
+    },
+    {
+      "id": "balanced_ready_capture",
+      "prompt": "Capture a clean landscape at the lake.",
+      "sceneState": {
+        "timestamp": "2026-08-13T15:05:00Z",
+        "frameId": "benchmark_balanced_ready_capture",
+        "cameraState": {
+          "lensId": "back_wide",
+          "focalLength35mmEquivalent": 24,
+          "zoomFactor": 1,
+          "exposureBias": 0,
+          "orientation": "landscape_right",
+          "rollDegrees": 0.2,
+          "pitchDegrees": 0
+        },
+        "deviceThermal": "nominal",
+        "scene": {
+          "category": "landscape",
+          "confidence": 0.9,
+          "lighting": {
+            "exposureMean": 0.55,
+            "highlightClipping": 0.08,
+            "shadowClipping": 0.08,
+            "direction": "front",
+            "dynamicRangeRisk": 0.18
+          },
+          "horizon": {
+            "y": 0.38,
+            "rollDegrees": 0.2,
+            "confidence": 0.82
+          },
+          "sky": {
+            "visibleFraction": 0.42,
+            "sunsetLikelihood": 0.22,
+            "cloudInterest": 0.46,
+            "highlightRisk": 0.1
+          }
+        },
+        "subjects": [],
+        "background": {
+          "clutterScore": 0.18,
+          "brightDistractionScore": 0.12,
+          "poleBehindHeadRisk": 0,
+          "randomPeopleRisk": 0.02,
+          "horizonIntersectionRisk": 0.08,
+          "cleanerDirection": "unknown"
+        },
+        "motion": {
+          "cameraShake": 0.04,
+          "subjectMotion": 0.02,
+          "blurRisk": 0.08
+        },
+        "composition": {
+          "subjectPlacementScore": 0.84,
+          "balanceScore": 0.82,
+          "leadingLinesScore": 0.56,
+          "negativeSpaceScore": 0.62
+        },
+        "safety": {
+          "hazards": [],
+          "movementGuidanceAllowed": true,
+          "confidence": 0.9
+        }
+      },
+      "expected": {
+        "domain": "landscape",
+        "recommendedLens": "wide",
+        "guidance": {
+          "actor": "photographer",
+          "action": "hold_steady",
+          "reason": "ready_to_capture"
+        },
+        "minOverallTargetMatch": 0.74
+      }
+    }
+  ]
+}

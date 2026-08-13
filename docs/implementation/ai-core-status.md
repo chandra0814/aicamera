@@ -17,6 +17,7 @@ This implementation completes the MVP AI control skeleton, not the final product
 - Live quality metrics: `FrameAnalyzer` now derives horizon roll, face quality, pose, segmentation availability, and motion stability signals on-device.
 - Reference-photo loop: selected library images stay on-device, appear in the camera popup, and open in the same-phone full reference viewer.
 - Capture review loop: the app captures a plan-sized burst, ranks frame candidates on-device, and presents the best result plus alternatives.
+- AI guidance benchmark suite: six deterministic calibration cases now cover cluttered portrait, tilted horizon, sunset highlight protection, motion blur, backlit face guidance, and ready-to-capture.
 
 ## Not Yet Production AI
 
@@ -34,6 +35,6 @@ LensPilot must remain a reliable camera first. A deterministic AI core lets us p
 
 ## Required Next AI Work
 
-1. Build a benchmark set for portrait, landscape, sky, clutter, backlight, and horizon problems.
-2. Calibrate sub-score weights against blind preference tests.
+1. Collect real portrait, landscape, sky, clutter, backlight, horizon, and motion samples from iPhone captures.
+2. Tune benchmark thresholds and sub-score weights against blind preference tests.
 3. Add optional cloud reasoning only for event-triggered creative interpretation.

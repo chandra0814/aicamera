@@ -3,8 +3,9 @@
 ## Immediate iOS Work
 
 1. Open `ios/Package` from Xcode on macOS and run the `LensPilotCoreTests` test target.
-2. Calibrate the on-device metric weights against real portrait and landscape samples.
-3. Add `NSMicrophoneUsageDescription` later, when voice input is wired.
+2. Collect real portrait, landscape, sky, clutter, backlight, horizon, and motion samples from iPhone captures.
+3. Calibrate the on-device metric weights against those real samples and blind preferences.
+4. Add `NSMicrophoneUsageDescription` later, when voice input is wired.
 
 ## Completed Single-Phone Runtime Work
 
@@ -18,6 +19,8 @@
 - Reference photos now use a real `PhotosPicker` flow; the selected image appears as the camera popup and opens in the full same-phone reference viewer.
 - Capture now follows the plan's burst count, ranks the captured frames with the on-device best-shot ranker, and shows a same-phone result review.
 - The live scene bridge is covered by `LensPilotVisionTests`.
+- The AI guidance benchmark suite now covers cluttered portrait, tilted horizon, sunset highlight protection, motion blur, backlit face guidance, and ready-to-capture.
+- `scripts/test-all.ps1` now fails on external command failures instead of continuing after a broken `npm` or Swift run.
 
 ## Single-Phone Verification Checklist
 

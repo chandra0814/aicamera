@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "validate": "node -e \"const fs=require('fs');const s=JSON.parse(fs.readFileSync('../../tests/fixtures/portrait-scene-state.json','utf8'));const d=JSON.parse(fs.readFileSync('../../tests/fixtures/iphone-device-capability.json','utf8'));const spec=JSON.parse(fs.readFileSync('../../tests/fixtures/cinematic-portrait.shotspec.json','utf8'));if(!spec.constraints.singlePhoneOnly)throw new Error('singlePhoneOnly missing');if(spec.subject.identityRecognitionAllowed!==false)throw new Error('identity invariant failed');const tele=d.physicalCameras.some(c=>c.lensType==='telephoto');const clamp=x=>Math.max(0,Math.min(1,x));const avg=a=>clamp(a.reduce((m,n)=>m+clamp(n),0)/a.length);const target=avg([1-Math.abs(s.scene.horizon.rollDegrees)/12,1-s.scene.lighting.highlightClipping*.8-s.scene.lighting.shadowClipping*.6,s.composition.subjectPlacementScore,s.composition.balanceScore,1-s.motion.blurRisk]);console.log(JSON.stringify({singlePhoneOnly:spec.constraints.singlePhoneOnly,recommendedLens:tele?'telephoto':'wide',targetMatch:Number(target.toFixed(3)),nextAction:s.background.clutterScore>.55?'if_safe_move_left':'hold_steady'},null,2));\""
+    "validate": "node -e \"eval(require('node:fs').readFileSync('scripts/validate-ai-core.cjs','utf8'))\" && node -e \"eval(require('node:fs').readFileSync('scripts/validate-ai-benchmarks.cjs','utf8'))\"",
+    "validate:benchmarks": "node -e \"eval(require('node:fs').readFileSync('scripts/validate-ai-benchmarks.cjs','utf8'))\""
   },
   "exports": {
     ".": "./src/index.ts"

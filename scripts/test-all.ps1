@@ -12,6 +12,9 @@ Get-ChildItem -Recurse -Filter *.json | ForEach-Object {
 Write-Host "`n== AI core fixture validation =="
 Push-Location (Join-Path $repoRoot "shared/typescript")
 npm run validate
+if ($LASTEXITCODE -ne 0) {
+    throw "AI core fixture validation failed with exit code $LASTEXITCODE."
+}
 Pop-Location
 
 Write-Host "`n== Swift toolchain check =="
@@ -19,6 +22,9 @@ $swift = Get-Command swift -ErrorAction SilentlyContinue
 if ($swift) {
     Push-Location (Join-Path $repoRoot "ios/Package")
     swift test
+    if ($LASTEXITCODE -ne 0) {
+        throw "Swift package tests failed with exit code $LASTEXITCODE."
+    }
     Pop-Location
 } else {
     Write-Host "Swift toolchain not found. Run 'swift test' from ios/Package on macOS/Xcode."
