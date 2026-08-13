@@ -31,8 +31,13 @@ final class CameraFrameAnalysisCoordinator: NSObject, AVCaptureVideoDataOutputSa
         isAnalyzing = true
         lastAnalysisStartedAt = now
 
+        guard let frame = AnalyzableFrame(sampleBuffer: sampleBuffer) else {
+            isAnalyzing = false
+            return
+        }
+
         Task { [analyzer, weak self] in
-            let debugState = await analyzer.analyze(sampleBuffer: sampleBuffer)
+            let debugState = await analyzer.analyze(frame: frame)
 
             self?.sampleBufferQueue.async { [weak self] in
                 self?.isAnalyzing = false

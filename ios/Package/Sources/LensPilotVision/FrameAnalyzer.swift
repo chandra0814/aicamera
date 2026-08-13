@@ -4,8 +4,20 @@ import CoreImage.CIFilterBuiltins
 import Foundation
 import Vision
 
+public struct AnalyzableFrame: @unchecked Sendable {
+    let pixelBuffer: CVPixelBuffer
+
+    public init?(sampleBuffer: CMSampleBuffer) {
+        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
+            return nil
+        }
+
+        self.pixelBuffer = pixelBuffer
+    }
+}
+
 public protocol FrameAnalyzing: Sendable {
-    func analyze(sampleBuffer: CMSampleBuffer) async -> SceneDebugState?
+    func analyze(frame: AnalyzableFrame) async -> SceneDebugState?
 }
 
 public actor FrameAnalyzer: FrameAnalyzing {
@@ -14,11 +26,8 @@ public actor FrameAnalyzer: FrameAnalyzing {
 
     public init() {}
 
-    public func analyze(sampleBuffer: CMSampleBuffer) async -> SceneDebugState? {
-        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
-            return nil
-        }
-
+    public func analyze(frame: AnalyzableFrame) async -> SceneDebugState? {
+        let pixelBuffer = frame.pixelBuffer
         let startedAt = Date()
         let luminanceSample = luminanceSample(for: pixelBuffer)
         let personBounds = await detectPeople(in: pixelBuffer)

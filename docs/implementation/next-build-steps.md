@@ -12,6 +12,7 @@
 - The app target includes camera and photo-library permission strings in `Support/Info.plist`.
 - GitHub Actions now builds the iOS app target on macOS in addition to Swift package tests.
 - `AVCaptureVideoDataOutput` now feeds `FrameAnalyzer` through the camera screen frame-analysis coordinator.
+- Live camera frames are wrapped before async analysis so the app target avoids carrying raw capture buffers across Swift concurrency boundaries.
 - `SceneDebugState` now maps into native `SceneState`, so the on-device AI guidance can refresh from live frames instead of only using placeholder state.
 - `FrameAnalyzer` now produces on-device horizon roll, face quality, pose, segmentation availability, and motion stability metrics for the AI core.
 - Reference photos now use a real `PhotosPicker` flow; the selected image appears as the camera popup and opens in the full same-phone reference viewer.

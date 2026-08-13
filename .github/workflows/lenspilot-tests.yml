@@ -73,13 +73,29 @@ jobs:
         shell: bash
         run: |
           if [ -d ios/App/LensPilotApp/LensPilotApp.xcodeproj ]; then
+            set +e
             xcodebuild \
               -project ios/App/LensPilotApp/LensPilotApp.xcodeproj \
               -scheme LensPilotApp \
               -configuration Debug \
               -destination 'generic/platform=iOS' \
               CODE_SIGNING_ALLOWED=NO \
-              build
+              build 2>&1 | tee xcodebuild.log
+            status=${PIPESTATUS[0]}
+            if [ "$status" -ne 0 ]; then
+              echo "::group::xcodebuild error summary"
+              grep -n -E "error:|fatal error:|BUILD FAILED|Testing failed" xcodebuild.log || tail -200 xcodebuild.log
+              echo "::endgroup::"
+            fi
+            exit "$status"
           else
             echo "LensPilotApp.xcodeproj not present; skipping iOS app build."
           fi
+
+      - name: Upload xcodebuild log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-ios-app-log
+          path: xcodebuild.log
+          if-no-files-found: ignore

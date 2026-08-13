@@ -13,6 +13,12 @@
 - `LensPilotCoreTests` on macOS CI, covering burst capture review ranking and empty-burst handling.
 - GitHub Actions `iOS app build`, covering the SwiftUI app target, local package dependency wiring, camera screen, reference picker, popup, and result review compilation.
 
+## Latest Verification
+
+- Local `.\scripts\test-all.ps1` passed JSON validation and TypeScript AI fixture validation on Windows.
+- Swift package tests passed in GitHub Actions run #14 for commit `9fa7f2c`.
+- The iOS app build still failed in run #14, but the compiler diagnostic was hidden inside clipped Xcode output. The workflow now tees `xcodebuild.log`, prints focused compiler errors, and uploads the full log artifact on every iOS build.
+
 ## Not Runnable Here
 
 - `swift test` for the iOS Swift package, because the Swift toolchain and Xcode are not installed in this Windows workspace.
