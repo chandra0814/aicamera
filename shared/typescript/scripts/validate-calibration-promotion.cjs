@@ -6,6 +6,7 @@ const { spawnSync } = require("node:child_process");
 const scriptDir = findScriptDir();
 const repoRoot = findRepoRoot();
 const { appendSample, promoteCandidate } = loadPromoter(scriptDir);
+const { appendReviewedSample, normalizeReviewedSample } = loadImporter(scriptDir);
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "lenspilot-calibration-"));
 
 try {
@@ -26,6 +27,7 @@ try {
   assert(promotedSample.privacy.identityRecognitionAllowed === false, "Promotion must keep identity recognition disabled.");
   assert(promotedSample.expected.targetMatch.overall.min <= candidate.targetMatch.overall, "Overall min should include the candidate score.");
   assert(promotedSample.expected.targetMatch.overall.max >= candidate.targetMatch.overall, "Overall max should include the candidate score.");
+  assert(!("shotSpec" in promotedSample), "Promotion output should stay manifest-ready and omit runtime ShotSpec.");
 
   const manifest = readJson(path.join(repoRoot, "tests/calibration/target-match-calibration.json"));
   const promotionManifest = {
@@ -34,25 +36,26 @@ try {
   };
   appendSample({ samples: [] }, promotedSample);
 
+  const reviewedExport = makeReviewedExportFixture(candidate, promotedSample);
+  const importedSample = normalizeReviewedSample(reviewedExport);
+  assert(importedSample.id === promotedSample.id, "Imported sample should preserve the reviewed id.");
+  assert(importedSample.sourceCandidateId === candidate.id, "Imported sample should preserve the source candidate id.");
+  assert(!("shotSpec" in importedSample), "Imported sample should omit app runtime ShotSpec.");
+  assert(!("targetMatch" in importedSample), "Imported sample should omit app runtime Target Match snapshot.");
+  const importedManifest = appendReviewedSample({ ...manifest, samples: [] }, reviewedExport);
+  assert(importedManifest.samples.length === 1, "Importer should append one reviewed sample.");
+
   const promotionManifestPath = path.join(tempDir, "target-match-calibration.json");
   fs.writeFileSync(promotionManifestPath, `${JSON.stringify(promotionManifest, null, 2)}\n`);
+  runCalibrationValidator(promotionManifestPath);
 
-  const validator = spawnSync(process.execPath, [
-    "-e",
-    `const fs = require("node:fs"); process.argv[2] = ${JSON.stringify(promotionManifestPath)}; eval(fs.readFileSync("scripts/validate-ai-calibration.cjs", "utf8"));`,
-  ], {
-    cwd: path.join(repoRoot, "shared/typescript"),
-    encoding: "utf8",
-  });
-
-  if (validator.status !== 0) {
-    process.stdout.write(validator.stdout);
-    process.stderr.write(validator.stderr);
-    process.exit(validator.status ?? 1);
-  }
+  const importManifestPath = path.join(tempDir, "target-match-calibration-import.json");
+  fs.writeFileSync(importManifestPath, `${JSON.stringify(importedManifest, null, 2)}\n`);
+  runCalibrationValidator(importManifestPath);
 
   console.log(JSON.stringify({
     promotedSample: promotedSample.id,
+    importedSample: importedSample.id,
     status: "passed",
   }, null, 2));
 } finally {
@@ -109,6 +112,34 @@ function makeCandidateFixture() {
   };
 }
 
+function makeReviewedExportFixture(candidate, promotedSample) {
+  return {
+    ...candidate,
+    ...promotedSample,
+    sampleKind: "iphone_capture",
+    shotSpec: candidate.shotSpec,
+    shotPlan: candidate.shotPlan,
+    guidanceAction: candidate.guidanceAction,
+    targetMatch: candidate.targetMatch,
+  };
+}
+
+function runCalibrationValidator(manifestPath) {
+  const validator = spawnSync(process.execPath, [
+    "-e",
+    `const fs = require("node:fs"); process.argv[2] = ${JSON.stringify(manifestPath)}; eval(fs.readFileSync("scripts/validate-ai-calibration.cjs", "utf8"));`,
+  ], {
+    cwd: path.join(repoRoot, "shared/typescript"),
+    encoding: "utf8",
+  });
+
+  if (validator.status !== 0) {
+    process.stdout.write(validator.stdout);
+    process.stderr.write(validator.stderr);
+    process.exit(validator.status ?? 1);
+  }
+}
+
 function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, "utf8"));
 }
@@ -120,7 +151,10 @@ function findScriptDir() {
   ];
 
   for (const candidate of candidates) {
-    if (fs.existsSync(path.join(candidate, "promote-calibration-candidate.cjs"))) {
+    if (
+      fs.existsSync(path.join(candidate, "promote-calibration-candidate.cjs")) &&
+      fs.existsSync(path.join(candidate, "import-reviewed-calibration-sample.cjs"))
+    ) {
       return candidate;
     }
   }
@@ -147,6 +181,15 @@ function findRepoRoot() {
 function loadPromoter(sourceDir) {
   const moduleShim = { exports: {} };
   const sourcePath = path.join(sourceDir, "promote-calibration-candidate.cjs");
+  const source = fs.readFileSync(sourcePath, "utf8");
+  const runner = new Function("module", "exports", "require", "__dirname", "__filename", source);
+  runner(moduleShim, moduleShim.exports, require, sourceDir, sourcePath);
+  return moduleShim.exports;
+}
+
+function loadImporter(sourceDir) {
+  const moduleShim = { exports: {} };
+  const sourcePath = path.join(sourceDir, "import-reviewed-calibration-sample.cjs");
   const source = fs.readFileSync(sourcePath, "utf8");
   const runner = new Function("module", "exports", "require", "__dirname", "__filename", source);
   runner(moduleShim, moduleShim.exports, require, sourceDir, sourcePath);

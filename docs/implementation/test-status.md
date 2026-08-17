@@ -12,6 +12,7 @@
   - deterministic AI guidance benchmarks
   - Target Match calibration manifest validation, including candidate-sample privacy checks
   - reviewed candidate promotion into labeled `iphone_capture` calibration samples
+  - reviewed app export normalization before manifest import
 - `LensPilotVisionTests` on macOS CI, covering the `SceneDebugState` to native `SceneState` bridge and on-device quality metric mapping.
 - `LensPilotCoreTests` on macOS CI, covering burst capture review ranking, empty-burst handling, calibration weight tuning, calibration sample export, and reviewed calibration sample promotion.
 - `AiBenchmarkTests` on macOS CI, covering the deterministic single-phone guidance benchmark suite.
@@ -20,7 +21,7 @@
 ## Latest Verification
 
 - GitHub Actions run #20 passed AI fixture validation, Swift package tests, and the iOS app build for commit `d000fd1`.
-- Local `.\scripts\test-all.ps1` passed JSON validation, TypeScript AI fixture validation, six deterministic AI guidance benchmarks, Target Match calibration validation, and calibration promotion validation on Windows.
+- Local `.\scripts\test-all.ps1` passed JSON validation, TypeScript AI fixture validation, six deterministic AI guidance benchmarks, Target Match calibration validation, calibration promotion validation, and reviewed import normalization on Windows.
 - Swift package tests still need GitHub/macOS CI for this workspace because Windows does not have Swift/Xcode installed.
 
 ## Not Runnable Here

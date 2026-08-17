@@ -8,6 +8,7 @@ Add calibration entries to `tests/calibration/target-match-calibration.json`.
 
 - Use the in-app share control to export `sampleKind: "iphone_capture_candidate"` JSON from the current single-phone camera state.
 - After capture, use the tag control to open the blind review sheet and export a reviewed `sampleKind: "iphone_capture"` JSON without exposing Target Match scores during labeling.
+- Import reviewed app exports with `npm run calibration:import-reviewed -- --sample <reviewed-sample.json> --write` from `shared/typescript`.
 - Promote a candidate to `sampleKind: "iphone_capture"` only after blind preference labels are added.
 - Use `npm run calibration:promote -- --candidate <candidate.json> --sample-id <stable_id> --review-count 2 --preferred-guidance-reason <reason> --weaknesses background,lighting --write` from `shared/typescript` after review labels are ready.
 - Include either inline `sceneState` and `deviceCapability`, or paths to JSON files.
@@ -34,4 +35,4 @@ The current target is 24 real iPhone samples across:
 
 Only change `targetMatchCalibration` weights when the sample set shows a repeated blind preference mismatch. Keep the benchmark suite green after each tuning change so deterministic regressions stay visible.
 
-Reviewed exports created in the app already include the captured scene snapshot, anonymous device capability, blind preference labels, and expected Target Match ranges. Add those JSON objects to `tests/calibration/target-match-calibration.json` before tuning.
+Reviewed exports created in the app already include the captured scene snapshot, anonymous device capability, blind preference labels, and expected Target Match ranges. Use the reviewed-sample importer to normalize and append them to `tests/calibration/target-match-calibration.json` before tuning.
