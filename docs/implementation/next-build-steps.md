@@ -5,7 +5,7 @@
 1. Open `ios/Package` from Xcode on macOS and run the `LensPilotCoreTests` test target.
 2. Use the in-app share control to export `iphone_capture_candidate` JSON for portrait, landscape, sky, clutter, backlight, horizon, and motion samples.
 3. Add blind preference labels from the in-app tag control, then import reviewed app exports with `npm run calibration:import-reviewed -- --sample <reviewed-sample.json> --write`.
-4. Calibrate the on-device metric weights against those reviewed samples and keep benchmark validation green.
+4. Calibrate the on-device metric weights against those reviewed samples; the app now loads the bundled manifest into `LensPilotAiCore`.
 5. Add `NSMicrophoneUsageDescription` later, when voice input is wired.
 
 ## Completed Single-Phone Runtime Work
@@ -26,6 +26,7 @@
 - Reviewed candidate promotion is now scripted and validated before samples can gate Target Match calibration.
 - The single-phone app can label the latest captured sample in a score-free blind review sheet and export reviewed calibration JSON.
 - Reviewed app exports can now be normalized and appended to the calibration manifest with a validated import command.
+- The app target bundles `target-match-calibration.json`, validates its single-phone invariants, and applies its Target Match weights to the live on-device AI core with a safe fallback to defaults.
 - `scripts/test-all.ps1` now fails on external command failures instead of continuing after a broken `npm` or Swift run.
 
 ## Single-Phone Verification Checklist

@@ -16,6 +16,7 @@
 		101010101010101010101007 /* LensPilotCamera in Frameworks */ = {isa = PBXBuildFile; productRef = 909090909090909090909002 /* LensPilotCamera */; };
 		101010101010101010101008 /* LensPilotVision in Frameworks */ = {isa = PBXBuildFile; productRef = 909090909090909090909003 /* LensPilotVision */; };
 		101010101010101010101009 /* LensPilotDirector in Frameworks */ = {isa = PBXBuildFile; productRef = 909090909090909090909004 /* LensPilotDirector */; };
+		101010101010101010101010 /* target-match-calibration.json in Resources */ = {isa = PBXBuildFile; fileRef = 202020202020202020202008 /* target-match-calibration.json */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -26,6 +27,7 @@
 		202020202020202020202005 /* ReferenceViewer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReferenceViewer.swift; sourceTree = "<group>"; };
 		202020202020202020202006 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		202020202020202020202007 /* LensPilotApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LensPilotApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		202020202020202020202008 /* target-match-calibration.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = "target-match-calibration.json"; path = "../../../tests/calibration/target-match-calibration.json"; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -84,6 +86,7 @@
 			isa = PBXGroup;
 			children = (
 				202020202020202020202006 /* Info.plist */,
+				202020202020202020202008 /* target-match-calibration.json */,
 			);
 			path = Support;
 			sourceTree = "<group>";
@@ -163,6 +166,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				101010101010101010101010 /* target-match-calibration.json in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -33,7 +33,7 @@ final class CameraScreenViewModel: ObservableObject {
     @Published var errorMessage: String?
 
     private let capabilityProfiler = DeviceCapabilityProfiler()
-    private let aiCore = LensPilotAiCore()
+    private let aiCore: LensPilotAiCore
     private let sceneStateBuilder = SceneStateBuilder()
     private let frameAnalyzer = FrameAnalyzer()
     private let photoCaptureController = PhotoCaptureController()
@@ -42,6 +42,10 @@ final class CameraScreenViewModel: ObservableObject {
     private let calibrationSamplePromoter = CalibrationSamplePromoter()
     private lazy var frameAnalysisCoordinator = CameraFrameAnalysisCoordinator(analyzer: frameAnalyzer)
     private var isFrameAnalysisConnected = false
+
+    init(calibrationData: Data? = Self.bundledCalibrationData()) {
+        self.aiCore = Self.makeAiCore(calibrationData: calibrationData)
+    }
 
     func start() {
         Task {
@@ -61,6 +65,27 @@ final class CameraScreenViewModel: ObservableObject {
             deviceCapability = capabilityProfiler.profileCurrentDevice()
             makePlanFromIntent()
             await camera.start()
+        }
+    }
+
+    private static func bundledCalibrationData() -> Data? {
+        guard let url = Bundle.main.url(forResource: "target-match-calibration", withExtension: "json") else {
+            return nil
+        }
+
+        return try? Data(contentsOf: url)
+    }
+
+    private static func makeAiCore(calibrationData: Data?) -> LensPilotAiCore {
+        guard let calibrationData else {
+            return LensPilotAiCore()
+        }
+
+        do {
+            let manifest = try TargetMatchCalibrationManifest.decode(from: calibrationData)
+            return manifest.makeAiCore()
+        } catch {
+            return LensPilotAiCore()
         }
     }
 

@@ -25,6 +25,28 @@ export interface TargetMatchCalibration {
   nonPortraitCameraAngleScore: number;
 }
 
+export interface TargetMatchCalibrationManifest {
+  version: string;
+  collectionPlan: {
+    singlePhoneOnly: boolean;
+    realCaptureTargetCount: number;
+    minimumBlindReviewers: number;
+    requiredDomains: string[];
+  };
+  targetMatchCalibration: TargetMatchCalibration;
+  samples: Array<{
+    id: string;
+    sampleKind: string;
+    domain?: string;
+    blindPreference?: {
+      reviewCount: number;
+      preferredGuidanceReason: string;
+      rankedWeaknesses: string[];
+      notes: string;
+    };
+  }>;
+}
+
 export const defaultTargetMatchCalibration: TargetMatchCalibration = {
   horizonRollFullPenaltyDegrees: 12,
   eyeLevelPitchFullPenaltyDegrees: 35,
@@ -39,6 +61,23 @@ export const defaultTargetMatchCalibration: TargetMatchCalibration = {
   missingPoseScore: 0.72,
   nonPortraitCameraAngleScore: 0.75,
 };
+
+export function targetMatchCalibrationFromManifest(manifest: TargetMatchCalibrationManifest): TargetMatchCalibration {
+  if (!manifest.collectionPlan.singlePhoneOnly) {
+    throw new Error("Target Match calibration must stay single-phone only.");
+  }
+
+  if (!manifest.collectionPlan.requiredDomains.length) {
+    throw new Error("Target Match calibration requires at least one domain.");
+  }
+
+  if (!manifest.samples.length) {
+    throw new Error("Target Match calibration requires at least one sample.");
+  }
+
+  validateTargetMatchCalibration(manifest.targetMatchCalibration);
+  return { ...manifest.targetMatchCalibration };
+}
 
 export interface TargetMatchScore {
   composition: number;
@@ -342,8 +381,12 @@ export class LensPilotAiCore {
   private readonly intentEngine = new IntentEngine();
   private readonly shotPlanner = new ShotPlanner();
   private readonly guidancePolicy = new GuidancePolicy();
-  private readonly targetMatchEngine = new TargetMatchEngine();
   private readonly previewSafetyEngine = new PreviewSafetyEngine();
+  private readonly targetMatchEngine: TargetMatchEngine;
+
+  constructor(targetMatchCalibration: TargetMatchCalibration = defaultTargetMatchCalibration) {
+    this.targetMatchEngine = new TargetMatchEngine(targetMatchCalibration);
+  }
 
   run(prompt: string, sceneState: SceneState, deviceCapability: DeviceCapability): AiPipelineResult {
     const shotSpec = this.intentEngine.parseIntent(prompt);
@@ -471,6 +514,33 @@ function average(values: number[]): number {
 
 function clamp01(value: number): number {
   return Math.max(0, Math.min(1, value));
+}
+
+function validateTargetMatchCalibration(calibration: TargetMatchCalibration): void {
+  requirePositive(calibration.horizonRollFullPenaltyDegrees, "horizonRollFullPenaltyDegrees");
+  requirePositive(calibration.eyeLevelPitchFullPenaltyDegrees, "eyeLevelPitchFullPenaltyDegrees");
+  requireRange(calibration.highlightClippingPenalty, "highlightClippingPenalty", 0, 2);
+  requireRange(calibration.shadowClippingPenalty, "shadowClippingPenalty", 0, 2);
+  requireRange(calibration.backgroundClutterPenalty, "backgroundClutterPenalty", 0, 2);
+  requireRange(calibration.poleBehindHeadPenalty, "poleBehindHeadPenalty", 0, 2);
+  requireRange(calibration.dynamicRangeLightingPenalty, "dynamicRangeLightingPenalty", 0, 2);
+  requireRange(calibration.motionBlurPenalty, "motionBlurPenalty", 0, 2);
+  requireRange(calibration.missingHorizonScore, "missingHorizonScore", 0, 1);
+  requireRange(calibration.missingFaceLightQuality, "missingFaceLightQuality", 0, 1);
+  requireRange(calibration.missingPoseScore, "missingPoseScore", 0, 1);
+  requireRange(calibration.nonPortraitCameraAngleScore, "nonPortraitCameraAngleScore", 0, 1);
+}
+
+function requirePositive(value: number, label: string): void {
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error(`${label} must be positive.`);
+  }
+}
+
+function requireRange(value: number, label: string, min: number, max: number): void {
+  if (!Number.isFinite(value) || value < min || value > max) {
+    throw new Error(`${label} must be between ${min} and ${max}.`);
+  }
 }
 
 function cryptoId(): string {

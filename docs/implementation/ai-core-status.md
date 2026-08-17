@@ -23,6 +23,7 @@ This implementation completes the MVP AI control skeleton, not the final product
 - Calibration promotion tool: reviewed candidates can be promoted into `iphone_capture` manifest entries only when single-phone privacy flags, domain labels, blind preference labels, and expected Target Match ranges are present.
 - In-app blind review labeling: after capture, the same phone opens a score-free label sheet for domain, preferred fix, ranked weaknesses, reviewer count, and reviewed-sample export.
 - Reviewed-sample importer: app exports can be normalized and appended to the calibration manifest only after single-phone privacy, blind-review, domain, and expected score-range validation passes.
+- Runtime calibration loading: the iOS app bundles the Target Match calibration manifest, validates that it remains single-phone only, and initializes the on-device AI core with those reviewed scoring weights when available.
 
 ## Not Yet Production AI
 
@@ -41,6 +42,5 @@ LensPilot must remain a reliable camera first. A deterministic AI core lets us p
 ## Required Next AI Work
 
 1. Collect real portrait, landscape, sky, clutter, backlight, horizon, and motion samples from iPhone captures.
-2. Add blind preference labels in the app, then import reviewed samples with `npm run calibration:import-reviewed`.
-3. Tune benchmark thresholds and sub-score weights against blind preference tests.
-4. Add optional cloud reasoning only for event-triggered creative interpretation.
+2. Tune benchmark thresholds and sub-score weights against blind preference tests now that the app can load the manifest at runtime.
+3. Add optional cloud reasoning only for event-triggered creative interpretation.

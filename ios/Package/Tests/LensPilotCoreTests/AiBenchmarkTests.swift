@@ -5,9 +5,12 @@ final class AiBenchmarkTests: XCTestCase {
     func testGuidanceBenchmarksStaySinglePhoneAndActionable() throws {
         let suite: BenchmarkSuite = try decodeRepositoryJSON("tests/benchmarks/ai-guidance-benchmarks.json")
         let deviceCapability: DeviceCapability = try decodeRepositoryJSON("tests/fixtures/iphone-device-capability.json")
-        let aiCore = LensPilotAiCore()
+        let calibrationManifest: TargetMatchCalibrationManifest = try decodeRepositoryJSON("tests/calibration/target-match-calibration.json")
+        let aiCore = calibrationManifest.makeAiCore()
 
         XCTAssertEqual(suite.cases.count, 6)
+        XCTAssertTrue(calibrationManifest.collectionPlan.singlePhoneOnly)
+        XCTAssertGreaterThan(calibrationManifest.samples.count, 0)
 
         for benchmark in suite.cases {
             let result = aiCore.run(

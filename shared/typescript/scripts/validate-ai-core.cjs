@@ -4,6 +4,7 @@ const readJson = (relativePath) => JSON.parse(fs.readFileSync(relativePath, "utf
 const sceneState = readJson("../../tests/fixtures/portrait-scene-state.json");
 const deviceCapability = readJson("../../tests/fixtures/iphone-device-capability.json");
 const shotSpec = readJson("../../tests/fixtures/cinematic-portrait.shotspec.json");
+const calibration = readJson("../../tests/calibration/target-match-calibration.json").targetMatchCalibration;
 
 if (shotSpec.constraints.singlePhoneOnly !== true) {
   throw new Error("ShotSpec must be single-phone only.");
@@ -14,14 +15,18 @@ if (shotSpec.subject.identityRecognitionAllowed !== false) {
 }
 
 const recommendedLens = deviceCapability.physicalCameras.some((camera) => camera.lensType === "telephoto") ? "telephoto" : "wide";
-const horizon = clamp01(1 - Math.abs(sceneState.scene.horizon.rollDegrees) / 12);
-const exposure = clamp01(1 - sceneState.scene.lighting.highlightClipping * 0.8 - sceneState.scene.lighting.shadowClipping * 0.6);
+const horizon = clamp01(1 - Math.abs(sceneState.scene.horizon.rollDegrees) / calibration.horizonRollFullPenaltyDegrees);
+const exposure = clamp01(
+  1 -
+    sceneState.scene.lighting.highlightClipping * calibration.highlightClippingPenalty -
+    sceneState.scene.lighting.shadowClipping * calibration.shadowClippingPenalty
+);
 const targetMatch = average([
   horizon,
   exposure,
   sceneState.composition.subjectPlacementScore,
   sceneState.composition.balanceScore,
-  1 - sceneState.motion.blurRisk,
+  1 - sceneState.motion.blurRisk * calibration.motionBlurPenalty,
 ]);
 const nextAction = sceneState.background.clutterScore > 0.55 && sceneState.safety.movementGuidanceAllowed
   ? "if_safe_move_left"

@@ -245,6 +245,10 @@ public struct LensPilotAiCore: Sendable {
         self.previewSafetyEngine = previewSafetyEngine
     }
 
+    public init(targetMatchCalibration: TargetMatchCalibration) {
+        self.init(targetMatchEngine: TargetMatchEngine(calibration: targetMatchCalibration))
+    }
+
     public func run(prompt: String, sceneState: SceneState, deviceCapability: DeviceCapability) -> AiPipelineResult {
         let shotSpec = intentEngine.makeShotSpec(from: prompt, source: .text)
         let shotPlan = shotPlanner.makeInitialPlan(for: shotSpec, sceneState: sceneState, deviceCapability: deviceCapability)

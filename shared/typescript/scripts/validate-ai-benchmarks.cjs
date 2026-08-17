@@ -3,12 +3,13 @@ const fs = require("node:fs");
 const readJson = (relativePath) => JSON.parse(fs.readFileSync(relativePath, "utf8"));
 const suite = readJson("../../tests/benchmarks/ai-guidance-benchmarks.json");
 const deviceCapability = readJson("../../tests/fixtures/iphone-device-capability.json");
+const calibration = readJson("../../tests/calibration/target-match-calibration.json").targetMatchCalibration;
 
 for (const benchmark of suite.cases) {
   const shotSpec = parseIntent(benchmark.prompt);
   const shotPlan = plan(shotSpec, benchmark.sceneState, deviceCapability);
   const guidanceAction = selectNextAction(shotPlan);
-  const targetMatch = scoreTargetMatch(shotSpec, shotPlan, benchmark.sceneState);
+  const targetMatch = scoreTargetMatch(shotSpec, shotPlan, benchmark.sceneState, calibration);
   const expected = benchmark.expected;
 
   assert(shotSpec.constraints.singlePhoneOnly === true, `${benchmark.id}: ShotSpec must stay single-phone only.`);
@@ -261,18 +262,33 @@ function directionAction(direction) {
   return "if_safe_move";
 }
 
-function scoreTargetMatch(shotSpec, shotPlan, sceneState) {
+function scoreTargetMatch(shotSpec, shotPlan, sceneState, calibration) {
   const subject = sceneState.subjects[0];
   const subjectPosition = subject ? rectSimilarity(subject.bounds, shotPlan.compositionTarget.subjectBounds) : 0.25;
-  const horizon = sceneState.scene.horizon ? clamp01(1 - Math.abs(sceneState.scene.horizon.rollDegrees) / 12) : 0.72;
-  const exposure = clamp01(1 - sceneState.scene.lighting.highlightClipping * 0.8 - sceneState.scene.lighting.shadowClipping * 0.6);
-  const background = clamp01(1 - sceneState.background.clutterScore * 0.55 - sceneState.background.poleBehindHeadRisk * 0.25);
-  const lighting = clamp01((sceneState.scene.lighting.faceLightQuality ?? 0.65) - sceneState.scene.lighting.dynamicRangeRisk * 0.2);
-  const pose = clamp01(subject?.face?.eyeOpenProbability ?? 0.72);
-  const sharpnessProbability = clamp01(1 - sceneState.motion.blurRisk);
+  const horizon = sceneState.scene.horizon
+    ? clamp01(1 - Math.abs(sceneState.scene.horizon.rollDegrees) / Math.max(calibration.horizonRollFullPenaltyDegrees, 0.001))
+    : calibration.missingHorizonScore;
+  const exposure = clamp01(
+    1 -
+      sceneState.scene.lighting.highlightClipping * calibration.highlightClippingPenalty -
+      sceneState.scene.lighting.shadowClipping * calibration.shadowClippingPenalty
+  );
+  const background = clamp01(
+    1 -
+      sceneState.background.clutterScore * calibration.backgroundClutterPenalty -
+      sceneState.background.poleBehindHeadRisk * calibration.poleBehindHeadPenalty
+  );
+  const lighting = clamp01(
+    (sceneState.scene.lighting.faceLightQuality ?? calibration.missingFaceLightQuality) -
+      sceneState.scene.lighting.dynamicRangeRisk * calibration.dynamicRangeLightingPenalty
+  );
+  const pose = clamp01(subject?.face?.eyeOpenProbability ?? calibration.missingPoseScore);
+  const sharpnessProbability = clamp01(1 - sceneState.motion.blurRisk * calibration.motionBlurPenalty);
   const composition = average([subjectPosition, sceneState.composition.balanceScore, sceneState.composition.subjectPlacementScore]);
   const pitch = sceneState.cameraState.pitchDegrees ?? 0;
-  const cameraAngle = shotSpec.cameraIntent.perspective === "eye_level" ? clamp01(1 - Math.abs(pitch) / 35) : 0.75;
+  const cameraAngle = shotSpec.cameraIntent.perspective === "eye_level"
+    ? clamp01(1 - Math.abs(pitch) / Math.max(calibration.eyeLevelPitchFullPenaltyDegrees, 0.001))
+    : calibration.nonPortraitCameraAngleScore;
   const intentMatch = average([composition, lighting, background, exposure]);
   const scores = { composition, subjectPosition, cameraAngle, lighting, background, horizon, pose, sharpnessProbability, exposure, intentMatch };
 

@@ -36,3 +36,5 @@ The current target is 24 real iPhone samples across:
 Only change `targetMatchCalibration` weights when the sample set shows a repeated blind preference mismatch. Keep the benchmark suite green after each tuning change so deterministic regressions stay visible.
 
 Reviewed exports created in the app already include the captured scene snapshot, anonymous device capability, blind preference labels, and expected Target Match ranges. Use the reviewed-sample importer to normalize and append them to `tests/calibration/target-match-calibration.json` before tuning.
+
+The iOS app bundles this manifest as `target-match-calibration.json` and initializes the live `LensPilotAiCore` from its `targetMatchCalibration` weights. If the manifest is missing or violates single-phone validation rules, the app falls back to the standard deterministic weights rather than blocking camera use.

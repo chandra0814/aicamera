@@ -57,6 +57,36 @@ final class AiCoreTests: XCTestCase {
         XCTAssertGreaterThan(tunedScore.intentMatch, defaultScore.intentMatch)
     }
 
+    func testTargetMatchCalibrationManifestBuildsCalibratedAiCore() throws {
+        let manifest = try TargetMatchCalibrationManifest.decode(
+            from: Self.calibrationManifestData(backgroundClutterPenalty: 0.25)
+        )
+        let defaultResult = LensPilotAiCore().run(
+            prompt: "Give me a cinematic portrait with natural skin and a clean background.",
+            sceneState: Self.portraitScene(),
+            deviceCapability: Self.deviceCapability()
+        )
+        let calibratedResult = manifest.makeAiCore().run(
+            prompt: "Give me a cinematic portrait with natural skin and a clean background.",
+            sceneState: Self.portraitScene(),
+            deviceCapability: Self.deviceCapability()
+        )
+
+        XCTAssertEqual(manifest.reviewedSampleCount, 1)
+        XCTAssertEqual(manifest.reviewedDomains, ["portrait"])
+        XCTAssertEqual(manifest.targetMatchCalibration.backgroundClutterPenalty, 0.25, accuracy: 0.0001)
+        XCTAssertGreaterThan(calibratedResult.targetMatch.background, defaultResult.targetMatch.background)
+        XCTAssertGreaterThan(calibratedResult.targetMatch.intentMatch, defaultResult.targetMatch.intentMatch)
+    }
+
+    func testTargetMatchCalibrationManifestRejectsNonSinglePhonePlan() {
+        XCTAssertThrowsError(try TargetMatchCalibrationManifest.decode(
+            from: Self.calibrationManifestData(singlePhoneOnly: false)
+        )) { error in
+            XCTAssertEqual(error as? TargetMatchCalibrationManifestError, .singlePhoneCalibrationRequired)
+        }
+    }
+
     func testCalibrationSampleExporterProducesSinglePhoneCandidateJSON() throws {
         let sceneState = Self.portraitScene()
         let deviceCapability = Self.deviceCapability()
@@ -248,5 +278,52 @@ final class AiCoreTests: XCTestCase {
             thermalClass: "nominal",
             measuredCameraLatency: 180
         )
+    }
+
+    private static func calibrationManifestData(
+        singlePhoneOnly: Bool = true,
+        backgroundClutterPenalty: Double = 0.55
+    ) -> Data {
+        let singlePhoneValue = singlePhoneOnly ? "true" : "false"
+        let json = """
+        {
+          "version": "2026.08.17",
+          "collectionPlan": {
+            "singlePhoneOnly": \(singlePhoneValue),
+            "realCaptureTargetCount": 24,
+            "minimumBlindReviewers": 2,
+            "requiredDomains": ["portrait", "landscape", "lifestyle", "night"]
+          },
+          "targetMatchCalibration": {
+            "horizonRollFullPenaltyDegrees": 12,
+            "eyeLevelPitchFullPenaltyDegrees": 35,
+            "highlightClippingPenalty": 0.8,
+            "shadowClippingPenalty": 0.6,
+            "backgroundClutterPenalty": \(backgroundClutterPenalty),
+            "poleBehindHeadPenalty": 0.25,
+            "dynamicRangeLightingPenalty": 0.2,
+            "motionBlurPenalty": 1,
+            "missingHorizonScore": 0.72,
+            "missingFaceLightQuality": 0.65,
+            "missingPoseScore": 0.72,
+            "nonPortraitCameraAngleScore": 0.75
+          },
+          "samples": [
+            {
+              "id": "iphone_capture_unit_test",
+              "sampleKind": "iphone_capture",
+              "domain": "portrait",
+              "blindPreference": {
+                "reviewCount": 2,
+                "preferredGuidanceReason": "reduce_clutter",
+                "rankedWeaknesses": ["background", "lighting"],
+                "notes": "Unit-test reviewed sample."
+              }
+            }
+          ]
+        }
+        """
+
+        return Data(json.utf8)
     }
 }
