@@ -1,10 +1,12 @@
 const fs = require("node:fs");
 const path = require("node:path");
 
-const calibrationPath = path.resolve("../../tests/calibration/target-match-calibration.json");
+const repoRoot = findRepoRoot();
+const calibrationPath = resolveInputPath(process.argv[2] || path.join(repoRoot, "tests/calibration/target-match-calibration.json"));
 const calibrationRoot = path.dirname(calibrationPath);
 const manifest = readJson(calibrationPath);
 const weights = manifest.targetMatchCalibration;
+const requiredDomains = manifest.collectionPlan?.requiredDomains ?? [];
 
 const requiredWeights = [
   "horizonRollFullPenaltyDegrees",
@@ -22,6 +24,7 @@ const requiredWeights = [
 ];
 
 assert(manifest.collectionPlan?.singlePhoneOnly === true, "Calibration plan must stay single-phone only.");
+assert(Array.isArray(requiredDomains) && requiredDomains.length > 0, "Calibration plan must list required domains.");
 assert(Array.isArray(manifest.samples) && manifest.samples.length > 0, "Calibration manifest needs at least one seed or capture sample.");
 
 for (const key of requiredWeights) {
@@ -42,6 +45,7 @@ assertRange(weights.missingPoseScore, "missingPoseScore", 0, 1);
 assertRange(weights.nonPortraitCameraAngleScore, "nonPortraitCameraAngleScore", 0, 1);
 
 let realCaptureSamples = 0;
+const realCaptureDomains = new Set();
 
 for (const sample of manifest.samples) {
   assert(typeof sample.id === "string" && sample.id.length > 0, "Calibration sample needs an id.");
@@ -54,6 +58,7 @@ for (const sample of manifest.samples) {
   assert(sceneState.safety?.movementGuidanceAllowed !== undefined, `${sample.id}: scene safety state is required.`);
   assert(sample.privacy?.singlePhoneOnly !== false, `${sample.id}: calibration samples must stay single-phone only.`);
   assert(sample.privacy?.cloudAnalysisUsed !== true, `${sample.id}: calibration samples must not require cloud analysis.`);
+  assert(sample.privacy?.generativeEditsAllowed !== true, `${sample.id}: calibration samples must not include generated edits.`);
   assert(sample.privacy?.identityRecognitionAllowed !== true, `${sample.id}: calibration samples must not include identity recognition.`);
 
   if (sample.sampleKind === "iphone_capture_candidate" || sample.sampleKind === "iphone_capture") {
@@ -63,7 +68,15 @@ for (const sample of manifest.samples) {
 
   if (sample.sampleKind === "iphone_capture") {
     realCaptureSamples += 1;
+    assert(typeof sample.domain === "string" && sample.domain.length > 0, `${sample.id}: real captures need a calibration domain.`);
+    assert(requiredDomains.includes(sample.domain), `${sample.id}: unsupported calibration domain ${sample.domain}.`);
+    realCaptureDomains.add(sample.domain);
     assert((sample.blindPreference?.reviewCount ?? 0) >= manifest.collectionPlan.minimumBlindReviewers, `${sample.id}: real captures need blind preference reviews.`);
+    assert(typeof sample.blindPreference?.preferredGuidanceReason === "string" && sample.blindPreference.preferredGuidanceReason.length > 0, `${sample.id}: real captures need preferredGuidanceReason.`);
+    assert(Array.isArray(sample.blindPreference?.rankedWeaknesses) && sample.blindPreference.rankedWeaknesses.length > 0, `${sample.id}: real captures need rankedWeaknesses.`);
+    for (const weakness of sample.blindPreference.rankedWeaknesses) {
+      assert(typeof weakness === "string" && weakness.length > 0, `${sample.id}: ranked weakness labels must be non-empty strings.`);
+    }
   }
 
   const shotSpec = parseIntent(sample.prompt);
@@ -83,9 +96,30 @@ console.log(JSON.stringify({
   calibrationVersion: manifest.version,
   samples: manifest.samples.length,
   realCaptureSamples,
+  realCaptureDomains: [...realCaptureDomains].sort(),
   targetRealCaptureSamples: manifest.collectionPlan.realCaptureTargetCount,
   status: "passed",
 }, null, 2));
+
+function resolveInputPath(inputPath) {
+  return path.isAbsolute(inputPath) ? inputPath : path.resolve(process.cwd(), inputPath);
+}
+
+function findRepoRoot() {
+  const candidates = [
+    path.resolve(process.cwd(), "../.."),
+    path.resolve(__dirname, "../../.."),
+    process.cwd(),
+  ];
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(path.join(candidate, "tests/calibration/target-match-calibration.json"))) {
+      return candidate;
+    }
+  }
+
+  return path.resolve(process.cwd(), "../..");
+}
 
 function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, "utf8"));
