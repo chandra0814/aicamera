@@ -425,6 +425,63 @@ final class AiCoreTests: XCTestCase {
         }
     }
 
+    func testOnlineInspirationRankerPrioritizesRelevantPhotographicReferences() {
+        let request = OnlineInspirationRequest(
+            planId: "online_reference_ranker_test",
+            queries: [
+                "cinematic portrait phone photography reference",
+                "portrait environmental clean photography ideas"
+            ]
+        )
+        let icon = OnlineInspirationResult(
+            id: "wikimedia_commons_icon",
+            source: .wikimediaCommons,
+            query: "cinematic portrait phone photography reference",
+            title: "Portrait location map icon.svg",
+            pageURL: URL(string: "https://commons.wikimedia.org/wiki/File:Portrait_location_map_icon.svg")!,
+            thumbnailURL: URL(string: "https://upload.wikimedia.org/wikipedia/commons/thumb/map.svg/640px-map.svg.png"),
+            imageURL: URL(string: "https://upload.wikimedia.org/wikipedia/commons/map.svg"),
+            mimeType: "image/svg+xml",
+            license: nil,
+            creator: nil
+        )
+        let photograph = OnlineInspirationResult(
+            id: "wikimedia_commons_photo",
+            source: .wikimediaCommons,
+            query: "portrait environmental clean photography ideas",
+            title: "Cinematic portrait photograph with clean background.jpg",
+            pageURL: URL(string: "https://commons.wikimedia.org/wiki/File:Cinematic_portrait.jpg")!,
+            thumbnailURL: URL(string: "https://upload.wikimedia.org/wikipedia/commons/thumb/photo.jpg/640px-photo.jpg"),
+            imageURL: URL(string: "https://upload.wikimedia.org/wikipedia/commons/photo.jpg"),
+            mimeType: "image/jpeg",
+            license: "CC BY-SA 4.0",
+            creator: "Jane Doe"
+        )
+
+        let ranked = OnlineInspirationRanker().rank([icon, photograph], for: request)
+
+        XCTAssertEqual(ranked.first?.id, "wikimedia_commons_photo")
+    }
+
+    func testOnlineInspirationThumbnailCacheStoresAndEvictsLocalData() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LensPilotOnlineInspiration-\(UUID().uuidString)", isDirectory: true)
+        let cache = OnlineInspirationThumbnailCache(directoryURL: directory, maxCacheBytes: 4)
+        let firstURL = URL(string: "https://example.test/first.jpg")!
+        let secondURL = URL(string: "https://example.test/second.jpg")!
+
+        try await cache.store(Data([1, 2, 3]), for: firstURL, maxObjectBytes: 10)
+        XCTAssertEqual(try await cache.cachedData(for: firstURL), Data([1, 2, 3]))
+
+        try await Task.sleep(nanoseconds: 5_000_000)
+        try await cache.store(Data([4, 5, 6]), for: secondURL, maxObjectBytes: 10)
+
+        XCTAssertNil(try await cache.cachedData(for: firstURL))
+        XCTAssertEqual(try await cache.cachedData(for: secondURL), Data([4, 5, 6]))
+
+        try await cache.removeAll()
+    }
+
     private static func portraitScene() -> SceneState {
         SceneState(
             timestamp: Date(timeIntervalSince1970: 0),

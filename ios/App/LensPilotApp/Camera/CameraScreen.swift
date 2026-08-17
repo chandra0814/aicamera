@@ -393,7 +393,10 @@ private struct PersonalVisualAiSettingsSheet: View {
                 } else if !viewModel.onlineInspirationResults.isEmpty {
                     Section("Public References") {
                         ForEach(viewModel.onlineInspirationResults.prefix(6)) { result in
-                            OnlineInspirationResultRow(result: result) {
+                            OnlineInspirationResultRow(
+                                result: result,
+                                thumbnailImage: thumbnailImage(for: result)
+                            ) {
                                 viewModel.useOnlineInspirationReference(result)
                             }
                         }
@@ -423,28 +426,44 @@ private struct PersonalVisualAiSettingsSheet: View {
         }
         .presentationDetents([.medium, .large])
     }
+
+    private func thumbnailImage(for result: OnlineInspirationResult) -> Image? {
+        #if canImport(UIKit)
+        guard
+            let data = viewModel.cachedOnlineInspirationThumbnailData(for: result),
+            let uiImage = UIImage(data: data)
+        else {
+            return nil
+        }
+
+        return Image(uiImage: uiImage)
+        #else
+        return nil
+        #endif
+    }
 }
 
 private struct OnlineInspirationResultRow: View {
     let result: OnlineInspirationResult
+    let thumbnailImage: Image?
     let onUseReference: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
-            AsyncImage(url: result.thumbnailURL ?? result.imageURL) { phase in
-                switch phase {
-                case let .success(image):
-                    image
+            ZStack {
+                Color.secondary.opacity(0.12)
+
+                if let thumbnailImage {
+                    thumbnailImage
                         .resizable()
                         .scaledToFill()
-                default:
+                } else {
                     Image(systemName: "photo")
                         .font(.title3)
                         .foregroundStyle(.secondary)
                 }
             }
             .frame(width: 58, height: 58)
-            .background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
             .clipShape(RoundedRectangle(cornerRadius: 8))
 
             VStack(alignment: .leading, spacing: 4) {

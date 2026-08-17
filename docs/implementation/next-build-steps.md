@@ -6,7 +6,7 @@
 2. Use the in-app share control to export `iphone_capture_candidate` JSON for portrait, landscape, sky, clutter, backlight, horizon, and motion samples.
 3. Add blind preference labels from the in-app tag control, then import reviewed app exports with `npm run calibration:import-reviewed -- --sample <reviewed-sample.json> --write`.
 4. Calibrate the on-device metric weights and guidance priorities against those reviewed samples; the app now loads the bundled manifest into `LensPilotAiCore`.
-5. Add thumbnail caching and multi-provider ranking for online inspiration results.
+5. Add a second public-source provider and cross-provider result diversity for online inspiration.
 6. Add `NSMicrophoneUsageDescription` later, when voice input is wired.
 
 ## Completed Single-Phone Runtime Work
@@ -35,6 +35,7 @@
 - Optional online inspiration now has a privacy-safe request policy that uses prompt/ShotSpec summaries only and blocks raw live camera frames, private photos, identity data, and precise location without consent.
 - The camera screen now exposes Personal Visual AI settings for local learning, optional online inspiration, visible online-reference plans, and deleting the learned on-phone profile.
 - The app can fetch public Wikimedia Commons image references from the consent-gated plan and load a selected public image into the same-phone reference popup.
+- Online inspiration results are ranked for photographic relevance and warmed through a bounded same-phone thumbnail cache.
 
 ## Single-Phone Verification Checklist
 

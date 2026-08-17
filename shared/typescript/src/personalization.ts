@@ -349,7 +349,60 @@ export async function fetchWikimediaCommonsReferences(
     }
   }
 
-  return { planId: request.planId, source: request.source, results };
+  return { planId: request.planId, source: request.source, results: rankOnlineInspirationResults(results, request) };
+}
+
+export function rankOnlineInspirationResults(
+  results: OnlineInspirationResult[],
+  request: OnlineInspirationRequest
+): OnlineInspirationResult[] {
+  const queryOrder = new Map(request.queries.map((query, index) => [query.toLowerCase(), index]));
+  const queryTokens = new Set(request.queries.flatMap(tokenizeForRanking));
+
+  return results
+    .map((result, index) => ({
+      result,
+      index,
+      score: scoreOnlineInspirationResult(result, index, queryOrder, queryTokens),
+    }))
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .map(({ result }) => result);
+}
+
+export class OnlineInspirationThumbnailMemoryCache {
+  private entries = new Map<string, Uint8Array>();
+
+  constructor(private readonly maxEntries = 24) {}
+
+  get(url: string): Uint8Array | undefined {
+    return this.entries.get(url);
+  }
+
+  set(url: string, data: Uint8Array): void {
+    this.entries.delete(url);
+    this.entries.set(url, data);
+    while (this.entries.size > Math.max(1, this.maxEntries)) {
+      const oldest = this.entries.keys().next().value;
+      if (!oldest) break;
+      this.entries.delete(oldest);
+    }
+  }
+
+  async getOrFetch(
+    url: string,
+    fetcher: (url: string) => Promise<Uint8Array>
+  ): Promise<Uint8Array> {
+    const cached = this.get(url);
+    if (cached) return cached;
+
+    const data = await fetcher(url);
+    this.set(url, data);
+    return data;
+  }
+
+  clear(): void {
+    this.entries.clear();
+  }
 }
 
 function canLearnLocally(event: PersonalLearningEvent): boolean {
@@ -433,4 +486,41 @@ function metadataValue(value: unknown): string | undefined {
     .replace(/&amp;/g, "&")
     .trim();
   return cleaned || undefined;
+}
+
+function scoreOnlineInspirationResult(
+  result: OnlineInspirationResult,
+  originalIndex: number,
+  queryOrder: Map<string, number>,
+  queryTokens: Set<string>
+): number {
+  const resultTokens = new Set(tokenizeForRanking(`${result.title} ${result.query}`));
+  const overlap = queryTokens.size === 0
+    ? 0
+    : [...resultTokens].filter((token) => queryTokens.has(token)).length / queryTokens.size;
+  const queryPosition = queryOrder.has(result.query.toLowerCase())
+    ? Math.max(0, 1 - (queryOrder.get(result.query.toLowerCase()) ?? 0) * 0.18)
+    : 0;
+  const title = result.title.toLowerCase();
+  const mimeType = result.mimeType?.toLowerCase() ?? "";
+
+  let score = queryPosition + overlap * 1.4 - originalIndex * 0.001;
+  if (result.thumbnailUrl) score += 0.35;
+  if (result.imageUrl) score += 0.2;
+  if (result.license) score += 0.12;
+  if (result.creator) score += 0.08;
+
+  if (["image/jpeg", "image/png", "image/webp"].includes(mimeType)) score += 0.25;
+  if (mimeType === "image/svg+xml") score -= 0.45;
+  if (containsAny(title, ["portrait", "photo", "photograph", "camera", "street", "landscape", "travel", "cinematic"])) score += 0.2;
+  if (containsAny(title, ["logo", "icon", "diagram", "map", "flag", "seal", "coat of arms"])) score -= 0.35;
+
+  return score;
+}
+
+function tokenizeForRanking(value: string): string[] {
+  return value
+    .toLowerCase()
+    .split(/[^a-z0-9]+/i)
+    .filter((token) => token.length > 2);
 }

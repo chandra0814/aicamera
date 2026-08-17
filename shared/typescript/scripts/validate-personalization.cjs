@@ -124,10 +124,33 @@ assert(publicReferenceResults[0].title === "Cinematic portrait reference.jpg", "
 assert(publicReferenceResults[0].creator === "Jane Doe", "Wikimedia parser should clean metadata HTML.");
 assert(publicReferenceResults[0].privacy.derivedFromPromptOnly === true, "Public references should be prompt-only derived.");
 
+const rankedReferences = rankOnlineInspirationResults([
+  {
+    id: "wikimedia_commons_logo",
+    source: "wikimedia_commons",
+    query: inspirationRequest.queries[0],
+    title: "Portrait location map icon.svg",
+    pageUrl: "https://commons.wikimedia.org/wiki/File:Portrait_location_map_icon.svg",
+    thumbnailUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/map.svg/640px-map.svg.png",
+    imageUrl: "https://upload.wikimedia.org/wikipedia/commons/map.svg",
+    mimeType: "image/svg+xml",
+    privacy: publicReferenceResults[0].privacy,
+  },
+  publicReferenceResults[0],
+], inspirationRequest);
+assert(rankedReferences[0].id === publicReferenceResults[0].id, "Ranking should favor relevant photographic results over icon-like files.");
+
+const thumbnailCache = makeThumbnailMemoryCache(1);
+thumbnailCache.set("https://example.test/first.jpg", new Uint8Array([1]));
+thumbnailCache.set("https://example.test/second.jpg", new Uint8Array([2]));
+assert(!thumbnailCache.get("https://example.test/first.jpg"), "Thumbnail cache should evict oldest entries.");
+assert(thumbnailCache.get("https://example.test/second.jpg")[0] === 2, "Thumbnail cache should keep the latest entry.");
+
 console.log(JSON.stringify({
   personalLearning: true,
   onlineReferencePlan: plan.reason,
   onlineSourceAdapter: publicReferenceResults[0].source,
+  onlineRanking: rankedReferences[0].id,
   privacy: plan.privacy,
   status: "passed",
 }, null, 2));
@@ -310,6 +333,41 @@ function parseWikimediaCommonsSearchResponse(payload, query) {
     });
 }
 
+function rankOnlineInspirationResults(results, request) {
+  const queryOrder = new Map(request.queries.map((query, index) => [query.toLowerCase(), index]));
+  const queryTokens = new Set(request.queries.flatMap(tokenizeForRanking));
+
+  return results
+    .map((result, index) => ({
+      result,
+      index,
+      score: scoreOnlineInspirationResult(result, index, queryOrder, queryTokens),
+    }))
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .map(({ result }) => result);
+}
+
+function makeThumbnailMemoryCache(maxEntries = 24) {
+  const entries = new Map();
+  return {
+    get(url) {
+      return entries.get(url);
+    },
+    set(url, data) {
+      entries.delete(url);
+      entries.set(url, data);
+      while (entries.size > Math.max(1, maxEntries)) {
+        const oldest = entries.keys().next().value;
+        if (!oldest) break;
+        entries.delete(oldest);
+      }
+    },
+    clear() {
+      entries.clear();
+    },
+  };
+}
+
 function canLearnLocally(event) {
   return event.privacy.singlePhoneOnly &&
     !event.privacy.storesRawPhoto &&
@@ -383,6 +441,36 @@ function metadataValue(value) {
     .replace(/&amp;/g, "&")
     .trim();
   return cleaned || undefined;
+}
+
+function scoreOnlineInspirationResult(result, originalIndex, queryOrder, queryTokens) {
+  const resultTokens = new Set(tokenizeForRanking(`${result.title} ${result.query}`));
+  const overlap = queryTokens.size === 0
+    ? 0
+    : [...resultTokens].filter((token) => queryTokens.has(token)).length / queryTokens.size;
+  const queryPosition = queryOrder.has(result.query.toLowerCase())
+    ? Math.max(0, 1 - (queryOrder.get(result.query.toLowerCase()) ?? 0) * 0.18)
+    : 0;
+  const title = result.title.toLowerCase();
+  const mimeType = result.mimeType?.toLowerCase() ?? "";
+
+  let score = queryPosition + overlap * 1.4 - originalIndex * 0.001;
+  if (result.thumbnailUrl) score += 0.35;
+  if (result.imageUrl) score += 0.2;
+  if (result.license) score += 0.12;
+  if (result.creator) score += 0.08;
+  if (["image/jpeg", "image/png", "image/webp"].includes(mimeType)) score += 0.25;
+  if (mimeType === "image/svg+xml") score -= 0.45;
+  if (containsAny(title, ["portrait", "photo", "photograph", "camera", "street", "landscape", "travel", "cinematic"])) score += 0.2;
+  if (containsAny(title, ["logo", "icon", "diagram", "map", "flag", "seal", "coat of arms"])) score -= 0.35;
+  return score;
+}
+
+function tokenizeForRanking(value) {
+  return value
+    .toLowerCase()
+    .split(/[^a-z0-9]+/i)
+    .filter((token) => token.length > 2);
 }
 
 function assert(condition, message) {

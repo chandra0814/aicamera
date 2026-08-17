@@ -42,6 +42,7 @@ final class CameraScreenViewModel: ObservableObject {
     @Published private(set) var personalProfile: PersonalVisualPreferenceProfile
     @Published private(set) var onlineReferencePlan: OnlineReferencePlan?
     @Published private(set) var onlineInspirationResults: [OnlineInspirationResult] = []
+    @Published private(set) var onlineInspirationThumbnailData: [String: Data] = [:]
     @Published private(set) var onlineInspirationLoadState: OnlineInspirationLoadState = .idle
     @Published private(set) var isCapturing = false
     @Published var intentText = "Give me a cinematic portrait"
@@ -60,6 +61,7 @@ final class CameraScreenViewModel: ObservableObject {
     private let calibrationSamplePromoter = CalibrationSamplePromoter()
     private let personalLearningEngine = PersonalVisualLearningEngine()
     private let onlineInspirationService = OnlineInspirationService()
+    private let onlineInspirationThumbnailCache = OnlineInspirationThumbnailCache()
     private var guidanceStabilizer = GuidanceStabilizer()
     private lazy var frameAnalysisCoordinator = CameraFrameAnalysisCoordinator(analyzer: frameAnalyzer)
     private var isFrameAnalysisConnected = false
@@ -190,11 +192,14 @@ final class CameraScreenViewModel: ObservableObject {
                 let response = try await onlineInspirationService.fetchReferences(for: plan, perQueryLimit: 3)
                 guard onlineReferencePlan?.id == planId else { return }
                 onlineInspirationResults = response.results
+                onlineInspirationThumbnailData = [:]
                 hasLoadedOnlineInspiration = !response.results.isEmpty
                 onlineInspirationLoadState = .loaded(response.results.count)
+                warmOnlineInspirationThumbnailCache(for: response.results, planId: planId)
             } catch {
                 guard onlineReferencePlan?.id == planId else { return }
                 onlineInspirationResults = []
+                onlineInspirationThumbnailData = [:]
                 hasLoadedOnlineInspiration = false
                 onlineInspirationLoadState = .failed("Public references unavailable")
                 errorMessage = "Online inspiration failed. Camera guidance still works offline."
@@ -210,15 +215,8 @@ final class CameraScreenViewModel: ObservableObject {
 
         Task {
             do {
-                let (data, response) = try await URLSession.shared.data(from: url)
-                if let httpResponse = response as? HTTPURLResponse,
-                   !(200..<300).contains(httpResponse.statusCode) {
-                    throw OnlineInspirationError.invalidHTTPStatus(httpResponse.statusCode)
-                }
-                guard data.count <= 6_000_000 else {
-                    errorMessage = "Online reference image is too large."
-                    return
-                }
+                let data = try await onlineInspirationThumbnailCache.data(for: url, maxObjectBytes: 6_000_000)
+                onlineInspirationThumbnailData[result.id] = data
 
                 activateReferencePhoto(
                     imageData: data,
@@ -236,6 +234,10 @@ final class CameraScreenViewModel: ObservableObject {
                 errorMessage = "Online reference could not be loaded."
             }
         }
+    }
+
+    func cachedOnlineInspirationThumbnailData(for result: OnlineInspirationResult) -> Data? {
+        onlineInspirationThumbnailData[result.id]
     }
 
     private func handleSceneDebugState(_ debugState: SceneDebugState) {
@@ -492,6 +494,7 @@ final class CameraScreenViewModel: ObservableObject {
         guard let shotSpec else {
             onlineReferencePlan = nil
             onlineInspirationResults = []
+            onlineInspirationThumbnailData = [:]
             onlineInspirationLoadState = .idle
             hasLoadedOnlineInspiration = false
             return
@@ -505,10 +508,25 @@ final class CameraScreenViewModel: ObservableObject {
         )
         if nextPlan != onlineReferencePlan {
             onlineInspirationResults = []
+            onlineInspirationThumbnailData = [:]
             onlineInspirationLoadState = .idle
             hasLoadedOnlineInspiration = false
         }
         onlineReferencePlan = nextPlan
+    }
+
+    private func warmOnlineInspirationThumbnailCache(for results: [OnlineInspirationResult], planId: String) {
+        Task {
+            for result in results.prefix(6) {
+                guard onlineReferencePlan?.id == planId else { return }
+                guard let url = result.thumbnailURL ?? result.imageURL else { continue }
+
+                if let data = try? await onlineInspirationThumbnailCache.data(for: url, maxObjectBytes: 1_500_000) {
+                    guard onlineReferencePlan?.id == planId else { return }
+                    onlineInspirationThumbnailData[result.id] = data
+                }
+            }
+        }
     }
 
     private func promptRequirements(for shotSpec: ShotSpec, prompt: String) -> [String] {

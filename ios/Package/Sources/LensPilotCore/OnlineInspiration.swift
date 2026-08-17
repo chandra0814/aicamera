@@ -5,6 +5,7 @@ public enum OnlineInspirationError: Error, Equatable, Sendable {
     case invalidSearchURL
     case invalidHTTPStatus(Int)
     case missingProviderData
+    case thumbnailTooLarge(Int)
 }
 
 public struct OnlineInspirationRequest: Equatable, Sendable {
@@ -166,15 +167,212 @@ public struct OnlineInspirationResponse: Equatable, Sendable {
     }
 }
 
+public struct OnlineInspirationRanker: Sendable {
+    public init() {}
+
+    public func rank(
+        _ results: [OnlineInspirationResult],
+        for request: OnlineInspirationRequest
+    ) -> [OnlineInspirationResult] {
+        var queryOrder: [String: Int] = [:]
+        for (index, query) in request.queries.enumerated() {
+            let key = query.lowercased()
+            if queryOrder[key] == nil {
+                queryOrder[key] = index
+            }
+        }
+        let queryTokens = Set(request.queries.flatMap(Self.tokens))
+
+        return results
+            .enumerated()
+            .sorted { lhs, rhs in
+                let lhsScore = score(lhs.element, originalIndex: lhs.offset, queryOrder: queryOrder, queryTokens: queryTokens)
+                let rhsScore = score(rhs.element, originalIndex: rhs.offset, queryOrder: queryOrder, queryTokens: queryTokens)
+
+                if lhsScore == rhsScore {
+                    return lhs.offset < rhs.offset
+                }
+
+                return lhsScore > rhsScore
+            }
+            .map(\.element)
+    }
+
+    private func score(
+        _ result: OnlineInspirationResult,
+        originalIndex: Int,
+        queryOrder: [String: Int],
+        queryTokens: Set<String>
+    ) -> Double {
+        let resultTokens = Set(Self.tokens("\(result.title) \(result.query)"))
+        let overlap = queryTokens.isEmpty
+            ? 0
+            : Double(resultTokens.intersection(queryTokens).count) / Double(queryTokens.count)
+        let queryPosition = queryOrder[result.query.lowercased()].map { max(0, 1.0 - Double($0) * 0.18) } ?? 0
+        let title = result.title.lowercased()
+        let mimeType = result.mimeType?.lowercased() ?? ""
+
+        var score = queryPosition + overlap * 1.4 - Double(originalIndex) * 0.001
+
+        if result.thumbnailURL != nil { score += 0.35 }
+        if result.imageURL != nil { score += 0.2 }
+        if result.license?.isEmpty == false { score += 0.12 }
+        if result.creator?.isEmpty == false { score += 0.08 }
+
+        if mimeType == "image/jpeg" || mimeType == "image/png" || mimeType == "image/webp" {
+            score += 0.25
+        } else if mimeType == "image/svg+xml" {
+            score -= 0.45
+        }
+
+        if containsAny(title, terms: ["portrait", "photo", "photograph", "camera", "street", "landscape", "travel", "cinematic"]) {
+            score += 0.2
+        }
+
+        if containsAny(title, terms: ["logo", "icon", "diagram", "map", "flag", "seal", "coat of arms"]) {
+            score -= 0.35
+        }
+
+        return score
+    }
+
+    private static func tokens(_ value: String) -> [String] {
+        value
+            .lowercased()
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { $0.count > 2 }
+    }
+
+    private func containsAny(_ value: String, terms: [String]) -> Bool {
+        terms.contains { value.contains($0) }
+    }
+}
+
+public actor OnlineInspirationThumbnailCache {
+    private let directoryURL: URL
+    private let maxCacheBytes: Int
+    private let fileManager: FileManager
+
+    public init(
+        directoryURL: URL? = nil,
+        maxCacheBytes: Int = 24_000_000,
+        fileManager: FileManager = .default
+    ) {
+        self.fileManager = fileManager
+        self.maxCacheBytes = max(1, maxCacheBytes)
+
+        if let directoryURL {
+            self.directoryURL = directoryURL
+        } else if let cacheRoot = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first {
+            self.directoryURL = cacheRoot.appendingPathComponent("LensPilotOnlineInspiration", isDirectory: true)
+        } else {
+            self.directoryURL = URL(fileURLWithPath: NSTemporaryDirectory())
+                .appendingPathComponent("LensPilotOnlineInspiration", isDirectory: true)
+        }
+    }
+
+    public func cachedData(for url: URL) throws -> Data? {
+        let fileURL = cacheFileURL(for: url)
+        guard fileManager.fileExists(atPath: fileURL.path) else { return nil }
+        return try Data(contentsOf: fileURL)
+    }
+
+    public func data(for url: URL, maxObjectBytes: Int = 2_000_000) async throws -> Data {
+        if let cachedData = try cachedData(for: url) {
+            return cachedData
+        }
+
+        let (data, response) = try await URLSession.shared.data(from: url)
+        if let httpResponse = response as? HTTPURLResponse,
+           !(200..<300).contains(httpResponse.statusCode) {
+            throw OnlineInspirationError.invalidHTTPStatus(httpResponse.statusCode)
+        }
+
+        try store(data, for: url, maxObjectBytes: maxObjectBytes)
+        return data
+    }
+
+    public func store(_ data: Data, for url: URL, maxObjectBytes: Int = 2_000_000) throws {
+        guard data.count <= maxObjectBytes else {
+            throw OnlineInspirationError.thumbnailTooLarge(data.count)
+        }
+
+        try ensureDirectoryExists()
+        try data.write(to: cacheFileURL(for: url), options: [.atomic])
+        try pruneIfNeeded()
+    }
+
+    public func removeAll() throws {
+        guard fileManager.fileExists(atPath: directoryURL.path) else { return }
+        try fileManager.removeItem(at: directoryURL)
+    }
+
+    private func ensureDirectoryExists() throws {
+        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+    }
+
+    private func cacheFileURL(for url: URL) -> URL {
+        directoryURL.appendingPathComponent("\(stableHash(for: url.absoluteString)).bin")
+    }
+
+    private func stableHash(for value: String) -> String {
+        var hash: UInt64 = 1_469_598_103_934_665_603
+        for byte in value.utf8 {
+            hash = hash ^ UInt64(byte)
+            hash = hash &* 1_099_511_628_211
+        }
+        return String(hash, radix: 16)
+    }
+
+    private func pruneIfNeeded() throws {
+        guard fileManager.fileExists(atPath: directoryURL.path) else { return }
+
+        let files = try fileManager.contentsOfDirectory(
+            at: directoryURL,
+            includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey]
+        )
+        var cacheFiles = files.compactMap { fileURL -> CacheFile? in
+            guard let values = try? fileURL.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey]) else {
+                return nil
+            }
+
+            return CacheFile(
+                url: fileURL,
+                modifiedAt: values.contentModificationDate ?? .distantPast,
+                byteCount: values.fileSize ?? 0
+            )
+        }
+        var totalBytes = cacheFiles.reduce(0) { $0 + $1.byteCount }
+        guard totalBytes > maxCacheBytes else { return }
+
+        cacheFiles.sort { $0.modifiedAt < $1.modifiedAt }
+        for file in cacheFiles where totalBytes > maxCacheBytes {
+            try? fileManager.removeItem(at: file.url)
+            totalBytes -= file.byteCount
+        }
+    }
+
+    private struct CacheFile {
+        let url: URL
+        let modifiedAt: Date
+        let byteCount: Int
+    }
+}
+
 public protocol OnlineInspirationProvider: Sendable {
     func fetchReferences(for request: OnlineInspirationRequest) async throws -> [OnlineInspirationResult]
 }
 
 public struct OnlineInspirationService: Sendable {
     private let provider: any OnlineInspirationProvider
+    private let ranker: OnlineInspirationRanker
 
-    public init(provider: any OnlineInspirationProvider = WikimediaCommonsInspirationProvider()) {
+    public init(
+        provider: any OnlineInspirationProvider = WikimediaCommonsInspirationProvider(),
+        ranker: OnlineInspirationRanker = OnlineInspirationRanker()
+    ) {
         self.provider = provider
+        self.ranker = ranker
     }
 
     public func fetchReferences(
@@ -191,7 +389,8 @@ public struct OnlineInspirationService: Sendable {
             throw OnlineInspirationError.unsafePlan
         }
 
-        return try await provider.fetchReferences(for: request)
+        let results = try await provider.fetchReferences(for: request)
+        return ranker.rank(results, for: request)
     }
 }
 
