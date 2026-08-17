@@ -78,11 +78,13 @@ export interface OnlineReferencePlan {
   };
 }
 
+export type OnlineInspirationSource = "public_sources" | "wikimedia_commons" | "openverse";
+
 export interface OnlineInspirationRequest {
   planId: string;
   queries: string[];
   perQueryLimit: number;
-  source: "wikimedia_commons";
+  source: OnlineInspirationSource;
   privacy: {
     singlePhoneOnly: true;
     requiresUserConsent: true;
@@ -95,7 +97,7 @@ export interface OnlineInspirationRequest {
 
 export interface OnlineInspirationResult {
   id: string;
-  source: "wikimedia_commons";
+  source: OnlineInspirationSource;
   query: string;
   title: string;
   pageUrl: string;
@@ -115,7 +117,8 @@ export interface OnlineInspirationResult {
 
 export interface OnlineInspirationResponse {
   planId: string;
-  source: "wikimedia_commons";
+  source: OnlineInspirationSource;
+  sources: OnlineInspirationSource[];
   results: OnlineInspirationResult[];
 }
 
@@ -253,7 +256,7 @@ export function makeOnlineInspirationRequest(
     planId: plan.id,
     queries: uniqueNonEmpty(plan.searchQueries).slice(0, 3),
     perQueryLimit: Math.min(10, Math.max(1, perQueryLimit)),
-    source: "wikimedia_commons",
+    source: "public_sources",
     privacy: {
       singlePhoneOnly: true,
       requiresUserConsent: true,
@@ -282,6 +285,18 @@ export function buildWikimediaCommonsSearchUrl(
   url.searchParams.set("format", "json");
   url.searchParams.set("formatversion", "2");
   url.searchParams.set("origin", "*");
+  return url.toString();
+}
+
+export function buildOpenverseSearchUrl(
+  query: string,
+  limit = 4,
+  apiUrl = "https://api.openverse.engineering/v1/images/"
+): string {
+  const url = new URL(apiUrl);
+  url.searchParams.set("q", query);
+  url.searchParams.set("page_size", String(Math.min(10, Math.max(1, limit))));
+  url.searchParams.set("mature", "false");
   return url.toString();
 }
 
@@ -328,6 +343,52 @@ export function parseWikimediaCommonsSearchResponse(
     });
 }
 
+export function parseOpenverseSearchResponse(
+  payload: unknown,
+  query: string
+): OnlineInspirationResult[] {
+  const results = isRecord(payload) && Array.isArray(payload.results)
+    ? payload.results
+    : [];
+
+  return results.flatMap((item): OnlineInspirationResult[] => {
+    if (!isRecord(item) || item.mature === true || typeof item.id !== "string" || !item.id.trim()) return [];
+    const imageUrl = typeof item.url === "string" ? item.url : undefined;
+    const thumbnailUrl = typeof item.thumbnail === "string" ? item.thumbnail : undefined;
+    if (!imageUrl && !thumbnailUrl) return [];
+
+    const pageUrl = typeof item.foreign_landing_url === "string"
+      ? item.foreign_landing_url
+      : typeof item.frontend_url === "string"
+        ? item.frontend_url
+        : imageUrl;
+    if (!pageUrl) return [];
+
+    return [{
+      id: `openverse_${item.id.trim()}`,
+      source: "openverse",
+      query,
+      title: cleanText(typeof item.title === "string" ? item.title : "") || "Openverse public reference",
+      pageUrl,
+      thumbnailUrl,
+      imageUrl,
+      mimeType: inferredMimeType(imageUrl ?? thumbnailUrl),
+      license: openverseLicenseLabel(
+        typeof item.license === "string" ? item.license : undefined,
+        typeof item.license_version === "string" ? item.license_version : undefined
+      ),
+      creator: typeof item.creator === "string" ? cleanText(item.creator) || undefined : undefined,
+      privacy: {
+        publicSourceOnly: true,
+        derivedFromPromptOnly: true,
+        storesRawPhoto: false,
+        uploadsLiveCameraFrame: false,
+        identityRecognitionAllowed: false,
+      },
+    }];
+  });
+}
+
 export async function fetchWikimediaCommonsReferences(
   request: OnlineInspirationRequest,
   fetcher: (url: string) => Promise<{ ok: boolean; status: number; json: () => Promise<unknown> }>
@@ -349,7 +410,8 @@ export async function fetchWikimediaCommonsReferences(
     }
   }
 
-  return { planId: request.planId, source: request.source, results: rankOnlineInspirationResults(results, request) };
+  const ranked = rankOnlineInspirationResults(results, request);
+  return { planId: request.planId, source: request.source, sources: uniqueSources(ranked, request.source), results: ranked };
 }
 
 export function rankOnlineInspirationResults(
@@ -359,14 +421,15 @@ export function rankOnlineInspirationResults(
   const queryOrder = new Map(request.queries.map((query, index) => [query.toLowerCase(), index]));
   const queryTokens = new Set(request.queries.flatMap(tokenizeForRanking));
 
-  return results
+  const ranked = results
     .map((result, index) => ({
       result,
       index,
       score: scoreOnlineInspirationResult(result, index, queryOrder, queryTokens),
     }))
-    .sort((a, b) => b.score - a.score || a.index - b.index)
-    .map(({ result }) => result);
+    .sort((a, b) => b.score - a.score || a.index - b.index);
+
+  return diversifyScoredResults(ranked).map(({ result }) => result);
 }
 
 export class OnlineInspirationThumbnailMemoryCache {
@@ -470,6 +533,14 @@ function uniqueNonEmpty(values: string[]): string[] {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 }
 
+function uniqueSources(
+  results: OnlineInspirationResult[],
+  fallback: OnlineInspirationSource
+): OnlineInspirationSource[] {
+  const sources = [...new Set(results.map((result) => result.source))];
+  return sources.length > 0 ? sources : [fallback];
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -480,12 +551,61 @@ function pageIndex(value: unknown): number {
 
 function metadataValue(value: unknown): string | undefined {
   if (!isRecord(value) || typeof value.value !== "string") return undefined;
-  const cleaned = value.value
+  const cleaned = cleanText(value.value);
+  return cleaned || undefined;
+}
+
+function cleanText(value: string): string {
+  return value
     .replace(/<[^>]+>/g, "")
     .replace(/&quot;/g, "\"")
     .replace(/&amp;/g, "&")
     .trim();
-  return cleaned || undefined;
+}
+
+function openverseLicenseLabel(license?: string, version?: string): string | undefined {
+  const cleanedLicense = license?.trim();
+  if (!cleanedLicense) return undefined;
+
+  const normalized = cleanedLicense.toLowerCase();
+  if (normalized === "pdm") return "Public Domain Mark";
+  if (normalized === "cc0") return "CC0";
+
+  const cleanedVersion = version?.trim();
+  return cleanedVersion ? `CC ${cleanedLicense.toUpperCase()} ${cleanedVersion}` : `CC ${cleanedLicense.toUpperCase()}`;
+}
+
+function inferredMimeType(url?: string): string | undefined {
+  if (!url) return undefined;
+  const pathname = new URL(url, "https://lenspilot.local").pathname.toLowerCase();
+  if (pathname.endsWith(".jpg") || pathname.endsWith(".jpeg")) return "image/jpeg";
+  if (pathname.endsWith(".png")) return "image/png";
+  if (pathname.endsWith(".webp")) return "image/webp";
+  if (pathname.endsWith(".gif")) return "image/gif";
+  return undefined;
+}
+
+function diversifyScoredResults<T extends { result: OnlineInspirationResult; index: number; score: number }>(
+  ranked: T[]
+): T[] {
+  const selectedIds = new Set<string>();
+  const selectedSources = new Set<OnlineInspirationSource>();
+  const diversified: T[] = [];
+
+  for (const item of ranked) {
+    if (selectedSources.has(item.result.source)) continue;
+    selectedSources.add(item.result.source);
+    selectedIds.add(item.result.id);
+    diversified.push(item);
+  }
+
+  for (const item of ranked) {
+    if (selectedIds.has(item.result.id)) continue;
+    selectedIds.add(item.result.id);
+    diversified.push(item);
+  }
+
+  return diversified;
 }
 
 function scoreOnlineInspirationResult(

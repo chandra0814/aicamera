@@ -79,6 +79,7 @@ assert(plan.searchQueries.some((query) => query.includes("cinematic")), "Online 
 
 const inspirationRequest = makeOnlineInspirationRequest(plan, 50);
 assert(inspirationRequest.perQueryLimit === 10, "Online provider limit should be clamped.");
+assert(inspirationRequest.source === "public_sources", "Online inspiration should request diverse public sources by default.");
 assert(inspirationRequest.privacy.sendsRawCameraFrame === false, "Online provider request must not include camera frames.");
 
 const commonsUrl = new URL(buildWikimediaCommonsSearchUrl("cinematic portrait phone photography reference", 50));
@@ -87,6 +88,12 @@ assert(commonsUrl.searchParams.get("generator") === "search", "Wikimedia provide
 assert(commonsUrl.searchParams.get("gsrnamespace") === "6", "Wikimedia provider should restrict search to files.");
 assert(commonsUrl.searchParams.get("gsrlimit") === "10", "Wikimedia search limit should be clamped.");
 assert(commonsUrl.searchParams.get("iiprop").includes("url"), "Wikimedia search should request image URLs.");
+
+const openverseUrl = new URL(buildOpenverseSearchUrl("cinematic portrait phone photography reference", 50));
+assert(openverseUrl.hostname === "api.openverse.engineering", "Openverse provider should use the public API host.");
+assert(openverseUrl.searchParams.get("q") === "cinematic portrait phone photography reference", "Openverse provider should pass prompt-derived query text.");
+assert(openverseUrl.searchParams.get("page_size") === "10", "Openverse search limit should be clamped.");
+assert(openverseUrl.searchParams.get("mature") === "false", "Openverse provider should request non-mature public references.");
 
 const publicReferenceResults = parseWikimediaCommonsSearchResponse({
   query: {
@@ -124,6 +131,33 @@ assert(publicReferenceResults[0].title === "Cinematic portrait reference.jpg", "
 assert(publicReferenceResults[0].creator === "Jane Doe", "Wikimedia parser should clean metadata HTML.");
 assert(publicReferenceResults[0].privacy.derivedFromPromptOnly === true, "Public references should be prompt-only derived.");
 
+const openverseReferenceResults = parseOpenverseSearchResponse({
+  results: [
+    {
+      id: "ov_99",
+      title: "Cinematic street portrait",
+      foreign_landing_url: "https://example.org/photos/cinematic-street-portrait",
+      url: "https://images.example.org/cinematic-street-portrait.jpg",
+      thumbnail: "https://images.example.org/thumbs/cinematic-street-portrait.jpg",
+      license: "by",
+      license_version: "4.0",
+      creator: "<strong>Open Photographer</strong>",
+      mature: false,
+    },
+    {
+      id: "ov_mature",
+      title: "Skipped mature result",
+      url: "https://images.example.org/mature.jpg",
+      mature: true,
+    },
+  ],
+}, "cinematic portrait");
+assert(openverseReferenceResults.length === 1, "Openverse parser should skip mature results.");
+assert(openverseReferenceResults[0].source === "openverse", "Openverse parser should mark source correctly.");
+assert(openverseReferenceResults[0].license === "CC BY 4.0", "Openverse parser should format Creative Commons license labels.");
+assert(openverseReferenceResults[0].creator === "Open Photographer", "Openverse parser should clean creator HTML.");
+assert(openverseReferenceResults[0].mimeType === "image/jpeg", "Openverse parser should infer common image MIME types.");
+
 const rankedReferences = rankOnlineInspirationResults([
   {
     id: "wikimedia_commons_logo",
@@ -137,8 +171,10 @@ const rankedReferences = rankOnlineInspirationResults([
     privacy: publicReferenceResults[0].privacy,
   },
   publicReferenceResults[0],
+  openverseReferenceResults[0],
 ], inspirationRequest);
 assert(rankedReferences[0].id === publicReferenceResults[0].id, "Ranking should favor relevant photographic results over icon-like files.");
+assert(rankedReferences[1].source === "openverse", "Ranking should diversify top public references across providers.");
 
 const thumbnailCache = makeThumbnailMemoryCache(1);
 thumbnailCache.set("https://example.test/first.jpg", new Uint8Array([1]));
@@ -149,7 +185,7 @@ assert(thumbnailCache.get("https://example.test/second.jpg")[0] === 2, "Thumbnai
 console.log(JSON.stringify({
   personalLearning: true,
   onlineReferencePlan: plan.reason,
-  onlineSourceAdapter: publicReferenceResults[0].source,
+  onlineSourceAdapter: [...new Set(rankedReferences.map((result) => result.source))].join("+"),
   onlineRanking: rankedReferences[0].id,
   privacy: plan.privacy,
   status: "passed",
@@ -265,7 +301,7 @@ function makeOnlineInspirationRequest(plan, perQueryLimit = 4) {
     planId: plan.id,
     queries: uniqueNonEmpty(plan.searchQueries).slice(0, 3),
     perQueryLimit: Math.min(10, Math.max(1, perQueryLimit)),
-    source: "wikimedia_commons",
+    source: "public_sources",
     privacy: {
       singlePhoneOnly: true,
       requiresUserConsent: true,
@@ -290,6 +326,14 @@ function buildWikimediaCommonsSearchUrl(query, limit = 4, apiUrl = "https://comm
   url.searchParams.set("format", "json");
   url.searchParams.set("formatversion", "2");
   url.searchParams.set("origin", "*");
+  return url.toString();
+}
+
+function buildOpenverseSearchUrl(query, limit = 4, apiUrl = "https://api.openverse.engineering/v1/images/") {
+  const url = new URL(apiUrl);
+  url.searchParams.set("q", query);
+  url.searchParams.set("page_size", String(Math.min(10, Math.max(1, limit))));
+  url.searchParams.set("mature", "false");
   return url.toString();
 }
 
@@ -333,18 +377,62 @@ function parseWikimediaCommonsSearchResponse(payload, query) {
     });
 }
 
+function parseOpenverseSearchResponse(payload, query) {
+  const results = isRecord(payload) && Array.isArray(payload.results)
+    ? payload.results
+    : [];
+
+  return results.flatMap((item) => {
+    if (!isRecord(item) || item.mature === true || typeof item.id !== "string" || !item.id.trim()) return [];
+    const imageUrl = typeof item.url === "string" ? item.url : undefined;
+    const thumbnailUrl = typeof item.thumbnail === "string" ? item.thumbnail : undefined;
+    if (!imageUrl && !thumbnailUrl) return [];
+
+    const pageUrl = typeof item.foreign_landing_url === "string"
+      ? item.foreign_landing_url
+      : typeof item.frontend_url === "string"
+        ? item.frontend_url
+        : imageUrl;
+    if (!pageUrl) return [];
+
+    return [{
+      id: `openverse_${item.id.trim()}`,
+      source: "openverse",
+      query,
+      title: cleanText(typeof item.title === "string" ? item.title : "") || "Openverse public reference",
+      pageUrl,
+      thumbnailUrl,
+      imageUrl,
+      mimeType: inferredMimeType(imageUrl ?? thumbnailUrl),
+      license: openverseLicenseLabel(
+        typeof item.license === "string" ? item.license : undefined,
+        typeof item.license_version === "string" ? item.license_version : undefined
+      ),
+      creator: typeof item.creator === "string" ? cleanText(item.creator) || undefined : undefined,
+      privacy: {
+        publicSourceOnly: true,
+        derivedFromPromptOnly: true,
+        storesRawPhoto: false,
+        uploadsLiveCameraFrame: false,
+        identityRecognitionAllowed: false,
+      },
+    }];
+  });
+}
+
 function rankOnlineInspirationResults(results, request) {
   const queryOrder = new Map(request.queries.map((query, index) => [query.toLowerCase(), index]));
   const queryTokens = new Set(request.queries.flatMap(tokenizeForRanking));
 
-  return results
+  const ranked = results
     .map((result, index) => ({
       result,
       index,
       score: scoreOnlineInspirationResult(result, index, queryOrder, queryTokens),
     }))
-    .sort((a, b) => b.score - a.score || a.index - b.index)
-    .map(({ result }) => result);
+    .sort((a, b) => b.score - a.score || a.index - b.index);
+
+  return diversifyScoredResults(ranked).map(({ result }) => result);
 }
 
 function makeThumbnailMemoryCache(maxEntries = 24) {
@@ -435,12 +523,59 @@ function pageIndex(value) {
 
 function metadataValue(value) {
   if (!isRecord(value) || typeof value.value !== "string") return undefined;
-  const cleaned = value.value
+  const cleaned = cleanText(value.value);
+  return cleaned || undefined;
+}
+
+function cleanText(value) {
+  return value
     .replace(/<[^>]+>/g, "")
     .replace(/&quot;/g, "\"")
     .replace(/&amp;/g, "&")
     .trim();
-  return cleaned || undefined;
+}
+
+function openverseLicenseLabel(license, version) {
+  const cleanedLicense = license?.trim();
+  if (!cleanedLicense) return undefined;
+
+  const normalized = cleanedLicense.toLowerCase();
+  if (normalized === "pdm") return "Public Domain Mark";
+  if (normalized === "cc0") return "CC0";
+
+  const cleanedVersion = version?.trim();
+  return cleanedVersion ? `CC ${cleanedLicense.toUpperCase()} ${cleanedVersion}` : `CC ${cleanedLicense.toUpperCase()}`;
+}
+
+function inferredMimeType(url) {
+  if (!url) return undefined;
+  const pathname = new URL(url, "https://lenspilot.local").pathname.toLowerCase();
+  if (pathname.endsWith(".jpg") || pathname.endsWith(".jpeg")) return "image/jpeg";
+  if (pathname.endsWith(".png")) return "image/png";
+  if (pathname.endsWith(".webp")) return "image/webp";
+  if (pathname.endsWith(".gif")) return "image/gif";
+  return undefined;
+}
+
+function diversifyScoredResults(ranked) {
+  const selectedIds = new Set();
+  const selectedSources = new Set();
+  const diversified = [];
+
+  for (const item of ranked) {
+    if (selectedSources.has(item.result.source)) continue;
+    selectedSources.add(item.result.source);
+    selectedIds.add(item.result.id);
+    diversified.push(item);
+  }
+
+  for (const item of ranked) {
+    if (selectedIds.has(item.result.id)) continue;
+    selectedIds.add(item.result.id);
+    diversified.push(item);
+  }
+
+  return diversified;
 }
 
 function scoreOnlineInspirationResult(result, originalIndex, queryOrder, queryTokens) {

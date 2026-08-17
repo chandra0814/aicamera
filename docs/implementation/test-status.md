@@ -16,16 +16,17 @@
   - guidance stabilizer checks for immediate opposite-action suppression and completed-action memory
   - Personal Visual AI validation for consent-gated learning, small personalization boosts, and online-reference privacy boundaries
   - Wikimedia Commons online-inspiration request construction and public image response parsing
-  - online-inspiration result ranking and thumbnail cache eviction
+  - Openverse-style public image request construction and response parsing
+  - online-inspiration source-diverse result ranking and thumbnail cache eviction
 - `LensPilotVisionTests` on macOS CI, covering the `SceneDebugState` to native `SceneState` bridge and on-device quality metric mapping.
-- `LensPilotCoreTests` on macOS CI, covering burst capture review ranking, empty-burst handling, calibration weight tuning, reviewed guidance-priority calibration, guidance stabilization, Personal Visual AI learning, online-reference privacy policy, Wikimedia Commons online-inspiration parsing, online-result ranking, thumbnail cache eviction, calibration sample export, and reviewed calibration sample promotion.
+- `LensPilotCoreTests` on macOS CI, covering burst capture review ranking, empty-burst handling, calibration weight tuning, reviewed guidance-priority calibration, guidance stabilization, Personal Visual AI learning, online-reference privacy policy, Wikimedia Commons and Openverse online-inspiration parsing, source-diverse online-result ranking, thumbnail cache eviction, calibration sample export, and reviewed calibration sample promotion.
 - `AiBenchmarkTests` on macOS CI, covering the deterministic single-phone guidance benchmark suite.
 - GitHub Actions `iOS app build`, covering the SwiftUI app target, local package dependency wiring, camera screen, reference picker, popup, and result review compilation.
 
 ## Latest Verification
 
-- GitHub Actions run #31 passed AI fixture validation, Swift package tests, and the iOS app build for commit `e12943c`.
-- Local `.\scripts\test-all.ps1` passed JSON validation, TypeScript AI fixture validation, six deterministic AI guidance benchmarks, Target Match calibration validation, calibration promotion validation, and reviewed import normalization on Windows.
+- GitHub Actions run #33 passed AI fixture validation, Swift package tests, and the iOS app build for commit `1b9a4cc`.
+- Local `.\scripts\test-all.ps1` passed JSON validation, TypeScript AI fixture validation, six deterministic AI guidance benchmarks, Target Match calibration validation, calibration promotion validation, reviewed import normalization, Personal Visual AI validation, and multi-provider public inspiration validation on Windows.
 - Swift package tests still need GitHub/macOS CI for this workspace because Windows does not have Swift/Xcode installed.
 
 ## Not Runnable Here

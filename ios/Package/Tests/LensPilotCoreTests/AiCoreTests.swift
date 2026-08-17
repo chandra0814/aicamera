@@ -403,6 +403,62 @@ final class AiCoreTests: XCTestCase {
         XCTAssertFalse(results[0].privacy.uploadsLiveCameraFrame)
     }
 
+    func testOpenverseOnlineInspirationAdapterUsesSafePublicImageSearch() throws {
+        let provider = OpenverseInspirationProvider()
+        let url = try provider.makeSearchURL(query: "cinematic portrait phone photography reference", limit: 50)
+        let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        let query = Dictionary(uniqueKeysWithValues: queryItems.compactMap { item in
+            item.value.map { (item.name, $0) }
+        })
+
+        XCTAssertEqual(url.host, "api.openverse.engineering")
+        XCTAssertEqual(query["q"], "cinematic portrait phone photography reference")
+        XCTAssertEqual(query["page_size"], "10")
+        XCTAssertEqual(query["mature"], "false")
+        XCTAssertFalse(url.absoluteString.contains("raw_live_camera_feed"))
+
+        let openverseJSON = """
+        {
+          "results": [
+            {
+              "id": "ov_99",
+              "title": "Cinematic street portrait",
+              "foreign_landing_url": "https://example.org/photos/cinematic-street-portrait",
+              "url": "https://images.example.org/cinematic-street-portrait.jpg",
+              "thumbnail": "https://images.example.org/thumbs/cinematic-street-portrait.jpg",
+              "license": "by",
+              "license_version": "4.0",
+              "creator": "<strong>Open Photographer</strong>",
+              "mature": false
+            },
+            {
+              "id": "ov_mature",
+              "title": "Skipped mature result",
+              "url": "https://images.example.org/mature.jpg",
+              "mature": true
+            }
+          ]
+        }
+        """
+
+        let results = try provider.decodeSearchResponse(
+            Data(openverseJSON.utf8),
+            query: "cinematic portrait",
+            planId: "online_reference_test"
+        )
+
+        XCTAssertEqual(results.count, 1)
+        XCTAssertEqual(results[0].source, .openverse)
+        XCTAssertEqual(results[0].id, "openverse_ov_99")
+        XCTAssertEqual(results[0].title, "Cinematic street portrait")
+        XCTAssertEqual(results[0].license, "CC BY 4.0")
+        XCTAssertEqual(results[0].creator, "Open Photographer")
+        XCTAssertEqual(results[0].mimeType, "image/jpeg")
+        XCTAssertTrue(results[0].privacy.publicSourceOnly)
+        XCTAssertTrue(results[0].privacy.derivedFromPromptOnly)
+        XCTAssertFalse(results[0].privacy.uploadsLiveCameraFrame)
+    }
+
     func testOnlineInspirationRequestRejectsUnsafePlans() {
         let unsafePlan = OnlineReferencePlan(
             id: "unsafe_online_reference",
@@ -433,6 +489,8 @@ final class AiCoreTests: XCTestCase {
                 "portrait environmental clean photography ideas"
             ]
         )
+        XCTAssertEqual(request.source, .publicSources)
+
         let icon = OnlineInspirationResult(
             id: "wikimedia_commons_icon",
             source: .wikimediaCommons,
@@ -457,10 +515,23 @@ final class AiCoreTests: XCTestCase {
             license: "CC BY-SA 4.0",
             creator: "Jane Doe"
         )
+        let openversePhotograph = OnlineInspirationResult(
+            id: "openverse_photo",
+            source: .openverse,
+            query: "portrait environmental clean photography ideas",
+            title: "Street portrait photo.jpg",
+            pageURL: URL(string: "https://example.org/photos/street-portrait")!,
+            thumbnailURL: URL(string: "https://images.example.org/thumbs/street-portrait.jpg"),
+            imageURL: URL(string: "https://images.example.org/street-portrait.jpg"),
+            mimeType: "image/jpeg",
+            license: "CC BY 4.0",
+            creator: "Open Photographer"
+        )
 
-        let ranked = OnlineInspirationRanker().rank([icon, photograph], for: request)
+        let ranked = OnlineInspirationRanker().rank([icon, photograph, openversePhotograph], for: request)
 
         XCTAssertEqual(ranked.first?.id, "wikimedia_commons_photo")
+        XCTAssertEqual(ranked.dropFirst().first?.source, .openverse)
     }
 
     func testOnlineInspirationThumbnailCacheStoresAndEvictsLocalData() async throws {

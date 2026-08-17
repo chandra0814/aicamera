@@ -19,7 +19,7 @@ public struct OnlineInspirationRequest: Equatable, Sendable {
         planId: String,
         queries: [String],
         perQueryLimit: Int = 4,
-        source: Source = .wikimediaCommons,
+        source: Source = .publicSources,
         privacy: Privacy = Privacy()
     ) {
         self.planId = planId
@@ -31,7 +31,7 @@ public struct OnlineInspirationRequest: Equatable, Sendable {
         self.privacy = privacy
     }
 
-    public init(plan: OnlineReferencePlan, perQueryLimit: Int = 4, source: Source = .wikimediaCommons) throws {
+    public init(plan: OnlineReferencePlan, perQueryLimit: Int = 4, source: Source = .publicSources) throws {
         guard plan.privacy.singlePhoneOnly,
               plan.privacy.requiresUserConsent,
               !plan.privacy.sendsRawCameraFrame,
@@ -52,8 +52,10 @@ public struct OnlineInspirationRequest: Equatable, Sendable {
 }
 
 public extension OnlineInspirationRequest {
-    enum Source: String, Codable, Sendable {
+    enum Source: String, Codable, Sendable, Hashable {
+        case publicSources = "public_sources"
         case wikimediaCommons = "wikimedia_commons"
+        case openverse
     }
 
     struct Privacy: Equatable, Sendable {
@@ -158,12 +160,34 @@ public extension OnlineInspirationResult {
 public struct OnlineInspirationResponse: Equatable, Sendable {
     public let planId: String
     public let source: OnlineInspirationRequest.Source
+    public let sources: [OnlineInspirationRequest.Source]
     public let results: [OnlineInspirationResult]
 
-    public init(planId: String, source: OnlineInspirationRequest.Source, results: [OnlineInspirationResult]) {
+    public init(
+        planId: String,
+        source: OnlineInspirationRequest.Source,
+        results: [OnlineInspirationResult],
+        sources: [OnlineInspirationRequest.Source]? = nil
+    ) {
         self.planId = planId
         self.source = source
+        self.sources = sources ?? Self.uniqueSources(from: results, fallback: [source])
         self.results = results
+    }
+
+    private static func uniqueSources(
+        from results: [OnlineInspirationResult],
+        fallback: [OnlineInspirationRequest.Source]
+    ) -> [OnlineInspirationRequest.Source] {
+        var seen: Set<OnlineInspirationRequest.Source> = []
+        var sources: [OnlineInspirationRequest.Source] = []
+
+        for result in results where !seen.contains(result.source) {
+            seen.insert(result.source)
+            sources.append(result.source)
+        }
+
+        return sources.isEmpty ? fallback : sources
     }
 }
 
@@ -183,19 +207,48 @@ public struct OnlineInspirationRanker: Sendable {
         }
         let queryTokens = Set(request.queries.flatMap(Self.tokens))
 
-        return results
+        let ranked = results
             .enumerated()
+            .map { item in
+                ScoredResult(
+                    result: item.element,
+                    originalIndex: item.offset,
+                    score: score(
+                        item.element,
+                        originalIndex: item.offset,
+                        queryOrder: queryOrder,
+                        queryTokens: queryTokens
+                    )
+                )
+            }
             .sorted { lhs, rhs in
-                let lhsScore = score(lhs.element, originalIndex: lhs.offset, queryOrder: queryOrder, queryTokens: queryTokens)
-                let rhsScore = score(rhs.element, originalIndex: rhs.offset, queryOrder: queryOrder, queryTokens: queryTokens)
-
-                if lhsScore == rhsScore {
-                    return lhs.offset < rhs.offset
+                if lhs.score == rhs.score {
+                    return lhs.originalIndex < rhs.originalIndex
                 }
 
-                return lhsScore > rhsScore
+                return lhs.score > rhs.score
             }
-            .map(\.element)
+
+        return diversify(ranked).map(\.result)
+    }
+
+    private func diversify(_ ranked: [ScoredResult]) -> [ScoredResult] {
+        var selectedIds: Set<String> = []
+        var selectedSources: Set<OnlineInspirationRequest.Source> = []
+        var diversified: [ScoredResult] = []
+
+        for item in ranked where !selectedSources.contains(item.result.source) {
+            selectedSources.insert(item.result.source)
+            selectedIds.insert(item.result.id)
+            diversified.append(item)
+        }
+
+        for item in ranked where !selectedIds.contains(item.result.id) {
+            selectedIds.insert(item.result.id)
+            diversified.append(item)
+        }
+
+        return diversified
     }
 
     private func score(
@@ -245,6 +298,12 @@ public struct OnlineInspirationRanker: Sendable {
 
     private func containsAny(_ value: String, terms: [String]) -> Bool {
         terms.contains { value.contains($0) }
+    }
+
+    private struct ScoredResult {
+        let result: OnlineInspirationResult
+        let originalIndex: Int
+        let score: Double
     }
 }
 
@@ -368,7 +427,7 @@ public struct OnlineInspirationService: Sendable {
     private let ranker: OnlineInspirationRanker
 
     public init(
-        provider: any OnlineInspirationProvider = WikimediaCommonsInspirationProvider(),
+        provider: any OnlineInspirationProvider = PublicSourceInspirationProvider(),
         ranker: OnlineInspirationRanker = OnlineInspirationRanker()
     ) {
         self.provider = provider
@@ -391,6 +450,54 @@ public struct OnlineInspirationService: Sendable {
 
         let results = try await provider.fetchReferences(for: request)
         return ranker.rank(results, for: request)
+    }
+}
+
+public struct PublicSourceInspirationProvider: OnlineInspirationProvider {
+    private let providers: [any OnlineInspirationProvider]
+
+    public init(
+        providers: [any OnlineInspirationProvider] = [
+            WikimediaCommonsInspirationProvider(),
+            OpenverseInspirationProvider()
+        ]
+    ) {
+        self.providers = providers
+    }
+
+    public func fetchReferences(for request: OnlineInspirationRequest) async throws -> [OnlineInspirationResult] {
+        guard request.privacy.canUseOnlineProvider else {
+            throw OnlineInspirationError.unsafePlan
+        }
+
+        var results: [OnlineInspirationResult] = []
+        var errors: [Error] = []
+        var seenPageURLs: Set<URL> = []
+        var seenImageURLs: Set<URL> = []
+
+        for provider in providers {
+            do {
+                let providerResults = try await provider.fetchReferences(for: request)
+                for result in providerResults {
+                    guard !seenPageURLs.contains(result.pageURL) else { continue }
+                    if let imageURL = result.imageURL, seenImageURLs.contains(imageURL) { continue }
+
+                    seenPageURLs.insert(result.pageURL)
+                    if let imageURL = result.imageURL {
+                        seenImageURLs.insert(imageURL)
+                    }
+                    results.append(result)
+                }
+            } catch {
+                errors.append(error)
+            }
+        }
+
+        if !results.isEmpty || errors.isEmpty {
+            return results
+        }
+
+        throw errors[0]
     }
 }
 
@@ -487,6 +594,121 @@ public struct WikimediaCommonsInspirationProvider: OnlineInspirationProvider {
     }
 }
 
+public struct OpenverseInspirationProvider: OnlineInspirationProvider {
+    private let apiURL: URL
+
+    public init(apiURL: URL = URL(string: "https://api.openverse.engineering/v1/images/")!) {
+        self.apiURL = apiURL
+    }
+
+    public func fetchReferences(for request: OnlineInspirationRequest) async throws -> [OnlineInspirationResult] {
+        guard request.privacy.canUseOnlineProvider else {
+            throw OnlineInspirationError.unsafePlan
+        }
+
+        var results: [OnlineInspirationResult] = []
+        var seenPageURLs: Set<URL> = []
+
+        for query in request.queries.prefix(3) {
+            let url = try makeSearchURL(query: query, limit: request.perQueryLimit)
+            let (data, response) = try await URLSession.shared.data(from: url)
+            if let httpResponse = response as? HTTPURLResponse,
+               !(200..<300).contains(httpResponse.statusCode) {
+                throw OnlineInspirationError.invalidHTTPStatus(httpResponse.statusCode)
+            }
+
+            for result in try decodeSearchResponse(data, query: query, planId: request.planId) {
+                guard !seenPageURLs.contains(result.pageURL) else { continue }
+                seenPageURLs.insert(result.pageURL)
+                results.append(result)
+            }
+        }
+
+        return results
+    }
+
+    public func makeSearchURL(query: String, limit: Int) throws -> URL {
+        guard var components = URLComponents(url: apiURL, resolvingAgainstBaseURL: false) else {
+            throw OnlineInspirationError.invalidSearchURL
+        }
+
+        components.queryItems = [
+            URLQueryItem(name: "q", value: query),
+            URLQueryItem(name: "page_size", value: "\(min(10, max(1, limit)))"),
+            URLQueryItem(name: "mature", value: "false")
+        ]
+
+        guard let url = components.url else {
+            throw OnlineInspirationError.invalidSearchURL
+        }
+
+        return url
+    }
+
+    public func decodeSearchResponse(_ data: Data, query: String, planId: String) throws -> [OnlineInspirationResult] {
+        _ = planId
+        let response = try JSONDecoder().decode(OpenverseSearchResponse.self, from: data)
+
+        return (response.results ?? []).compactMap { item in
+            guard item.mature != true else { return nil }
+            guard let id = item.id?.trimmingCharacters(in: .whitespacesAndNewlines), !id.isEmpty else { return nil }
+            let imageURL = item.url.flatMap(URL.init(string:))
+            let thumbnailURL = item.thumbnail.flatMap(URL.init(string:))
+            guard imageURL != nil || thumbnailURL != nil else { return nil }
+
+            let pageURL = item.foreign_landing_url
+                .flatMap(URL.init(string:))
+                ?? item.frontend_url.flatMap(URL.init(string:))
+                ?? imageURL
+            guard let pageURL else { return nil }
+
+            return OnlineInspirationResult(
+                id: "openverse_\(id)",
+                source: .openverse,
+                query: query,
+                title: item.cleanedTitle,
+                pageURL: pageURL,
+                thumbnailURL: thumbnailURL,
+                imageURL: imageURL,
+                mimeType: inferredMimeType(from: imageURL ?? thumbnailURL),
+                license: licenseLabel(license: item.license, version: item.license_version),
+                creator: item.creator?.plainMetadataValue
+            )
+        }
+    }
+
+    private func licenseLabel(license: String?, version: String?) -> String? {
+        guard let license = license?.trimmingCharacters(in: .whitespacesAndNewlines), !license.isEmpty else {
+            return nil
+        }
+
+        let normalized = license.lowercased()
+        if normalized == "pdm" { return "Public Domain Mark" }
+        if normalized == "cc0" { return "CC0" }
+
+        if let version = version?.trimmingCharacters(in: .whitespacesAndNewlines), !version.isEmpty {
+            return "CC \(license.uppercased()) \(version)"
+        }
+
+        return "CC \(license.uppercased())"
+    }
+
+    private func inferredMimeType(from url: URL?) -> String? {
+        switch url?.pathExtension.lowercased() {
+        case "jpg", "jpeg":
+            return "image/jpeg"
+        case "png":
+            return "image/png"
+        case "webp":
+            return "image/webp"
+        case "gif":
+            return "image/gif"
+        default:
+            return nil
+        }
+    }
+}
+
 private struct WikimediaCommonsSearchResponse: Decodable {
     let query: Query?
 
@@ -511,6 +733,28 @@ private struct WikimediaCommonsSearchResponse: Decodable {
 
     struct MetadataValue: Decodable {
         let value: String?
+    }
+}
+
+private struct OpenverseSearchResponse: Decodable {
+    let results: [ImageResult]?
+
+    struct ImageResult: Decodable {
+        let id: String?
+        let title: String?
+        let foreign_landing_url: String?
+        let frontend_url: String?
+        let url: String?
+        let thumbnail: String?
+        let license: String?
+        let license_version: String?
+        let creator: String?
+        let mature: Bool?
+
+        var cleanedTitle: String {
+            let title = title?.plainMetadataValue ?? ""
+            return title.isEmpty ? "Openverse public reference" : title
+        }
     }
 }
 
