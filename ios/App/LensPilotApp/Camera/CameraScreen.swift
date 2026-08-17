@@ -13,6 +13,7 @@ struct CameraScreen: View {
     @StateObject private var viewModel = CameraScreenViewModel()
     @State private var selectedReferenceItem: PhotosPickerItem?
     @State private var isCalibrationReviewPresented = false
+    @State private var isPersonalizationSheetPresented = false
     @State private var calibrationReviewDraft = CalibrationReviewDraft()
 
     var body: some View {
@@ -74,6 +75,9 @@ struct CameraScreen: View {
                 }
             )
         }
+        .sheet(isPresented: $isPersonalizationSheetPresented) {
+            PersonalVisualAiSettingsSheet(viewModel: viewModel)
+        }
         .task {
             viewModel.start()
         }
@@ -101,6 +105,17 @@ struct CameraScreen: View {
             .foregroundStyle(.white)
             .accessibilityLabel("Switch single phone camera")
 
+            Button {
+                isPersonalizationSheetPresented = true
+            } label: {
+                Image(systemName: viewModel.personalizationConsent.learningEnabled ? "person.crop.circle.badge.checkmark" : "person.crop.circle")
+                    .font(.headline)
+                    .frame(width: 42, height: 42)
+                    .background(.black.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+            }
+            .foregroundStyle(.white)
+            .accessibilityLabel("Open Personal Visual AI settings")
+
             Spacer()
 
             Text("Single Phone")
@@ -114,6 +129,12 @@ struct CameraScreen: View {
 
     private var controls: some View {
         VStack(spacing: 12) {
+            if let plan = viewModel.onlineReferencePlan {
+                OnlineInspirationStatusButton(plan: plan) {
+                    isPersonalizationSheetPresented = true
+                }
+            }
+
             HStack(spacing: 8) {
                 TextField("Describe the photo", text: $viewModel.intentText)
                     .textFieldStyle(.plain)
@@ -252,6 +273,119 @@ struct CameraScreen: View {
         #else
         return nil
         #endif
+    }
+}
+
+private struct OnlineInspirationStatusButton: View {
+    let plan: OnlineReferencePlan
+    let onSelect: () -> Void
+
+    var body: some View {
+        Button(action: onSelect) {
+            HStack(spacing: 10) {
+                Image(systemName: "globe")
+                    .font(.subheadline.weight(.semibold))
+                    .frame(width: 28, height: 28)
+                    .background(.white.opacity(0.16), in: RoundedRectangle(cornerRadius: 8))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(plan.reason.title)
+                        .font(.caption.weight(.semibold))
+                        .lineLimit(1)
+                    Text("\(plan.searchQueries.count) public queries ready")
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(0.76))
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 6)
+
+                Image(systemName: "chevron.up")
+                    .font(.caption.weight(.semibold))
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 12)
+            .frame(height: 48)
+            .background(.black.opacity(0.58), in: RoundedRectangle(cornerRadius: 8))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(.white.opacity(0.2), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Open online inspiration details")
+    }
+}
+
+private struct PersonalVisualAiSettingsSheet: View {
+    @ObservedObject var viewModel: CameraScreenViewModel
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Toggle(isOn: Binding(
+                        get: { viewModel.personalizationConsent.learningEnabled },
+                        set: { viewModel.setLocalPersonalLearningEnabled($0) }
+                    )) {
+                        Label("Local Learning", systemImage: "iphone")
+                    }
+
+                    Toggle(isOn: Binding(
+                        get: { viewModel.personalizationConsent.onlineReferencesAllowed },
+                        set: { viewModel.setOnlineInspirationEnabled($0) }
+                    )) {
+                        Label("Online Inspiration", systemImage: "globe")
+                    }
+                }
+
+                Section("Profile") {
+                    LabeledContent("Events", value: "\(viewModel.personalProfile.totalEvents)")
+                    LabeledContent("Top Style", value: viewModel.personalProfile.topStyleLabel)
+                    LabeledContent("Top Framing", value: viewModel.personalProfile.topFramingLabel)
+                    LabeledContent("Top Guidance", value: viewModel.personalProfile.topGuidanceLabel)
+                    LabeledContent("Online References", value: "\(viewModel.personalProfile.onlineReferenceUsageCount)")
+                }
+
+                if let plan = viewModel.onlineReferencePlan {
+                    Section("Online Plan") {
+                        LabeledContent("Reason", value: plan.reason.title)
+                        LabeledContent("Inputs", value: plan.allowedInputs.map(\.title).joined(separator: ", "))
+
+                        ForEach(plan.searchQueries.prefix(3), id: \.self) { query in
+                            HStack(spacing: 10) {
+                                Image(systemName: "magnifyingglass")
+                                    .foregroundStyle(.secondary)
+                                Text(query)
+                                    .font(.subheadline)
+                            }
+                        }
+                    }
+                }
+
+                Section {
+                    Button(role: .destructive) {
+                        viewModel.resetPersonalVisualLearning()
+                    } label: {
+                        Label("Delete Learned Profile", systemImage: "trash")
+                    }
+                }
+            }
+            .navigationTitle("Personal Visual AI")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                    }
+                    .accessibilityLabel("Close Personal Visual AI settings")
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
     }
 }
 
@@ -450,6 +584,58 @@ private extension GuidanceAction.Reason {
             return "Reduce motion blur"
         case .readyToCapture:
             return "Ready to capture"
+        }
+    }
+}
+
+private extension PersonalVisualPreferenceProfile {
+    var topStyleLabel: String {
+        topAffinityLabel(in: styleAffinities)
+    }
+
+    var topFramingLabel: String {
+        topAffinityLabel(in: framingAffinities)
+    }
+
+    var topGuidanceLabel: String {
+        topAffinityLabel(in: guidanceReasonAffinities)
+    }
+
+    func topAffinityLabel(in affinities: [String: Double]) -> String {
+        guard let key = affinities
+            .filter({ $0.value > 0 })
+            .max(by: { $0.value < $1.value })?
+            .key
+        else {
+            return "None"
+        }
+
+        return key.replacingOccurrences(of: "_", with: " ").capitalized
+    }
+}
+
+private extension OnlineReferencePlan.Reason {
+    var title: String {
+        switch self {
+        case .explicitUserRequest:
+            return "Requested Inspiration"
+        case .specializedStyle:
+            return "Style Inspiration"
+        case .insufficientPersonalHistory:
+            return "New Preference"
+        }
+    }
+}
+
+private extension OnlineReferencePlan.AllowedInput {
+    var title: String {
+        switch self {
+        case .promptText:
+            return "Prompt"
+        case .shotSpecSummary:
+            return "Shot Plan"
+        case .deviceCapabilitySummary:
+            return "Device"
         }
     }
 }

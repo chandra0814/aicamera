@@ -12,6 +12,11 @@ struct CaptureReviewPresentation: Identifiable {
     let rankedShots: [RankedShot]
 }
 
+private struct AiCoreConfiguration: Sendable {
+    let targetMatchCalibration: TargetMatchCalibration
+    let guidanceCalibration: GuidanceCalibration
+}
+
 @MainActor
 final class CameraScreenViewModel: ObservableObject {
     let camera = CameraSessionController()
@@ -26,6 +31,9 @@ final class CameraScreenViewModel: ObservableObject {
     @Published private(set) var referenceImageData: Data?
     @Published private(set) var captureReview: CaptureReviewPresentation?
     @Published private(set) var lastCalibrationCandidate: CalibrationSample?
+    @Published private(set) var personalizationConsent: PersonalizationConsent
+    @Published private(set) var personalProfile: PersonalVisualPreferenceProfile
+    @Published private(set) var onlineReferencePlan: OnlineReferencePlan?
     @Published private(set) var isCapturing = false
     @Published var intentText = "Give me a cinematic portrait"
     @Published var usesFrontCameraForSelfShot = false
@@ -33,25 +41,33 @@ final class CameraScreenViewModel: ObservableObject {
     @Published var errorMessage: String?
 
     private let capabilityProfiler = DeviceCapabilityProfiler()
-    private let aiCore: LensPilotAiCore
+    private let targetMatchCalibration: TargetMatchCalibration
+    private let reviewedGuidanceCalibration: GuidanceCalibration
     private let sceneStateBuilder = SceneStateBuilder()
     private let frameAnalyzer = FrameAnalyzer()
     private let photoCaptureController = PhotoCaptureController()
     private let captureReviewBuilder = CaptureReviewBuilder()
     private let calibrationSampleExporter = CalibrationSampleExporter()
     private let calibrationSamplePromoter = CalibrationSamplePromoter()
+    private let personalLearningEngine = PersonalVisualLearningEngine()
     private var guidanceStabilizer = GuidanceStabilizer()
     private lazy var frameAnalysisCoordinator = CameraFrameAnalysisCoordinator(analyzer: frameAnalyzer)
     private var isFrameAnalysisConnected = false
+    private var latestGuidanceAction: GuidanceAction?
 
-    init() {
-        self.aiCore = CameraScreenViewModel.makeAiCore(
-            calibrationData: CameraScreenViewModel.bundledCalibrationData()
-        )
+    private static let personalProfileStorageKey = "com.lenspilot.personalVisualProfile.v1"
+
+    convenience init() {
+        self.init(calibrationData: CameraScreenViewModel.bundledCalibrationData())
     }
 
     init(calibrationData: Data?) {
-        self.aiCore = CameraScreenViewModel.makeAiCore(calibrationData: calibrationData)
+        let configuration = CameraScreenViewModel.makeAiCoreConfiguration(calibrationData: calibrationData)
+        let storedProfile = CameraScreenViewModel.loadPersonalProfile()
+        self.targetMatchCalibration = configuration.targetMatchCalibration
+        self.reviewedGuidanceCalibration = configuration.guidanceCalibration
+        self.personalizationConsent = storedProfile?.consent ?? .disabled
+        self.personalProfile = storedProfile ?? .empty(consent: .disabled)
     }
 
     func start() {
@@ -83,16 +99,19 @@ final class CameraScreenViewModel: ObservableObject {
         return try? Data(contentsOf: url)
     }
 
-    nonisolated private static func makeAiCore(calibrationData: Data?) -> LensPilotAiCore {
+    nonisolated private static func makeAiCoreConfiguration(calibrationData: Data?) -> AiCoreConfiguration {
         guard let calibrationData else {
-            return LensPilotAiCore()
+            return AiCoreConfiguration(targetMatchCalibration: .standard, guidanceCalibration: .standard)
         }
 
         do {
             let manifest = try TargetMatchCalibrationManifest.decode(from: calibrationData)
-            return manifest.makeAiCore()
+            return AiCoreConfiguration(
+                targetMatchCalibration: manifest.targetMatchCalibration,
+                guidanceCalibration: manifest.makeGuidanceCalibration()
+            )
         } catch {
-            return LensPilotAiCore()
+            return AiCoreConfiguration(targetMatchCalibration: .standard, guidanceCalibration: .standard)
         }
     }
 
@@ -117,6 +136,33 @@ final class CameraScreenViewModel: ObservableObject {
         runAi(sceneState: currentSceneState())
     }
 
+    func setLocalPersonalLearningEnabled(_ isEnabled: Bool) {
+        applyPersonalizationConsent(
+            PersonalizationConsent(
+                learningEnabled: isEnabled,
+                onlineReferencesAllowed: personalizationConsent.onlineReferencesAllowed,
+                cloudPersonalizationSyncAllowed: false
+            )
+        )
+    }
+
+    func setOnlineInspirationEnabled(_ isEnabled: Bool) {
+        applyPersonalizationConsent(
+            PersonalizationConsent(
+                learningEnabled: personalizationConsent.learningEnabled,
+                onlineReferencesAllowed: isEnabled,
+                cloudPersonalizationSyncAllowed: false
+            )
+        )
+    }
+
+    func resetPersonalVisualLearning() {
+        personalProfile = .empty(consent: personalizationConsent)
+        persistPersonalProfile()
+        guidanceStabilizer.reset()
+        runAi(sceneState: currentSceneState())
+    }
+
     private func handleSceneDebugState(_ debugState: SceneDebugState) {
         latestSceneDebugState = debugState
         runAi(sceneState: sceneState(from: debugState))
@@ -124,7 +170,7 @@ final class CameraScreenViewModel: ObservableObject {
 
     private func runAi(sceneState: SceneState) {
         let capability = deviceCapability ?? fallbackCapability()
-        let result = aiCore.run(
+        let result = makePersonalizedAiCore().run(
             prompt: intentText,
             sceneState: sceneState,
             deviceCapability: capability
@@ -133,7 +179,9 @@ final class CameraScreenViewModel: ObservableObject {
         currentShotSpec = result.shotSpec
         currentShotPlan = result.shotPlan
         currentTargetMatch = result.targetMatch
+        refreshOnlineReferencePlan(for: result.shotSpec)
         let guidanceAction = guidanceStabilizer.stabilize(result.guidanceAction)
+        latestGuidanceAction = guidanceAction
         directorState.updateGuidance(
             instruction: guidanceAction.map(Self.instructionText),
             targetMatch: result.targetMatch.overall
@@ -230,7 +278,7 @@ final class CameraScreenViewModel: ObservableObject {
     private func makeCalibrationCandidate() -> CalibrationSample {
         let sceneState = currentSceneState()
         let capability = deviceCapability ?? fallbackCapability()
-        let result = aiCore.run(
+        let result = makePersonalizedAiCore().run(
             prompt: intentText,
             sceneState: sceneState,
             deviceCapability: capability
@@ -271,6 +319,165 @@ final class CameraScreenViewModel: ObservableObject {
             bestPhotoData: bestPhotoData,
             rankedShots: review.rankedShots
         )
+        recordPersonalLearningEvent(
+            outcome: .selectedBestShot,
+            acceptedGuidanceReason: latestGuidanceAction?.reason,
+            onlineReferenceUsed: onlineReferencePlan != nil
+        )
+    }
+
+    private func makePersonalizedAiCore() -> LensPilotAiCore {
+        LensPilotAiCore(
+            targetMatchCalibration: targetMatchCalibration,
+            guidanceCalibration: mergedGuidanceCalibration()
+        )
+    }
+
+    private func mergedGuidanceCalibration() -> GuidanceCalibration {
+        let personalGuidance = personalProfile.guidanceCalibration()
+        var globalReasonBoosts = reviewedGuidanceCalibration.globalReasonBoosts
+
+        for (reason, boost) in personalGuidance.globalReasonBoosts {
+            globalReasonBoosts[reason, default: 0] += boost
+        }
+
+        return GuidanceCalibration(
+            globalReasonBoosts: globalReasonBoosts,
+            domainReasonBoosts: reviewedGuidanceCalibration.domainReasonBoosts
+        )
+    }
+
+    private func applyPersonalizationConsent(_ consent: PersonalizationConsent) {
+        personalizationConsent = consent
+        personalProfile = PersonalVisualPreferenceProfile(
+            version: personalProfile.version,
+            consent: consent,
+            totalEvents: personalProfile.totalEvents,
+            domainCounts: personalProfile.domainCounts,
+            styleAffinities: personalProfile.styleAffinities,
+            colorAffinities: personalProfile.colorAffinities,
+            framingAffinities: personalProfile.framingAffinities,
+            guidanceReasonAffinities: personalProfile.guidanceReasonAffinities,
+            requirementAffinities: personalProfile.requirementAffinities,
+            onlineReferenceUsageCount: personalProfile.onlineReferenceUsageCount
+        )
+        persistPersonalProfile()
+        guidanceStabilizer.reset()
+        runAi(sceneState: currentSceneState())
+    }
+
+    private func recordPersonalLearningEvent(
+        outcome: PersonalLearningEvent.Outcome,
+        acceptedGuidanceReason: GuidanceAction.Reason? = nil,
+        rejectedGuidanceReason: GuidanceAction.Reason? = nil,
+        userRating: Double? = nil,
+        onlineReferenceUsed: Bool = false
+    ) {
+        guard let shotSpec = currentShotSpec else { return }
+
+        let event = PersonalLearningEvent(
+            id: "usage_\(UUID().uuidString.lowercased())",
+            domain: shotSpec.domain,
+            outcome: outcome,
+            promptRequirements: promptRequirements(for: shotSpec, prompt: intentText),
+            acceptedGuidanceReason: acceptedGuidanceReason,
+            rejectedGuidanceReason: rejectedGuidanceReason,
+            selectedStyle: shotSpec.style.name,
+            selectedColorIntent: shotSpec.style.colorIntent,
+            selectedFraming: shotSpec.composition.framing,
+            selectedTargetMatch: currentTargetMatch?.overall,
+            userRating: userRating,
+            onlineReferenceUsed: onlineReferenceUsed
+        )
+        let updatedProfile = personalLearningEngine.updatedProfile(
+            from: personalProfile,
+            with: event,
+            consent: personalizationConsent
+        )
+        guard updatedProfile != personalProfile else { return }
+
+        personalProfile = updatedProfile
+        persistPersonalProfile()
+        guidanceStabilizer.reset()
+        runAi(sceneState: currentSceneState())
+    }
+
+    private func refreshOnlineReferencePlan(for shotSpec: ShotSpec?) {
+        guard let shotSpec else {
+            onlineReferencePlan = nil
+            return
+        }
+
+        onlineReferencePlan = personalLearningEngine.makeOnlineReferencePlan(
+            for: shotSpec,
+            prompt: intentText,
+            profile: personalProfile,
+            consent: personalizationConsent
+        )
+    }
+
+    private func promptRequirements(for shotSpec: ShotSpec, prompt: String) -> [String] {
+        let normalizedPrompt = prompt.lowercased()
+        var requirements = [
+            shotSpec.domain.rawValue,
+            shotSpec.style.name.rawValue,
+            shotSpec.composition.framing.rawValue
+        ]
+
+        if let colorIntent = shotSpec.style.colorIntent {
+            requirements.append(colorIntent.rawValue)
+        }
+
+        if let backgroundPriority = shotSpec.composition.backgroundPriority {
+            requirements.append("\(backgroundPriority.rawValue)_background")
+        }
+
+        let promptRequirements = [
+            ("cinematic", "cinematic"),
+            ("professional", "professional"),
+            ("luxury", "luxury"),
+            ("clean", "clean_background"),
+            ("background", "background"),
+            ("selfie", "self_shot"),
+            ("night", "night"),
+            ("sunset", "sunset"),
+            ("reference", "reference_match"),
+            ("online", "online_inspiration"),
+            ("inspiration", "online_inspiration")
+        ]
+
+        for (term, requirement) in promptRequirements where normalizedPrompt.contains(term) {
+            requirements.append(requirement)
+        }
+
+        return uniqueNonEmpty(requirements)
+    }
+
+    private func uniqueNonEmpty(_ values: [String]) -> [String] {
+        var seen: Set<String> = []
+        var result: [String] = []
+
+        for value in values {
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, !seen.contains(trimmed) else { continue }
+            seen.insert(trimmed)
+            result.append(trimmed)
+        }
+
+        return result
+    }
+
+    private static func loadPersonalProfile() -> PersonalVisualPreferenceProfile? {
+        guard let data = UserDefaults.standard.data(forKey: personalProfileStorageKey) else {
+            return nil
+        }
+
+        return try? JSONDecoder().decode(PersonalVisualPreferenceProfile.self, from: data)
+    }
+
+    private func persistPersonalProfile() {
+        guard let data = try? JSONEncoder().encode(personalProfile) else { return }
+        UserDefaults.standard.set(data, forKey: Self.personalProfileStorageKey)
     }
 
     private func connectFrameAnalysisIfNeeded() {

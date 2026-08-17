@@ -29,6 +29,7 @@ This implementation completes the MVP AI control skeleton, not the final product
 - Runtime calibration loading: the iOS app bundles the Target Match calibration manifest, validates that it remains single-phone only, and initializes the on-device AI core with reviewed scoring weights and domain-aware guidance-priority boosts when available.
 - Live director stabilization: the iOS camera screen now applies guidance TTL, opposite-action suppression, and completed-action memory before updating the single on-screen instruction.
 - Personal Visual AI contracts now support local-only learning from structured user behavior and optional online inspiration plans without making cloud or online access required for the camera loop.
+- Personal Visual AI app controls now let the user enable local learning, enable optional online inspiration, see the current online-reference plan, and delete the local learned profile from the same phone.
 
 ## Not Yet Production AI
 
@@ -37,7 +38,7 @@ This implementation completes the MVP AI control skeleton, not the final product
 - No Core ML/TFLite production model bundle yet.
 - No cloud VLM/LLM adapter yet.
 - No generative preview engine yet.
-- No persistent user preference store or embedding sync yet.
+- No encrypted preference store, embedding sync, or cloud personalization sync yet.
 - No online source provider adapter yet; the current implementation creates a safe request plan only.
 - No blind-rater evaluation data yet.
 
