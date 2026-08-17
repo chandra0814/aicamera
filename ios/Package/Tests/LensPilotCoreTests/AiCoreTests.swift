@@ -333,6 +333,98 @@ final class AiCoreTests: XCTestCase {
         XCTAssertTrue(plan.searchQueries.contains { $0.contains("cinematic") })
     }
 
+    func testWikimediaCommonsOnlineInspirationAdapterUsesSafePublicFileSearch() throws {
+        let provider = WikimediaCommonsInspirationProvider()
+        let url = try provider.makeSearchURL(query: "cinematic portrait phone photography reference", limit: 50)
+        let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        let query = Dictionary(uniqueKeysWithValues: queryItems.compactMap { item in
+            item.value.map { (item.name, $0) }
+        })
+
+        XCTAssertEqual(url.host, "commons.wikimedia.org")
+        XCTAssertEqual(query["generator"], "search")
+        XCTAssertEqual(query["gsrnamespace"], "6")
+        XCTAssertEqual(query["gsrlimit"], "10")
+        XCTAssertEqual(query["prop"], "imageinfo")
+        XCTAssertTrue(query["iiprop"]?.contains("url") == true)
+        XCTAssertFalse(url.absoluteString.contains("raw_live_camera_feed"))
+
+        let commonsJSON = """
+        {
+          "query": {
+            "pages": [
+              {
+                "pageid": 42,
+                "index": 1,
+                "title": "File:Cinematic portrait reference.jpg",
+                "imageinfo": [
+                  {
+                    "url": "https://upload.wikimedia.org/wikipedia/commons/example.jpg",
+                    "thumburl": "https://upload.wikimedia.org/wikipedia/commons/thumb/example.jpg/640px-example.jpg",
+                    "descriptionurl": "https://commons.wikimedia.org/wiki/File:Cinematic_portrait_reference.jpg",
+                    "mime": "image/jpeg",
+                    "extmetadata": {
+                      "LicenseShortName": { "value": "CC BY-SA 4.0" },
+                      "Artist": { "value": "<span>Jane Doe</span>" }
+                    }
+                  }
+                ]
+              },
+              {
+                "pageid": 43,
+                "index": 2,
+                "title": "File:Skipped document.pdf",
+                "imageinfo": [
+                  {
+                    "url": "https://upload.wikimedia.org/wikipedia/commons/example.pdf",
+                    "descriptionurl": "https://commons.wikimedia.org/wiki/File:Skipped_document.pdf",
+                    "mime": "application/pdf"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+        """
+
+        let results = try provider.decodeSearchResponse(
+            Data(commonsJSON.utf8),
+            query: "cinematic portrait",
+            planId: "online_reference_test"
+        )
+
+        XCTAssertEqual(results.count, 1)
+        XCTAssertEqual(results[0].source, .wikimediaCommons)
+        XCTAssertEqual(results[0].title, "Cinematic portrait reference.jpg")
+        XCTAssertEqual(results[0].license, "CC BY-SA 4.0")
+        XCTAssertEqual(results[0].creator, "Jane Doe")
+        XCTAssertTrue(results[0].privacy.publicSourceOnly)
+        XCTAssertTrue(results[0].privacy.derivedFromPromptOnly)
+        XCTAssertFalse(results[0].privacy.uploadsLiveCameraFrame)
+    }
+
+    func testOnlineInspirationRequestRejectsUnsafePlans() {
+        let unsafePlan = OnlineReferencePlan(
+            id: "unsafe_online_reference",
+            reason: .explicitUserRequest,
+            searchQueries: ["portrait reference"],
+            allowedInputs: [.promptText],
+            mustNotSend: [],
+            userDisclosure: "Unsafe",
+            privacy: .init(
+                singlePhoneOnly: true,
+                requiresUserConsent: true,
+                sendsRawCameraFrame: true,
+                sendsPrivatePhoto: false,
+                sendsIdentityData: false
+            )
+        )
+
+        XCTAssertThrowsError(try OnlineInspirationRequest(plan: unsafePlan)) { error in
+            XCTAssertEqual(error as? OnlineInspirationError, .unsafePlan)
+        }
+    }
+
     private static func portraitScene() -> SceneState {
         SceneState(
             timestamp: Date(timeIntervalSince1970: 0),

@@ -17,6 +17,13 @@ private struct AiCoreConfiguration: Sendable {
     let guidanceCalibration: GuidanceCalibration
 }
 
+enum OnlineInspirationLoadState: Equatable {
+    case idle
+    case loading
+    case loaded(Int)
+    case failed(String)
+}
+
 @MainActor
 final class CameraScreenViewModel: ObservableObject {
     let camera = CameraSessionController()
@@ -34,6 +41,8 @@ final class CameraScreenViewModel: ObservableObject {
     @Published private(set) var personalizationConsent: PersonalizationConsent
     @Published private(set) var personalProfile: PersonalVisualPreferenceProfile
     @Published private(set) var onlineReferencePlan: OnlineReferencePlan?
+    @Published private(set) var onlineInspirationResults: [OnlineInspirationResult] = []
+    @Published private(set) var onlineInspirationLoadState: OnlineInspirationLoadState = .idle
     @Published private(set) var isCapturing = false
     @Published var intentText = "Give me a cinematic portrait"
     @Published var usesFrontCameraForSelfShot = false
@@ -50,10 +59,12 @@ final class CameraScreenViewModel: ObservableObject {
     private let calibrationSampleExporter = CalibrationSampleExporter()
     private let calibrationSamplePromoter = CalibrationSamplePromoter()
     private let personalLearningEngine = PersonalVisualLearningEngine()
+    private let onlineInspirationService = OnlineInspirationService()
     private var guidanceStabilizer = GuidanceStabilizer()
     private lazy var frameAnalysisCoordinator = CameraFrameAnalysisCoordinator(analyzer: frameAnalyzer)
     private var isFrameAnalysisConnected = false
     private var latestGuidanceAction: GuidanceAction?
+    private var hasLoadedOnlineInspiration = false
 
     private static let personalProfileStorageKey = "com.lenspilot.personalVisualProfile.v1"
 
@@ -163,6 +174,70 @@ final class CameraScreenViewModel: ObservableObject {
         runAi(sceneState: currentSceneState())
     }
 
+    func fetchOnlineInspirationReferences() {
+        guard let plan = onlineReferencePlan else {
+            onlineInspirationResults = []
+            onlineInspirationLoadState = .idle
+            return
+        }
+
+        guard onlineInspirationLoadState != .loading else { return }
+
+        let planId = plan.id
+        onlineInspirationLoadState = .loading
+        Task {
+            do {
+                let response = try await onlineInspirationService.fetchReferences(for: plan, perQueryLimit: 3)
+                guard onlineReferencePlan?.id == planId else { return }
+                onlineInspirationResults = response.results
+                hasLoadedOnlineInspiration = !response.results.isEmpty
+                onlineInspirationLoadState = .loaded(response.results.count)
+            } catch {
+                guard onlineReferencePlan?.id == planId else { return }
+                onlineInspirationResults = []
+                hasLoadedOnlineInspiration = false
+                onlineInspirationLoadState = .failed("Public references unavailable")
+                errorMessage = "Online inspiration failed. Camera guidance still works offline."
+            }
+        }
+    }
+
+    func useOnlineInspirationReference(_ result: OnlineInspirationResult) {
+        guard let url = result.thumbnailURL ?? result.imageURL else {
+            errorMessage = "Online reference image is unavailable."
+            return
+        }
+
+        Task {
+            do {
+                let (data, response) = try await URLSession.shared.data(from: url)
+                if let httpResponse = response as? HTTPURLResponse,
+                   !(200..<300).contains(httpResponse.statusCode) {
+                    throw OnlineInspirationError.invalidHTTPStatus(httpResponse.statusCode)
+                }
+                guard data.count <= 6_000_000 else {
+                    errorMessage = "Online reference image is too large."
+                    return
+                }
+
+                activateReferencePhoto(
+                    imageData: data,
+                    source: .sharedFile,
+                    localAssetUri: result.pageURL.absoluteString,
+                    notes: ["Public reference loaded on this phone. Match its light, angle, and framing."]
+                )
+                hasLoadedOnlineInspiration = true
+                recordPersonalLearningEvent(
+                    outcome: .acceptedGuidance,
+                    acceptedGuidanceReason: .matchReference,
+                    onlineReferenceUsed: true
+                )
+            } catch {
+                errorMessage = "Online reference could not be loaded."
+            }
+        }
+    }
+
     private func handleSceneDebugState(_ debugState: SceneDebugState) {
         latestSceneDebugState = debugState
         runAi(sceneState: sceneState(from: debugState))
@@ -189,8 +264,14 @@ final class CameraScreenViewModel: ObservableObject {
     }
 
     func activateReferencePhoto(imageData: Data, assetIdentifier: String?) {
-        referenceImageData = imageData
-        activateReferencePhoto(assetIdentifier: assetIdentifier)
+        let referenceId = "ref_\(UUID().uuidString.lowercased())"
+        let assetPath = assetIdentifier.map { "ph://\($0)" } ?? "local://\(referenceId)"
+        activateReferencePhoto(
+            imageData: imageData,
+            source: .photoLibrary,
+            localAssetUri: assetPath,
+            notes: ["Reference loaded on this phone. Match it with camera angle, light, and framing."]
+        )
     }
 
     func failReferencePhotoLoad(_ error: Error? = nil) {
@@ -201,14 +282,19 @@ final class CameraScreenViewModel: ObservableObject {
         }
     }
 
-    private func activateReferencePhoto(assetIdentifier: String?) {
+    private func activateReferencePhoto(
+        imageData: Data,
+        source: ReferencePhotoState.Source,
+        localAssetUri: String,
+        notes: [String]
+    ) {
+        referenceImageData = imageData
         guidanceStabilizer.reset()
         let referenceId = "ref_\(UUID().uuidString.lowercased())"
-        let assetPath = assetIdentifier.map { "ph://\($0)" } ?? "local://\(referenceId)"
         let reference = ReferencePhotoState(
             id: referenceId,
-            source: .photoLibrary,
-            localAssetUri: assetPath,
+            source: source,
+            localAssetUri: localAssetUri,
             thumbnailUri: "memory://\(referenceId)/thumbnail",
             analysisStatus: .ready,
             extractedFeatures: ReferencePhotoFeatures(
@@ -220,7 +306,7 @@ final class CameraScreenViewModel: ObservableObject {
                 lightingDirection: nil,
                 colorMood: nil,
                 depthStyle: nil,
-                achievableTranslationNotes: ["Reference loaded on this phone. Match it with camera angle, light, and framing."]
+                achievableTranslationNotes: notes
             ),
             display: .init(showCameraPopup: true, popupPosition: .topRight, viewerState: .collapsedPopup),
             privacy: .init(cloudAnalysisUsed: false, userConsentedToCloudAnalysis: false)
@@ -322,7 +408,7 @@ final class CameraScreenViewModel: ObservableObject {
         recordPersonalLearningEvent(
             outcome: .selectedBestShot,
             acceptedGuidanceReason: latestGuidanceAction?.reason,
-            onlineReferenceUsed: onlineReferencePlan != nil
+            onlineReferenceUsed: hasLoadedOnlineInspiration
         )
     }
 
@@ -405,15 +491,24 @@ final class CameraScreenViewModel: ObservableObject {
     private func refreshOnlineReferencePlan(for shotSpec: ShotSpec?) {
         guard let shotSpec else {
             onlineReferencePlan = nil
+            onlineInspirationResults = []
+            onlineInspirationLoadState = .idle
+            hasLoadedOnlineInspiration = false
             return
         }
 
-        onlineReferencePlan = personalLearningEngine.makeOnlineReferencePlan(
+        let nextPlan = personalLearningEngine.makeOnlineReferencePlan(
             for: shotSpec,
             prompt: intentText,
             profile: personalProfile,
             consent: personalizationConsent
         )
+        if nextPlan != onlineReferencePlan {
+            onlineInspirationResults = []
+            onlineInspirationLoadState = .idle
+            hasLoadedOnlineInspiration = false
+        }
+        onlineReferencePlan = nextPlan
     }
 
     private func promptRequirements(for shotSpec: ShotSpec, prompt: String) -> [String] {

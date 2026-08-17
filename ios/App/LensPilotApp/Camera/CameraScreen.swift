@@ -353,12 +353,48 @@ private struct PersonalVisualAiSettingsSheet: View {
                         LabeledContent("Reason", value: plan.reason.title)
                         LabeledContent("Inputs", value: plan.allowedInputs.map(\.title).joined(separator: ", "))
 
+                        Button {
+                            viewModel.fetchOnlineInspirationReferences()
+                        } label: {
+                            Label(viewModel.onlineInspirationLoadState.actionTitle, systemImage: viewModel.onlineInspirationLoadState.actionIcon)
+                        }
+                        .disabled(viewModel.onlineInspirationLoadState.isLoading)
+
                         ForEach(plan.searchQueries.prefix(3), id: \.self) { query in
                             HStack(spacing: 10) {
                                 Image(systemName: "magnifyingglass")
                                     .foregroundStyle(.secondary)
                                 Text(query)
                                     .font(.subheadline)
+                                    .lineLimit(2)
+                            }
+                        }
+                    }
+                }
+
+                if viewModel.onlineInspirationLoadState.isLoading {
+                    Section("Public References") {
+                        HStack {
+                            ProgressView()
+                            Text("Loading")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                } else if viewModel.onlineInspirationLoadState.isLoadedEmpty {
+                    Section("Public References") {
+                        Label("No matches", systemImage: "magnifyingglass")
+                            .foregroundStyle(.secondary)
+                    }
+                } else if let message = viewModel.onlineInspirationLoadState.failureMessage {
+                    Section("Public References") {
+                        Label(message, systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(.secondary)
+                    }
+                } else if !viewModel.onlineInspirationResults.isEmpty {
+                    Section("Public References") {
+                        ForEach(viewModel.onlineInspirationResults.prefix(6)) { result in
+                            OnlineInspirationResultRow(result: result) {
+                                viewModel.useOnlineInspirationReference(result)
                             }
                         }
                     }
@@ -386,6 +422,61 @@ private struct PersonalVisualAiSettingsSheet: View {
             }
         }
         .presentationDetents([.medium, .large])
+    }
+}
+
+private struct OnlineInspirationResultRow: View {
+    let result: OnlineInspirationResult
+    let onUseReference: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            AsyncImage(url: result.thumbnailURL ?? result.imageURL) { phase in
+                switch phase {
+                case let .success(image):
+                    image
+                        .resizable()
+                        .scaledToFill()
+                default:
+                    Image(systemName: "photo")
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(width: 58, height: 58)
+            .background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(result.title)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(2)
+
+                Text(result.license ?? "Public source")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 6)
+
+            Link(destination: result.pageURL) {
+                Image(systemName: "arrow.up.right.square")
+                    .font(.headline)
+                    .frame(width: 34, height: 34)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Open public source")
+
+            Button(action: onUseReference) {
+                Image(systemName: "plus.viewfinder")
+                    .font(.headline)
+                    .frame(width: 34, height: 34)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Use as reference popup")
+        }
+        .padding(.vertical, 4)
     }
 }
 
@@ -637,5 +728,53 @@ private extension OnlineReferencePlan.AllowedInput {
         case .deviceCapabilitySummary:
             return "Device"
         }
+    }
+}
+
+private extension OnlineInspirationLoadState {
+    var actionTitle: String {
+        switch self {
+        case .idle:
+            return "Fetch Public References"
+        case .loading:
+            return "Fetching"
+        case let .loaded(count):
+            return count > 0 ? "Refresh Public References" : "Try Again"
+        case .failed:
+            return "Try Again"
+        }
+    }
+
+    var actionIcon: String {
+        switch self {
+        case .loading:
+            return "hourglass"
+        case .loaded:
+            return "arrow.clockwise"
+        case .failed:
+            return "exclamationmark.arrow.triangle.2.circlepath"
+        case .idle:
+            return "globe"
+        }
+    }
+
+    var isLoading: Bool {
+        self == .loading
+    }
+
+    var isLoadedEmpty: Bool {
+        if case .loaded(0) = self {
+            return true
+        }
+
+        return false
+    }
+
+    var failureMessage: String? {
+        if case let .failed(message) = self {
+            return message
+        }
+
+        return nil
     }
 }

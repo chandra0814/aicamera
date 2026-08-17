@@ -77,9 +77,57 @@ assert(plan.allowedInputs.includes("prompt_text"), "Online inspiration may use p
 assert(plan.mustNotSend.includes("raw_live_camera_feed"), "Online inspiration must block live camera upload.");
 assert(plan.searchQueries.some((query) => query.includes("cinematic")), "Online inspiration should preserve the requested style.");
 
+const inspirationRequest = makeOnlineInspirationRequest(plan, 50);
+assert(inspirationRequest.perQueryLimit === 10, "Online provider limit should be clamped.");
+assert(inspirationRequest.privacy.sendsRawCameraFrame === false, "Online provider request must not include camera frames.");
+
+const commonsUrl = new URL(buildWikimediaCommonsSearchUrl("cinematic portrait phone photography reference", 50));
+assert(commonsUrl.hostname === "commons.wikimedia.org", "Wikimedia provider should use Commons.");
+assert(commonsUrl.searchParams.get("generator") === "search", "Wikimedia provider should use search generator.");
+assert(commonsUrl.searchParams.get("gsrnamespace") === "6", "Wikimedia provider should restrict search to files.");
+assert(commonsUrl.searchParams.get("gsrlimit") === "10", "Wikimedia search limit should be clamped.");
+assert(commonsUrl.searchParams.get("iiprop").includes("url"), "Wikimedia search should request image URLs.");
+
+const publicReferenceResults = parseWikimediaCommonsSearchResponse({
+  query: {
+    pages: [
+      {
+        pageid: 42,
+        index: 1,
+        title: "File:Cinematic portrait reference.jpg",
+        imageinfo: [{
+          url: "https://upload.wikimedia.org/wikipedia/commons/example.jpg",
+          thumburl: "https://upload.wikimedia.org/wikipedia/commons/thumb/example.jpg/640px-example.jpg",
+          descriptionurl: "https://commons.wikimedia.org/wiki/File:Cinematic_portrait_reference.jpg",
+          mime: "image/jpeg",
+          extmetadata: {
+            LicenseShortName: { value: "CC BY-SA 4.0" },
+            Artist: { value: "<span>Jane Doe</span>" },
+          },
+        }],
+      },
+      {
+        pageid: 43,
+        index: 2,
+        title: "File:Skipped document.pdf",
+        imageinfo: [{
+          url: "https://upload.wikimedia.org/wikipedia/commons/example.pdf",
+          descriptionurl: "https://commons.wikimedia.org/wiki/File:Skipped_document.pdf",
+          mime: "application/pdf",
+        }],
+      },
+    ],
+  },
+}, "cinematic portrait");
+assert(publicReferenceResults.length === 1, "Wikimedia parser should keep image results only.");
+assert(publicReferenceResults[0].title === "Cinematic portrait reference.jpg", "Wikimedia parser should clean file titles.");
+assert(publicReferenceResults[0].creator === "Jane Doe", "Wikimedia parser should clean metadata HTML.");
+assert(publicReferenceResults[0].privacy.derivedFromPromptOnly === true, "Public references should be prompt-only derived.");
+
 console.log(JSON.stringify({
   personalLearning: true,
   onlineReferencePlan: plan.reason,
+  onlineSourceAdapter: publicReferenceResults[0].source,
   privacy: plan.privacy,
   status: "passed",
 }, null, 2));
@@ -179,6 +227,89 @@ function makeOnlineReferencePlan(shotSpec, prompt, profile, consent = profile.co
   };
 }
 
+function makeOnlineInspirationRequest(plan, perQueryLimit = 4) {
+  if (
+    !plan.privacy.singlePhoneOnly ||
+    !plan.privacy.requiresUserConsent ||
+    plan.privacy.sendsRawCameraFrame ||
+    plan.privacy.sendsPrivatePhoto ||
+    plan.privacy.sendsIdentityData
+  ) {
+    throw new Error("unsafe_online_reference_plan");
+  }
+
+  return {
+    planId: plan.id,
+    queries: uniqueNonEmpty(plan.searchQueries).slice(0, 3),
+    perQueryLimit: Math.min(10, Math.max(1, perQueryLimit)),
+    source: "wikimedia_commons",
+    privacy: {
+      singlePhoneOnly: true,
+      requiresUserConsent: true,
+      sendsRawCameraFrame: false,
+      sendsPrivatePhoto: false,
+      sendsIdentityData: false,
+      sendsPreciseLocation: false,
+    },
+  };
+}
+
+function buildWikimediaCommonsSearchUrl(query, limit = 4, apiUrl = "https://commons.wikimedia.org/w/api.php") {
+  const url = new URL(apiUrl);
+  url.searchParams.set("action", "query");
+  url.searchParams.set("generator", "search");
+  url.searchParams.set("gsrsearch", query);
+  url.searchParams.set("gsrnamespace", "6");
+  url.searchParams.set("gsrlimit", String(Math.min(10, Math.max(1, limit))));
+  url.searchParams.set("prop", "imageinfo");
+  url.searchParams.set("iiprop", "url|mime|extmetadata");
+  url.searchParams.set("iiurlwidth", "640");
+  url.searchParams.set("format", "json");
+  url.searchParams.set("formatversion", "2");
+  url.searchParams.set("origin", "*");
+  return url.toString();
+}
+
+function parseWikimediaCommonsSearchResponse(payload, query) {
+  const pages = isRecord(payload) && isRecord(payload.query) && Array.isArray(payload.query.pages)
+    ? payload.query.pages
+    : [];
+
+  return pages
+    .slice()
+    .sort((a, b) => pageIndex(a) - pageIndex(b))
+    .flatMap((page) => {
+      if (!isRecord(page) || typeof page.pageid !== "number" || typeof page.title !== "string") return [];
+      const imageInfo = Array.isArray(page.imageinfo) && isRecord(page.imageinfo[0]) ? page.imageinfo[0] : undefined;
+      if (!imageInfo || typeof imageInfo.descriptionurl !== "string") return [];
+      if (typeof imageInfo.mime !== "string" || !imageInfo.mime.startsWith("image/")) return [];
+      const imageUrl = typeof imageInfo.url === "string" ? imageInfo.url : undefined;
+      const thumbnailUrl = typeof imageInfo.thumburl === "string" ? imageInfo.thumburl : undefined;
+      if (!imageUrl && !thumbnailUrl) return [];
+
+      const extmetadata = isRecord(imageInfo.extmetadata) ? imageInfo.extmetadata : {};
+      return [{
+        id: `wikimedia_commons_${page.pageid}`,
+        source: "wikimedia_commons",
+        query,
+        title: page.title.startsWith("File:") ? page.title.slice("File:".length) : page.title,
+        pageUrl: imageInfo.descriptionurl,
+        thumbnailUrl,
+        imageUrl,
+        mimeType: imageInfo.mime,
+        license: metadataValue(extmetadata.LicenseShortName),
+        creator: metadataValue(extmetadata.Artist),
+        privacy: {
+          publicSourceOnly: true,
+          derivedFromPromptOnly: true,
+          storesRawPhoto: false,
+          uploadsLiveCameraFrame: false,
+          identityRecognitionAllowed: false,
+        },
+      }];
+    });
+}
+
 function canLearnLocally(event) {
   return event.privacy.singlePhoneOnly &&
     !event.privacy.storesRawPhoto &&
@@ -234,6 +365,24 @@ function compactPromptQuery(prompt) {
 
 function uniqueNonEmpty(values) {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+}
+
+function isRecord(value) {
+  return typeof value === "object" && value !== null;
+}
+
+function pageIndex(value) {
+  return isRecord(value) && typeof value.index === "number" ? value.index : Number.MAX_SAFE_INTEGER;
+}
+
+function metadataValue(value) {
+  if (!isRecord(value) || typeof value.value !== "string") return undefined;
+  const cleaned = value.value
+    .replace(/<[^>]+>/g, "")
+    .replace(/&quot;/g, "\"")
+    .replace(/&amp;/g, "&")
+    .trim();
+  return cleaned || undefined;
 }
 
 function assert(condition, message) {

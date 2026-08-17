@@ -30,6 +30,7 @@ This implementation completes the MVP AI control skeleton, not the final product
 - Live director stabilization: the iOS camera screen now applies guidance TTL, opposite-action suppression, and completed-action memory before updating the single on-screen instruction.
 - Personal Visual AI contracts now support local-only learning from structured user behavior and optional online inspiration plans without making cloud or online access required for the camera loop.
 - Personal Visual AI app controls now let the user enable local learning, enable optional online inspiration, see the current online-reference plan, and delete the local learned profile from the same phone.
+- Online inspiration can now fetch public image references from Wikimedia Commons from prompt-derived queries only, display them in the same-phone settings sheet, and load a selected public result into the existing reference popup.
 
 ## Not Yet Production AI
 
@@ -39,7 +40,7 @@ This implementation completes the MVP AI control skeleton, not the final product
 - No cloud VLM/LLM adapter yet.
 - No generative preview engine yet.
 - No encrypted preference store, embedding sync, or cloud personalization sync yet.
-- No online source provider adapter yet; the current implementation creates a safe request plan only.
+- No multi-provider source ranking yet; the current online adapter starts with Wikimedia Commons public image search.
 - No blind-rater evaluation data yet.
 
 ## Why This Order
@@ -50,5 +51,5 @@ LensPilot must remain a reliable camera first. A deterministic AI core lets us p
 
 1. Collect real portrait, landscape, sky, clutter, backlight, horizon, and motion samples from iPhone captures.
 2. Tune benchmark thresholds, sub-score weights, and guidance-priority boosts against blind preference tests now that the app can load the manifest at runtime.
-3. Add a user-facing consent/settings UI for local learning, online inspiration, and delete/reset controls.
+3. Add multi-provider source ranking and thumbnail caching for online inspiration.
 4. Add optional cloud or online reasoning only for event-triggered creative interpretation and inspiration lookup.

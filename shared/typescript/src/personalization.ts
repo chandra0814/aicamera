@@ -78,6 +78,47 @@ export interface OnlineReferencePlan {
   };
 }
 
+export interface OnlineInspirationRequest {
+  planId: string;
+  queries: string[];
+  perQueryLimit: number;
+  source: "wikimedia_commons";
+  privacy: {
+    singlePhoneOnly: true;
+    requiresUserConsent: true;
+    sendsRawCameraFrame: false;
+    sendsPrivatePhoto: false;
+    sendsIdentityData: false;
+    sendsPreciseLocation: false;
+  };
+}
+
+export interface OnlineInspirationResult {
+  id: string;
+  source: "wikimedia_commons";
+  query: string;
+  title: string;
+  pageUrl: string;
+  thumbnailUrl?: string;
+  imageUrl?: string;
+  mimeType?: string;
+  license?: string;
+  creator?: string;
+  privacy: {
+    publicSourceOnly: true;
+    derivedFromPromptOnly: true;
+    storesRawPhoto: false;
+    uploadsLiveCameraFrame: false;
+    identityRecognitionAllowed: false;
+  };
+}
+
+export interface OnlineInspirationResponse {
+  planId: string;
+  source: "wikimedia_commons";
+  results: OnlineInspirationResult[];
+}
+
 export function emptyPersonalVisualPreferenceProfile(
   consent: PersonalizationConsent = disabledPersonalizationConsent
 ): PersonalVisualPreferenceProfile {
@@ -194,6 +235,123 @@ export class PersonalVisualLearningEngine {
   }
 }
 
+export function makeOnlineInspirationRequest(
+  plan: OnlineReferencePlan,
+  perQueryLimit = 4
+): OnlineInspirationRequest {
+  if (
+    !plan.privacy.singlePhoneOnly ||
+    !plan.privacy.requiresUserConsent ||
+    plan.privacy.sendsRawCameraFrame ||
+    plan.privacy.sendsPrivatePhoto ||
+    plan.privacy.sendsIdentityData
+  ) {
+    throw new Error("unsafe_online_reference_plan");
+  }
+
+  return {
+    planId: plan.id,
+    queries: uniqueNonEmpty(plan.searchQueries).slice(0, 3),
+    perQueryLimit: Math.min(10, Math.max(1, perQueryLimit)),
+    source: "wikimedia_commons",
+    privacy: {
+      singlePhoneOnly: true,
+      requiresUserConsent: true,
+      sendsRawCameraFrame: false,
+      sendsPrivatePhoto: false,
+      sendsIdentityData: false,
+      sendsPreciseLocation: false,
+    },
+  };
+}
+
+export function buildWikimediaCommonsSearchUrl(
+  query: string,
+  limit = 4,
+  apiUrl = "https://commons.wikimedia.org/w/api.php"
+): string {
+  const url = new URL(apiUrl);
+  url.searchParams.set("action", "query");
+  url.searchParams.set("generator", "search");
+  url.searchParams.set("gsrsearch", query);
+  url.searchParams.set("gsrnamespace", "6");
+  url.searchParams.set("gsrlimit", String(Math.min(10, Math.max(1, limit))));
+  url.searchParams.set("prop", "imageinfo");
+  url.searchParams.set("iiprop", "url|mime|extmetadata");
+  url.searchParams.set("iiurlwidth", "640");
+  url.searchParams.set("format", "json");
+  url.searchParams.set("formatversion", "2");
+  url.searchParams.set("origin", "*");
+  return url.toString();
+}
+
+export function parseWikimediaCommonsSearchResponse(
+  payload: unknown,
+  query: string
+): OnlineInspirationResult[] {
+  const pages = isRecord(payload) && isRecord(payload.query) && Array.isArray(payload.query.pages)
+    ? payload.query.pages
+    : [];
+
+  return pages
+    .slice()
+    .sort((a, b) => pageIndex(a) - pageIndex(b))
+    .flatMap((page): OnlineInspirationResult[] => {
+      if (!isRecord(page) || typeof page.pageid !== "number" || typeof page.title !== "string") return [];
+      const imageInfo = Array.isArray(page.imageinfo) && isRecord(page.imageinfo[0]) ? page.imageinfo[0] : undefined;
+      if (!imageInfo || typeof imageInfo.descriptionurl !== "string") return [];
+      if (typeof imageInfo.mime !== "string" || !imageInfo.mime.startsWith("image/")) return [];
+      const imageUrl = typeof imageInfo.url === "string" ? imageInfo.url : undefined;
+      const thumbnailUrl = typeof imageInfo.thumburl === "string" ? imageInfo.thumburl : undefined;
+      if (!imageUrl && !thumbnailUrl) return [];
+
+      const extmetadata = isRecord(imageInfo.extmetadata) ? imageInfo.extmetadata : {};
+      return [{
+        id: `wikimedia_commons_${page.pageid}`,
+        source: "wikimedia_commons",
+        query,
+        title: page.title.startsWith("File:") ? page.title.slice("File:".length) : page.title,
+        pageUrl: imageInfo.descriptionurl,
+        thumbnailUrl,
+        imageUrl,
+        mimeType: imageInfo.mime,
+        license: metadataValue(extmetadata.LicenseShortName),
+        creator: metadataValue(extmetadata.Artist),
+        privacy: {
+          publicSourceOnly: true,
+          derivedFromPromptOnly: true,
+          storesRawPhoto: false,
+          uploadsLiveCameraFrame: false,
+          identityRecognitionAllowed: false,
+        },
+      }];
+    });
+}
+
+export async function fetchWikimediaCommonsReferences(
+  request: OnlineInspirationRequest,
+  fetcher: (url: string) => Promise<{ ok: boolean; status: number; json: () => Promise<unknown> }>
+): Promise<OnlineInspirationResponse> {
+  if (!request.privacy.singlePhoneOnly || request.privacy.sendsRawCameraFrame || request.privacy.sendsPrivatePhoto || request.privacy.sendsIdentityData) {
+    throw new Error("unsafe_online_inspiration_request");
+  }
+
+  const seenPageUrls = new Set<string>();
+  const results: OnlineInspirationResult[] = [];
+
+  for (const query of request.queries.slice(0, 3)) {
+    const response = await fetcher(buildWikimediaCommonsSearchUrl(query, request.perQueryLimit));
+    if (!response.ok) throw new Error(`wikimedia_commons_http_${response.status}`);
+    for (const result of parseWikimediaCommonsSearchResponse(await response.json(), query)) {
+      if (seenPageUrls.has(result.pageUrl)) continue;
+      seenPageUrls.add(result.pageUrl);
+      results.push(result);
+    }
+  }
+
+  return { planId: request.planId, source: request.source, results };
+}
+
 function canLearnLocally(event: PersonalLearningEvent): boolean {
   return event.privacy.singlePhoneOnly &&
     !event.privacy.storesRawPhoto &&
@@ -257,4 +415,22 @@ function compactPromptQuery(prompt: string): string {
 
 function uniqueNonEmpty(values: string[]): string[] {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function pageIndex(value: unknown): number {
+  return isRecord(value) && typeof value.index === "number" ? value.index : Number.MAX_SAFE_INTEGER;
+}
+
+function metadataValue(value: unknown): string | undefined {
+  if (!isRecord(value) || typeof value.value !== "string") return undefined;
+  const cleaned = value.value
+    .replace(/<[^>]+>/g, "")
+    .replace(/&quot;/g, "\"")
+    .replace(/&amp;/g, "&")
+    .trim();
+  return cleaned || undefined;
 }
