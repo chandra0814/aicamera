@@ -6,7 +6,8 @@
 2. Use the in-app share control to export `iphone_capture_candidate` JSON for portrait, landscape, sky, clutter, backlight, horizon, and motion samples.
 3. Add blind preference labels from the in-app tag control, then import reviewed app exports with `npm run calibration:import-reviewed -- --sample <reviewed-sample.json> --write`.
 4. Calibrate the on-device metric weights and guidance priorities against those reviewed samples; the app now loads the bundled manifest into `LensPilotAiCore`.
-5. Add `NSMicrophoneUsageDescription` later, when voice input is wired.
+5. Add a consent/settings screen for Personal Visual AI local learning, online inspiration lookup, and delete/reset controls.
+6. Add `NSMicrophoneUsageDescription` later, when voice input is wired.
 
 ## Completed Single-Phone Runtime Work
 
@@ -30,12 +31,16 @@
 - Reviewed `iphone_capture` labels now produce small domain-aware guidance boosts, so blind preferences can influence the next selected action without bypassing safety or confidence gates.
 - `scripts/test-all.ps1` now fails on external command failures instead of continuing after a broken `npm` or Swift run.
 - The live director now stabilizes one-action-at-a-time guidance with TTL, opposite-action suppression, and short completed-action memory to reduce frame-to-frame instruction flipping.
+- Personal Visual AI now has consent-gated local learning contracts for customer usage, requirements, accepted/rejected guidance, selected results, ratings, and online-reference usage.
+- Optional online inspiration now has a privacy-safe request policy that uses prompt/ShotSpec summaries only and blocks raw live camera frames, private photos, identity data, and precise location without consent.
 
 ## Single-Phone Verification Checklist
 
 - The camera preview, reference popup, full reference viewer, guidance, capture, and result review all run on one device.
 - Front camera self-shot mode never assumes a second person or device.
 - Reference photo viewing does not stop the live camera session.
+- Personal learning events are structured signals only; they do not store raw photos, upload live camera frames, or enable identity recognition.
+- Online inspiration is optional and consent-gated; the base camera loop remains usable without network access.
 - Cloud is not required for camera preview, basic ShotSpec, basic ShotPlan, guidance, capture, or best-shot selection.
 
 ## MVP Boundary

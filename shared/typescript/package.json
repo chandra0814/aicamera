@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "validate": "node -e \"eval(require('node:fs').readFileSync('scripts/validate-ai-core.cjs','utf8'))\" && node -e \"eval(require('node:fs').readFileSync('scripts/validate-ai-benchmarks.cjs','utf8'))\" && node -e \"eval(require('node:fs').readFileSync('scripts/validate-ai-calibration.cjs','utf8'))\" && node -e \"eval(require('node:fs').readFileSync('scripts/validate-calibration-promotion.cjs','utf8'))\"",
+    "validate": "node -e \"eval(require('node:fs').readFileSync('scripts/validate-ai-core.cjs','utf8'))\" && node -e \"eval(require('node:fs').readFileSync('scripts/validate-ai-benchmarks.cjs','utf8'))\" && node -e \"eval(require('node:fs').readFileSync('scripts/validate-ai-calibration.cjs','utf8'))\" && node -e \"eval(require('node:fs').readFileSync('scripts/validate-calibration-promotion.cjs','utf8'))\" && node -e \"eval(require('node:fs').readFileSync('scripts/validate-personalization.cjs','utf8'))\"",
     "validate:benchmarks": "node -e \"eval(require('node:fs').readFileSync('scripts/validate-ai-benchmarks.cjs','utf8'))\"",
     "validate:calibration": "node -e \"eval(require('node:fs').readFileSync('scripts/validate-ai-calibration.cjs','utf8'))\"",
     "calibration:promote": "node -e \"globalThis.__LENSPILOT_RUN_PROMOTION_CLI__ = true; eval(require('node:fs').readFileSync('scripts/promote-calibration-candidate.cjs','utf8'))\" --",

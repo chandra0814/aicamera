@@ -260,6 +260,79 @@ final class AiCoreTests: XCTestCase {
         XCTAssertEqual(stabilizer.stabilize(exposure, now: now.addingTimeInterval(0.4))?.action, .adjustExposure)
     }
 
+    func testPersonalVisualLearningBuildsProfileFromSafeCustomerUsage() {
+        let engine = PersonalVisualLearningEngine()
+        let event = PersonalLearningEvent(
+            id: "learn_event_001",
+            timestamp: Date(timeIntervalSince1970: 0),
+            domain: .portrait,
+            outcome: .savedResult,
+            promptRequirements: ["cinematic", "clean_background", "natural_skin"],
+            acceptedGuidanceReason: .reduceClutter,
+            selectedStyle: .cinematic,
+            selectedColorIntent: .warmHighlightsCoolShadows,
+            selectedFraming: .environmental,
+            selectedTargetMatch: 0.91,
+            userRating: 5,
+            onlineReferenceUsed: true
+        )
+
+        let disabledProfile = engine.updatedProfile(
+            from: .empty(consent: .disabled),
+            with: event,
+            consent: .disabled
+        )
+        XCTAssertEqual(disabledProfile.totalEvents, 0)
+
+        let profile = engine.updatedProfile(
+            from: .empty(consent: .localLearningEnabled),
+            with: event,
+            consent: .localLearningEnabled
+        )
+        XCTAssertEqual(profile.totalEvents, 1)
+        XCTAssertEqual(profile.domainCounts["portrait"], 1)
+        XCTAssertGreaterThan(profile.styleAffinities["cinematic"] ?? 0, 0)
+        XCTAssertGreaterThan(profile.requirementAffinities["clean_background"] ?? 0, 0)
+        XCTAssertEqual(profile.onlineReferenceUsageCount, 1)
+
+        let action = Self.guidanceAction(id: "reduce_background_clutter", action: .moveLeft, direction: .left)
+        let boost = profile.guidanceCalibration().scoreBoost(for: action, domain: .portrait)
+        XCTAssertGreaterThan(boost, 0)
+        XCTAssertLessThanOrEqual(boost, 0.04)
+    }
+
+    func testOnlineReferencePlanRequiresConsentAndNeverUploadsPrivateCameraData() throws {
+        let engine = PersonalVisualLearningEngine()
+        let shotSpec = ShotSpecFactory().makeShotSpec(
+            from: "Give me a cinematic portrait with online inspiration.",
+            source: .text
+        )
+        let profile = PersonalVisualPreferenceProfile.empty(consent: .localLearningEnabled)
+
+        XCTAssertNil(engine.makeOnlineReferencePlan(
+            for: shotSpec,
+            prompt: "Give me a cinematic portrait with online inspiration.",
+            profile: profile,
+            consent: .localLearningEnabled
+        ))
+
+        let plan = try XCTUnwrap(engine.makeOnlineReferencePlan(
+            for: shotSpec,
+            prompt: "Give me a cinematic portrait with online inspiration.",
+            profile: profile,
+            consent: PersonalizationConsent(learningEnabled: true, onlineReferencesAllowed: true)
+        ))
+        XCTAssertEqual(plan.reason, .explicitUserRequest)
+        XCTAssertTrue(plan.privacy.singlePhoneOnly)
+        XCTAssertTrue(plan.privacy.requiresUserConsent)
+        XCTAssertFalse(plan.privacy.sendsRawCameraFrame)
+        XCTAssertFalse(plan.privacy.sendsPrivatePhoto)
+        XCTAssertFalse(plan.privacy.sendsIdentityData)
+        XCTAssertTrue(plan.allowedInputs.contains(.promptText))
+        XCTAssertTrue(plan.mustNotSend.contains("raw_live_camera_feed"))
+        XCTAssertTrue(plan.searchQueries.contains { $0.contains("cinematic") })
+    }
+
     private static func portraitScene() -> SceneState {
         SceneState(
             timestamp: Date(timeIntervalSince1970: 0),

@@ -11,6 +11,8 @@ This implementation completes the MVP AI control skeleton, not the final product
 - Target Match Engine: calculates normalized sub-scores and an overall match from measured scene values.
 - Preview Safety Engine: enforces Natural, Enhanced, and Creative labels.
 - Best-Shot Ranker: ranks burst candidates by sharpness, exposure, face quality, pose, composition, background, and intent match.
+- Personal Visual Learning Engine: converts consented customer usage, requirements, accepted/rejected guidance, selected results, ratings, and online-reference usage into a local preference profile with small guidance boosts.
+- Online Reference Policy: can produce a consent-gated public-inspiration request plan from prompt and ShotSpec only, while explicitly blocking raw live camera frames, private photos, identity data, and precise location without consent.
 - Single-phone invariant: `ShotSpec.constraints.singlePhoneOnly` is required and true.
 - Native Swift AI core: iOS now has on-device `SceneState`, `LensPilotAiCore`, `TargetMatchEngine`, `GuidancePolicy`, `PreviewSafetyEngine`, and `BestShotRanker` equivalents.
 - App wiring: the iOS camera screen view model calls the native AI core and displays AI guidance plus Target Match from scene inputs.
@@ -26,6 +28,7 @@ This implementation completes the MVP AI control skeleton, not the final product
 - Reviewed-sample importer: app exports can be normalized and appended to the calibration manifest only after single-phone privacy, blind-review, domain, and expected score-range validation passes.
 - Runtime calibration loading: the iOS app bundles the Target Match calibration manifest, validates that it remains single-phone only, and initializes the on-device AI core with reviewed scoring weights and domain-aware guidance-priority boosts when available.
 - Live director stabilization: the iOS camera screen now applies guidance TTL, opposite-action suppression, and completed-action memory before updating the single on-screen instruction.
+- Personal Visual AI contracts now support local-only learning from structured user behavior and optional online inspiration plans without making cloud or online access required for the camera loop.
 
 ## Not Yet Production AI
 
@@ -34,7 +37,8 @@ This implementation completes the MVP AI control skeleton, not the final product
 - No Core ML/TFLite production model bundle yet.
 - No cloud VLM/LLM adapter yet.
 - No generative preview engine yet.
-- No user preference embedding yet.
+- No persistent user preference store or embedding sync yet.
+- No online source provider adapter yet; the current implementation creates a safe request plan only.
 - No blind-rater evaluation data yet.
 
 ## Why This Order
@@ -45,4 +49,5 @@ LensPilot must remain a reliable camera first. A deterministic AI core lets us p
 
 1. Collect real portrait, landscape, sky, clutter, backlight, horizon, and motion samples from iPhone captures.
 2. Tune benchmark thresholds, sub-score weights, and guidance-priority boosts against blind preference tests now that the app can load the manifest at runtime.
-3. Add optional cloud reasoning only for event-triggered creative interpretation.
+3. Add a user-facing consent/settings UI for local learning, online inspiration, and delete/reset controls.
+4. Add optional cloud or online reasoning only for event-triggered creative interpretation and inspiration lookup.
