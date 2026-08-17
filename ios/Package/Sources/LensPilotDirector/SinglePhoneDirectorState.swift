@@ -7,6 +7,7 @@ public final class SinglePhoneDirectorState: ObservableObject {
     @Published public private(set) var referencePhoto: ReferencePhotoState?
     @Published public private(set) var primaryInstruction: String?
     @Published public private(set) var targetMatch: Double?
+    @Published public private(set) var targetPreview: TargetPreview?
     @Published public private(set) var isReferenceViewerPresented = false
 
     public init() {}
@@ -42,8 +43,15 @@ public final class SinglePhoneDirectorState: ObservableObject {
         isReferenceViewerPresented = false
     }
 
-    public func updateGuidance(instruction: String?, targetMatch: Double?) {
+    public func updateGuidance(instruction: String?, targetMatch: Double?, targetPreview: TargetPreview? = nil) {
         primaryInstruction = instruction
         self.targetMatch = targetMatch
+        if let targetPreview {
+            self.targetPreview = targetPreview
+        }
+    }
+
+    public func clearTargetPreview() {
+        targetPreview = nil
     }
 }

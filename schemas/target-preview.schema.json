@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lenspilot.ai/schemas/target-preview.schema.json",
+  "title": "TargetPreview",
+  "type": "object",
+  "required": [
+    "id",
+    "shotSpecId",
+    "shotPlanId",
+    "title",
+    "subtitle",
+    "label",
+    "estimatedAchievability",
+    "subjectBounds",
+    "crop",
+    "lens",
+    "targetZoom",
+    "toneCurve",
+    "colorTreatment",
+    "depthEffect",
+    "operations",
+    "targetMatchAtPreview",
+    "requiresGenerativeEnhancement",
+    "privacy"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "shotSpecId": { "type": "string", "minLength": 1 },
+    "shotPlanId": { "type": "string", "minLength": 1 },
+    "title": { "type": "string", "minLength": 1 },
+    "subtitle": { "type": "string", "minLength": 1 },
+    "label": { "enum": ["capture_realistic", "enhanced_realistic", "ai_enhancement_required"] },
+    "estimatedAchievability": { "type": "number", "minimum": 0, "maximum": 1 },
+    "subjectBounds": { "$ref": "shotplan.schema.json#/$defs/normalizedRectangle" },
+    "horizonY": { "type": "number", "minimum": 0, "maximum": 1 },
+    "crop": { "$ref": "shotplan.schema.json#/$defs/normalizedRectangle" },
+    "lens": { "type": "string", "minLength": 1 },
+    "targetZoom": { "type": "number", "minimum": 0 },
+    "exposureBias": { "type": "number" },
+    "toneCurve": { "enum": ["natural", "cinematic_soft_contrast", "high_dynamic_range", "night_noise_control"] },
+    "colorTreatment": { "type": "string", "minLength": 1 },
+    "depthEffect": { "enum": ["none", "natural", "portrait_if_available", "post_depth_blur"] },
+    "operations": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "targetMatchAtPreview": { "type": "number", "minimum": 0, "maximum": 1 },
+    "disclosure": { "type": "string" },
+    "requiresGenerativeEnhancement": { "type": "boolean" },
+    "privacy": {
+      "type": "object",
+      "required": ["singlePhoneOnly", "usesRawCameraFrameUpload", "usesPrivatePhotoUpload"],
+      "additionalProperties": false,
+      "properties": {
+        "singlePhoneOnly": { "const": true },
+        "usesRawCameraFrameUpload": { "const": false },
+        "usesPrivatePhotoUpload": { "const": false }
+      }
+    }
+  }
+}

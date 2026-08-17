@@ -8,6 +8,7 @@ export type GuidanceReason = GuidanceAction["reason"];
 export interface AiPipelineResult {
   shotSpec: ShotSpec;
   shotPlan: ShotPlan;
+  targetPreview: TargetPreview;
   guidanceAction?: GuidanceAction;
   targetMatch: TargetMatchScore;
   previewSafety: PreviewSafety;
@@ -151,6 +152,34 @@ export interface PreviewSafety {
   label: "capture_realistic" | "enhanced_realistic" | "ai_enhancement_required";
   userFacingDisclosure?: string;
   allowedOperations: string[];
+}
+
+export interface TargetPreview {
+  id: string;
+  shotSpecId: string;
+  shotPlanId: string;
+  title: string;
+  subtitle: string;
+  label: ShotPlan["previewConfiguration"]["label"];
+  estimatedAchievability: number;
+  subjectBounds: NormalizedRectangle;
+  horizonY?: number;
+  crop: NormalizedRectangle;
+  lens: string;
+  targetZoom: number;
+  exposureBias?: number;
+  toneCurve: ShotPlan["processingIntent"]["toneCurve"];
+  colorTreatment: string;
+  depthEffect: ShotPlan["processingIntent"]["depthEffect"];
+  operations: string[];
+  targetMatchAtPreview: number;
+  disclosure?: string;
+  requiresGenerativeEnhancement: boolean;
+  privacy: {
+    singlePhoneOnly: true;
+    usesRawCameraFrameUpload: false;
+    usesPrivatePhotoUpload: false;
+  };
 }
 
 export interface BestShotCandidate {
@@ -518,6 +547,47 @@ export class PreviewSafetyEngine {
   }
 }
 
+export class TargetPreviewEngine {
+  makePreview(
+    shotSpec: ShotSpec,
+    shotPlan: ShotPlan,
+    targetMatch: TargetMatchScore,
+    previewSafety: PreviewSafety
+  ): TargetPreview {
+    return {
+      id: `preview_${shotPlan.id}`,
+      shotSpecId: shotSpec.id,
+      shotPlanId: shotPlan.id,
+      title: `${displayTitle(shotSpec.style.name)} ${displayTitle(shotSpec.domain)}`,
+      subtitle: [
+        `${displayTitle(shotPlan.cameraControls.recommendedLens)} ${formatZoom(shotPlan.cameraControls.targetZoom)}`,
+        displayTitle(shotPlan.processingIntent.toneCurve),
+        displayTitle(shotPlan.processingIntent.depthEffect),
+      ].join(" | "),
+      label: previewSafety.label,
+      estimatedAchievability: achievabilityForPreviewLabel(previewSafety.label, shotPlan),
+      subjectBounds: shotPlan.compositionTarget.subjectBounds,
+      horizonY: shotPlan.compositionTarget.horizonY,
+      crop: shotPlan.compositionTarget.crop,
+      lens: shotPlan.cameraControls.recommendedLens,
+      targetZoom: shotPlan.cameraControls.targetZoom,
+      exposureBias: shotPlan.cameraControls.targetExposureBias,
+      toneCurve: shotPlan.processingIntent.toneCurve,
+      colorTreatment: shotPlan.processingIntent.colorTreatment,
+      depthEffect: shotPlan.processingIntent.depthEffect,
+      operations: uniqueNonEmpty([...previewSafety.allowedOperations, ...shotPlan.previewConfiguration.operations]),
+      targetMatchAtPreview: clamp01(targetMatch.overall),
+      disclosure: previewSafety.userFacingDisclosure,
+      requiresGenerativeEnhancement: previewSafety.label === "ai_enhancement_required",
+      privacy: {
+        singlePhoneOnly: true,
+        usesRawCameraFrameUpload: false,
+        usesPrivatePhotoUpload: false,
+      },
+    };
+  }
+}
+
 export class BestShotRanker {
   rank(candidates: BestShotCandidate[]): RankedShot[] {
     return candidates
@@ -549,6 +619,7 @@ export class LensPilotAiCore {
   private readonly intentEngine = new IntentEngine();
   private readonly shotPlanner = new ShotPlanner();
   private readonly previewSafetyEngine = new PreviewSafetyEngine();
+  private readonly targetPreviewEngine = new TargetPreviewEngine();
   private readonly guidancePolicy: GuidancePolicy;
   private readonly targetMatchEngine: TargetMatchEngine;
 
@@ -566,8 +637,9 @@ export class LensPilotAiCore {
     const guidanceAction = this.guidancePolicy.selectNextAction(shotPlan, shotSpec.domain);
     const targetMatch = this.targetMatchEngine.score(shotSpec, shotPlan, sceneState);
     const previewSafety = this.previewSafetyEngine.evaluate(shotSpec, shotPlan);
+    const targetPreview = this.targetPreviewEngine.makePreview(shotSpec, shotPlan, targetMatch, previewSafety);
 
-    return { shotSpec, shotPlan, guidanceAction, targetMatch, previewSafety };
+    return { shotSpec, shotPlan, targetPreview, guidanceAction, targetMatch, previewSafety };
   }
 }
 
@@ -743,6 +815,28 @@ function shotReasons(candidate: BestShotCandidate): string[] {
   if (candidate.composition > 0.8) reasons.push("strong_composition");
   if (candidate.intentMatch > 0.8) reasons.push("matches_intent");
   return reasons.length ? reasons : ["balanced_result"];
+}
+
+function achievabilityForPreviewLabel(label: ShotPlan["previewConfiguration"]["label"], shotPlan: ShotPlan): number {
+  if (label === "enhanced_realistic") return clamp01(shotPlan.achievability.enhanced);
+  if (label === "ai_enhancement_required") return clamp01(shotPlan.achievability.creative);
+  return clamp01(shotPlan.achievability.natural);
+}
+
+function displayTitle(value: string): string {
+  return value
+    .split("_")
+    .filter(Boolean)
+    .map((word) => word[0].toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+function formatZoom(value: number): string {
+  return Math.abs(Math.round(value) - value) < 0.05 ? `${Math.round(value)}x` : `${value.toFixed(1)}x`;
+}
+
+function uniqueNonEmpty(values: string[]): string[] {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 }
 
 function average(values: number[]): number {

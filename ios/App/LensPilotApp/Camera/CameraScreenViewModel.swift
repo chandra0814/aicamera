@@ -33,6 +33,7 @@ final class CameraScreenViewModel: ObservableObject {
     @Published private(set) var deviceCapability: DeviceCapability?
     @Published private(set) var currentShotSpec: ShotSpec?
     @Published private(set) var currentShotPlan: ShotPlan?
+    @Published private(set) var currentTargetPreview: TargetPreview?
     @Published private(set) var currentTargetMatch: TargetMatchScore?
     @Published private(set) var latestSceneDebugState: SceneDebugState?
     @Published private(set) var referenceImageData: Data?
@@ -302,13 +303,15 @@ final class CameraScreenViewModel: ObservableObject {
 
         currentShotSpec = result.shotSpec
         currentShotPlan = result.shotPlan
+        currentTargetPreview = result.targetPreview
         currentTargetMatch = result.targetMatch
         refreshOnlineReferencePlan(for: result.shotSpec)
         let guidanceAction = guidanceStabilizer.stabilize(result.guidanceAction)
         latestGuidanceAction = guidanceAction
         directorState.updateGuidance(
             instruction: guidanceAction.map(Self.instructionText),
-            targetMatch: result.targetMatch.overall
+            targetMatch: result.targetMatch.overall,
+            targetPreview: result.targetPreview
         )
     }
 

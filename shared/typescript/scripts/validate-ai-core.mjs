@@ -15,10 +15,17 @@ const shotSpec = parseIntent(prompt);
 const shotPlan = plan(shotSpec, sceneState, deviceCapability);
 const guidanceAction = selectNextAction(shotPlan);
 const targetMatch = scoreTargetMatch(shotSpec, shotPlan, sceneState);
+const previewSafety = evaluatePreviewSafety(shotSpec, shotPlan);
+const targetPreview = makeTargetPreview(shotSpec, shotPlan, targetMatch, previewSafety);
 
 assert(shotSpec.constraints.singlePhoneOnly === true, "ShotSpec must be single-phone only.");
 assert(shotSpec.subject.identityRecognitionAllowed === false, "Identity recognition must stay disabled.");
 assert(shotPlan.previewConfiguration.label === "capture_realistic", "Natural preview must be capture realistic.");
+assert(targetPreview.label === previewSafety.label, "Target Preview must inherit the preview safety label.");
+assert(targetPreview.estimatedAchievability === shotPlan.achievability.natural, "Natural Target Preview must use natural achievability.");
+assert(targetPreview.privacy.singlePhoneOnly === true, "Target Preview must stay on one phone.");
+assert(targetPreview.privacy.usesRawCameraFrameUpload === false, "Target Preview cannot upload raw live camera frames.");
+assert(targetPreview.privacy.usesPrivatePhotoUpload === false, "Target Preview cannot upload private photos.");
 assert(guidanceAction, "Pipeline should produce a guidance action.");
 assert(guidanceAction.safetyQualifier === "if_safe" || guidanceAction.actor === "camera", "Movement guidance must include safety qualifier.");
 assert(targetMatch.overall >= 0 && targetMatch.overall <= 1, "Target Match must be normalized.");
@@ -34,6 +41,12 @@ console.log(JSON.stringify({
     recommendedLens: shotPlan.cameraControls.recommendedLens,
     naturalAchievability: shotPlan.achievability.natural,
     previewLabel: shotPlan.previewConfiguration.label,
+  },
+  targetPreview: {
+    title: targetPreview.title,
+    label: targetPreview.label,
+    estimatedAchievability: targetPreview.estimatedAchievability,
+    singlePhoneOnly: targetPreview.privacy.singlePhoneOnly,
   },
   guidanceAction,
   targetMatch,
@@ -179,6 +192,78 @@ function scoreTargetMatch(_shotSpec, shotPlan, sceneState) {
   const intentMatch = average([composition, lighting, background, exposure]);
   const values = { composition, subjectPosition, cameraAngle, lighting, background, horizon, pose, sharpnessProbability, exposure, intentMatch };
   return { ...values, overall: average(Object.values(values)) };
+}
+
+function evaluatePreviewSafety(shotSpec, shotPlan) {
+  if (shotSpec.constraints.realityMode === "creative" || shotSpec.constraints.generativeEditsAllowed) {
+    return {
+      label: "ai_enhancement_required",
+      userFacingDisclosure: "AI enhancement required after capture.",
+      allowedOperations: ["generative_relight", "object_removal", "background_modification"],
+    };
+  }
+
+  if (shotSpec.constraints.realityMode === "enhanced") {
+    return {
+      label: "enhanced_realistic",
+      allowedOperations: ["crop", "tone", "color", "hdr", "depth_approximation", ...shotPlan.previewConfiguration.operations],
+    };
+  }
+
+  return {
+    label: "capture_realistic",
+    allowedOperations: ["crop", "exposure", "white_balance", "focus", "lens", "tone", "composition_overlay"],
+  };
+}
+
+function makeTargetPreview(shotSpec, shotPlan, targetMatch, previewSafety) {
+  return {
+    id: `preview_${shotPlan.id}`,
+    shotSpecId: shotSpec.id,
+    shotPlanId: shotPlan.id,
+    title: `${displayTitle(shotSpec.style.name)} ${displayTitle(shotSpec.domain)}`,
+    subtitle: [
+      `${displayTitle(shotPlan.cameraControls.recommendedLens)} ${formatZoom(shotPlan.cameraControls.targetZoom)}`,
+      displayTitle(shotPlan.processingIntent.toneCurve),
+      displayTitle(shotPlan.processingIntent.depthEffect),
+    ].join(" | "),
+    label: previewSafety.label,
+    estimatedAchievability: previewSafety.label === "ai_enhancement_required"
+      ? shotPlan.achievability.creative
+      : previewSafety.label === "enhanced_realistic"
+        ? shotPlan.achievability.enhanced
+        : shotPlan.achievability.natural,
+    subjectBounds: shotPlan.compositionTarget.subjectBounds,
+    horizonY: shotPlan.compositionTarget.horizonY,
+    crop: shotPlan.compositionTarget.crop,
+    lens: shotPlan.cameraControls.recommendedLens,
+    targetZoom: shotPlan.cameraControls.targetZoom,
+    exposureBias: shotPlan.cameraControls.targetExposureBias,
+    toneCurve: shotPlan.processingIntent.toneCurve,
+    colorTreatment: shotPlan.processingIntent.colorTreatment,
+    depthEffect: shotPlan.processingIntent.depthEffect,
+    operations: [...new Set([...previewSafety.allowedOperations, ...shotPlan.previewConfiguration.operations])],
+    targetMatchAtPreview: targetMatch.overall,
+    disclosure: previewSafety.userFacingDisclosure,
+    requiresGenerativeEnhancement: previewSafety.label === "ai_enhancement_required",
+    privacy: {
+      singlePhoneOnly: true,
+      usesRawCameraFrameUpload: false,
+      usesPrivatePhotoUpload: false,
+    },
+  };
+}
+
+function displayTitle(value) {
+  return value
+    .split("_")
+    .filter(Boolean)
+    .map((word) => word[0].toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+function formatZoom(value) {
+  return Math.abs(Math.round(value) - value) < 0.05 ? `${Math.round(value)}x` : `${value.toFixed(1)}x`;
 }
 
 function rectSimilarity(a, b) {

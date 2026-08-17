@@ -81,6 +81,11 @@ public struct CameraOverlayChrome: View {
 
     public var body: some View {
         ZStack {
+            if let targetPreview = state.targetPreview {
+                TargetCompositionGuideView(targetPreview: targetPreview)
+                    .allowsHitTesting(false)
+            }
+
             VStack {
                 HStack {
                     Spacer()
@@ -96,6 +101,10 @@ public struct CameraOverlayChrome: View {
                 Spacer()
 
                 VStack(spacing: 10) {
+                    if let targetPreview = state.targetPreview {
+                        TargetPreviewPanelView(targetPreview: targetPreview)
+                    }
+
                     if let instruction = state.primaryInstruction {
                         Text(instruction)
                             .font(.headline)
@@ -116,6 +125,107 @@ public struct CameraOverlayChrome: View {
                 }
                 .padding(.bottom, 128)
             }
+        }
+    }
+}
+
+private struct TargetCompositionGuideView: View {
+    let targetPreview: TargetPreview
+
+    var body: some View {
+        GeometryReader { proxy in
+            let bounds = targetPreview.subjectBounds
+            let guideWidth = proxy.size.width * bounds.width
+            let guideHeight = proxy.size.height * bounds.height
+            let centerX = proxy.size.width * (bounds.x + bounds.width / 2)
+            let centerY = proxy.size.height * (bounds.y + bounds.height / 2)
+
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(.white.opacity(0.72), style: StrokeStyle(lineWidth: 2, dash: [8, 6]))
+                .frame(width: guideWidth, height: guideHeight)
+                .position(x: centerX, y: centerY)
+
+            if let horizonY = targetPreview.horizonY {
+                Rectangle()
+                    .fill(.white.opacity(0.62))
+                    .frame(height: 1)
+                    .position(x: proxy.size.width / 2, y: proxy.size.height * horizonY)
+            }
+        }
+    }
+}
+
+private struct TargetPreviewPanelView: View {
+    let targetPreview: TargetPreview
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Text(targetPreview.title)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+
+                Spacer(minLength: 8)
+
+                Text("\(Int(targetPreview.estimatedAchievability * 100))%")
+                    .font(.caption.monospacedDigit().weight(.semibold))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(.white.opacity(0.16), in: RoundedRectangle(cornerRadius: 8))
+            }
+
+            HStack(spacing: 8) {
+                Text(targetPreview.label.shortTitle)
+                    .font(.caption2.weight(.semibold))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(targetPreview.label.tint.opacity(0.22), in: RoundedRectangle(cornerRadius: 8))
+
+                Text(targetPreview.subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.78))
+                    .lineLimit(1)
+            }
+
+            if let disclosure = targetPreview.disclosure {
+                Text(disclosure)
+                    .font(.caption2)
+                    .foregroundStyle(.yellow)
+                    .lineLimit(2)
+            }
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(maxWidth: 320, alignment: .leading)
+        .background(.black.opacity(0.58), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(.white.opacity(0.2), lineWidth: 1)
+        )
+    }
+}
+
+private extension ShotPlan.Label {
+    var shortTitle: String {
+        switch self {
+        case .captureRealistic:
+            return "Natural"
+        case .enhancedRealistic:
+            return "Enhanced"
+        case .aiEnhancementRequired:
+            return "Creative"
+        }
+    }
+
+    var tint: Color {
+        switch self {
+        case .captureRealistic:
+            return .green
+        case .enhancedRealistic:
+            return .blue
+        case .aiEnhancementRequired:
+            return .yellow
         }
     }
 }

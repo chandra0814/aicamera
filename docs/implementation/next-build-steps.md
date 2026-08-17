@@ -36,6 +36,7 @@
 - Online inspiration results are ranked for photographic relevance and warmed through a bounded same-phone thumbnail cache.
 - Online inspiration now queries diversified public sources through Wikimedia Commons and Openverse-style public image search, deduplicates repeated assets, and promotes cross-provider variety near the top of the result list.
 - Voice intent is wired into the single-phone camera screen with native microphone and speech permissions, on-device speech recognition when available, and typed intent as the fallback path.
+- AI Shot Preview V1 now produces a deterministic same-phone `TargetPreview` contract and renders target framing, horizon, achievability, lens, tone, and depth cues over the live camera without generative or cloud claims.
 
 ## Single-Phone Verification Checklist
 
@@ -48,6 +49,7 @@
 - Online source lookup is user-triggered from settings and uses prompt-derived search queries only; live camera frames and private reference photos are not uploaded.
 - Cloud is not required for camera preview, basic ShotSpec, basic ShotPlan, guidance, capture, or best-shot selection.
 - Voice input is tap-triggered on the same phone and uses the same ShotSpec path as typed intent.
+- AI Shot Preview V1 is capture-realistic by default, uses the ShotPlan composition target, and explicitly marks previews that would require AI enhancement after capture.
 
 ## MVP Boundary
 

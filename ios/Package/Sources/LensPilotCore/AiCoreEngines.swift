@@ -43,6 +43,7 @@ public struct RankedShot: Codable, Equatable, Sendable, Identifiable {
 public struct AiPipelineResult: Codable, Equatable, Sendable {
     public let shotSpec: ShotSpec
     public let shotPlan: ShotPlan
+    public let targetPreview: TargetPreview
     public let guidanceAction: GuidanceAction?
     public let targetMatch: TargetMatchScore
     public let previewSafety: PreviewSafety
@@ -267,19 +268,22 @@ public struct LensPilotAiCore: Sendable {
     private let guidancePolicy: GuidancePolicy
     private let targetMatchEngine: TargetMatchEngine
     private let previewSafetyEngine: PreviewSafetyEngine
+    private let targetPreviewEngine: TargetPreviewEngine
 
     public init(
         intentEngine: ShotSpecFactory = ShotSpecFactory(),
         shotPlanner: BasicShotPlanner = BasicShotPlanner(),
         guidancePolicy: GuidancePolicy = GuidancePolicy(),
         targetMatchEngine: TargetMatchEngine = TargetMatchEngine(),
-        previewSafetyEngine: PreviewSafetyEngine = PreviewSafetyEngine()
+        previewSafetyEngine: PreviewSafetyEngine = PreviewSafetyEngine(),
+        targetPreviewEngine: TargetPreviewEngine = TargetPreviewEngine()
     ) {
         self.intentEngine = intentEngine
         self.shotPlanner = shotPlanner
         self.guidancePolicy = guidancePolicy
         self.targetMatchEngine = targetMatchEngine
         self.previewSafetyEngine = previewSafetyEngine
+        self.targetPreviewEngine = targetPreviewEngine
     }
 
     public init(
@@ -298,10 +302,17 @@ public struct LensPilotAiCore: Sendable {
         let guidanceAction = guidancePolicy.selectNextAction(from: shotPlan, domain: shotSpec.domain)
         let targetMatch = targetMatchEngine.score(shotSpec: shotSpec, shotPlan: shotPlan, sceneState: sceneState)
         let previewSafety = previewSafetyEngine.evaluate(shotSpec: shotSpec, shotPlan: shotPlan)
+        let targetPreview = targetPreviewEngine.makePreview(
+            shotSpec: shotSpec,
+            shotPlan: shotPlan,
+            targetMatch: targetMatch,
+            previewSafety: previewSafety
+        )
 
         return AiPipelineResult(
             shotSpec: shotSpec,
             shotPlan: shotPlan,
+            targetPreview: targetPreview,
             guidanceAction: guidanceAction,
             targetMatch: targetMatch,
             previewSafety: previewSafety

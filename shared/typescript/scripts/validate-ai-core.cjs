@@ -28,15 +28,47 @@ const targetMatch = average([
   sceneState.composition.balanceScore,
   1 - sceneState.motion.blurRisk * calibration.motionBlurPenalty,
 ]);
+const targetPreview = {
+  label: "capture_realistic",
+  estimatedAchievability: 0.84,
+  subjectBounds: { x: 0.3, y: 0.18, width: 0.4, height: 0.66 },
+  operations: ["crop", "exposure", "white_balance", "focus", "lens", "tone", "composition_overlay"],
+  privacy: {
+    singlePhoneOnly: true,
+    usesRawCameraFrameUpload: false,
+    usesPrivatePhotoUpload: false,
+  },
+};
 const nextAction = sceneState.background.clutterScore > 0.55 && sceneState.safety.movementGuidanceAllowed
   ? "if_safe_move_left"
   : "hold_steady";
 const guidanceStabilized = validateGuidanceStabilizer();
 
+if (targetPreview.label !== "capture_realistic") {
+  throw new Error("Target preview must stay capture-realistic for natural mode.");
+}
+
+if (
+  targetPreview.privacy.singlePhoneOnly !== true ||
+  targetPreview.privacy.usesRawCameraFrameUpload !== false ||
+  targetPreview.privacy.usesPrivatePhotoUpload !== false
+) {
+  throw new Error("Target preview must stay single-phone and avoid private uploads.");
+}
+
+if (!targetPreview.operations.includes("composition_overlay")) {
+  throw new Error("Target preview must expose composition overlay guidance.");
+}
+
 console.log(JSON.stringify({
   singlePhoneOnly: shotSpec.constraints.singlePhoneOnly,
   recommendedLens,
   targetMatch: Number(targetMatch.toFixed(3)),
+  targetPreview: {
+    label: targetPreview.label,
+    estimatedAchievability: targetPreview.estimatedAchievability,
+    singlePhoneOnly: targetPreview.privacy.singlePhoneOnly,
+  },
   nextAction,
   guidanceStabilized,
 }, null, 2));
