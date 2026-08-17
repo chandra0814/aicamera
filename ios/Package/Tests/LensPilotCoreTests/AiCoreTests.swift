@@ -60,14 +60,15 @@ final class AiCoreTests: XCTestCase {
     func testCalibrationSampleExporterProducesSinglePhoneCandidateJSON() throws {
         let sceneState = Self.portraitScene()
         let deviceCapability = Self.deviceCapability()
+        let prompt = "Give me a cinematic portrait with natural skin and a clean background."
         let result = LensPilotAiCore().run(
-            prompt: "Give me a cinematic portrait with natural skin and a clean background.",
+            prompt: prompt,
             sceneState: sceneState,
             deviceCapability: deviceCapability
         )
         let exporter = CalibrationSampleExporter()
         let sample = exporter.makeCandidate(
-            prompt: result.shotSpec.originalPrompt,
+            prompt: prompt,
             sceneState: sceneState,
             deviceCapability: deviceCapability,
             aiResult: result,
@@ -80,7 +81,7 @@ final class AiCoreTests: XCTestCase {
         decoder.dateDecodingStrategy = .iso8601
         let decoded = try decoder.decode(CalibrationSample.self, from: data)
 
-        XCTAssertEqual(decoded.sampleKind, .iphoneCaptureCandidate)
+        XCTAssertEqual(decoded.sampleKind, CalibrationSample.SampleKind.iphoneCaptureCandidate)
         XCTAssertEqual(decoded.id, "candidate_frame_test_1786000000")
         XCTAssertTrue(decoded.privacy.singlePhoneOnly)
         XCTAssertFalse(decoded.privacy.cloudAnalysisUsed)
