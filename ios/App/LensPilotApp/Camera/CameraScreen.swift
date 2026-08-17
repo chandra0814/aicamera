@@ -1,5 +1,6 @@
 import Foundation
 import LensPilotCamera
+import LensPilotCore
 import LensPilotDirector
 import PhotosUI
 import SwiftUI
@@ -11,6 +12,8 @@ import UIKit
 struct CameraScreen: View {
     @StateObject private var viewModel = CameraScreenViewModel()
     @State private var selectedReferenceItem: PhotosPickerItem?
+    @State private var isCalibrationReviewPresented = false
+    @State private var calibrationReviewDraft = CalibrationReviewDraft()
 
     var body: some View {
         ZStack {
@@ -48,10 +51,28 @@ struct CameraScreen: View {
         )) { review in
             CaptureResultReviewView(
                 rankedShots: review.rankedShots,
-                bestImage: image(from: review.bestPhotoData)
+                bestImage: image(from: review.bestPhotoData),
+                onLabelCalibration: {
+                    viewModel.dismissCaptureReview()
+                    DispatchQueue.main.async {
+                        isCalibrationReviewPresented = true
+                    }
+                }
             ) {
                 viewModel.dismissCaptureReview()
             }
+        }
+        .sheet(isPresented: $isCalibrationReviewPresented) {
+            CalibrationReviewLabelingSheet(
+                draft: $calibrationReviewDraft,
+                reviewImage: lastCaptureImage,
+                exportJSON: {
+                    viewModel.makeReviewedCalibrationSampleExport(review: calibrationReviewDraft.makeReviewLabel())
+                },
+                onDone: {
+                    isCalibrationReviewPresented = false
+                }
+            )
         }
         .task {
             viewModel.start()
@@ -113,11 +134,11 @@ struct CameraScreen: View {
                 .accessibilityLabel("Create shot plan")
             }
 
-            HStack(spacing: 16) {
+            HStack(spacing: 8) {
                 PhotosPicker(selection: $selectedReferenceItem, matching: .images, photoLibrary: .shared()) {
                     Image(systemName: "photo.on.rectangle")
                         .font(.headline)
-                        .frame(width: 52, height: 52)
+                        .frame(width: 42, height: 42)
                         .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 8))
                 }
                 .foregroundStyle(.white)
@@ -126,11 +147,24 @@ struct CameraScreen: View {
                 ShareLink(item: viewModel.makeCalibrationSampleExport()) {
                     Image(systemName: "square.and.arrow.up")
                         .font(.headline)
-                        .frame(width: 52, height: 52)
+                        .frame(width: 42, height: 42)
                         .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 8))
                 }
                 .foregroundStyle(.white)
                 .accessibilityLabel("Export calibration sample")
+
+                Button {
+                    isCalibrationReviewPresented = true
+                } label: {
+                    Image(systemName: "tag")
+                        .font(.headline)
+                        .frame(width: 42, height: 42)
+                        .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 8))
+                }
+                .foregroundStyle(.white)
+                .accessibilityLabel("Label calibration review")
+                .disabled(viewModel.lastCalibrationCandidate == nil)
+                .opacity(viewModel.lastCalibrationCandidate == nil ? 0.45 : 1)
 
                 Button {
                     viewModel.capture()
@@ -138,7 +172,7 @@ struct CameraScreen: View {
                     ZStack {
                         Circle()
                             .fill(.white)
-                            .frame(width: 74, height: 74)
+                            .frame(width: 64, height: 64)
                             .overlay(
                                 Circle()
                                     .stroke(.black.opacity(0.55), lineWidth: 3)
@@ -160,7 +194,7 @@ struct CameraScreen: View {
                 } label: {
                     Image(systemName: "checkmark.circle")
                         .font(.headline)
-                        .frame(width: 52, height: 52)
+                        .frame(width: 42, height: 42)
                         .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 8))
                 }
                 .foregroundStyle(.white)
@@ -182,6 +216,14 @@ struct CameraScreen: View {
         #else
         return nil
         #endif
+    }
+
+    private var lastCaptureImage: Image? {
+        guard let data = viewModel.lastCaptureData else {
+            return nil
+        }
+
+        return image(from: data)
     }
 
     @MainActor
@@ -210,5 +252,204 @@ struct CameraScreen: View {
         #else
         return nil
         #endif
+    }
+}
+
+private struct CalibrationReviewDraft {
+    var domain = CalibrationSample.CalibrationDomain.portrait
+    var reviewCount = 2
+    var preferredGuidanceReason = GuidanceAction.Reason.reduceClutter
+    var rankedWeaknesses: [CalibrationSample.CalibrationWeakness] = [.background, .lighting]
+    var notes = ""
+
+    mutating func toggleWeakness(_ weakness: CalibrationSample.CalibrationWeakness) {
+        if let index = rankedWeaknesses.firstIndex(of: weakness) {
+            guard rankedWeaknesses.count > 1 else { return }
+            rankedWeaknesses.remove(at: index)
+        } else {
+            rankedWeaknesses.append(weakness)
+        }
+    }
+
+    func makeReviewLabel() -> CalibrationSample.ReviewLabel {
+        CalibrationSample.ReviewLabel(
+            domain: domain,
+            reviewCount: reviewCount,
+            preferredGuidanceReason: preferredGuidanceReason,
+            rankedWeaknesses: rankedWeaknesses,
+            notes: notes
+        )
+    }
+}
+
+private struct CalibrationReviewLabelingSheet: View {
+    @Binding var draft: CalibrationReviewDraft
+    let reviewImage: Image?
+    let exportJSON: () -> String
+    let onDone: () -> Void
+
+    private let guidanceReasons: [GuidanceAction.Reason] = [
+        .reduceClutter,
+        .improveFaceLight,
+        .levelHorizon,
+        .protectHighlights,
+        .reduceMotionBlur,
+        .improvePose,
+        .matchReference,
+        .readyToCapture
+    ]
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color.black.opacity(0.88))
+                            .aspectRatio(4.0 / 5.0, contentMode: .fit)
+
+                        if let reviewImage {
+                            reviewImage
+                                .resizable()
+                                .scaledToFit()
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                        } else {
+                            Image(systemName: "photo")
+                                .font(.system(size: 48, weight: .regular))
+                                .foregroundStyle(.white.opacity(0.85))
+                        }
+                    }
+                }
+
+                Section {
+                    Picker("Domain", selection: $draft.domain) {
+                        ForEach(CalibrationSample.CalibrationDomain.allCases, id: \.self) { domain in
+                            Text(domain.title).tag(domain)
+                        }
+                    }
+
+                    Stepper(value: $draft.reviewCount, in: 2...8) {
+                        Text("Blind reviews: \(draft.reviewCount)")
+                    }
+
+                    Picker("Preferred fix", selection: $draft.preferredGuidanceReason) {
+                        ForEach(guidanceReasons, id: \.self) { reason in
+                            Text(reason.title).tag(reason)
+                        }
+                    }
+                }
+
+                Section("Ranked Weaknesses") {
+                    ForEach(CalibrationSample.CalibrationWeakness.allCases, id: \.self) { weakness in
+                        Button {
+                            draft.toggleWeakness(weakness)
+                        } label: {
+                            HStack {
+                                Text(weakness.title)
+                                Spacer()
+                                if let index = draft.rankedWeaknesses.firstIndex(of: weakness) {
+                                    Text("#\(index + 1)")
+                                        .font(.caption.monospacedDigit())
+                                        .foregroundStyle(.secondary)
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .foregroundStyle(Color.green)
+                                }
+                            }
+                        }
+                        .foregroundStyle(.primary)
+                    }
+                }
+
+                Section {
+                    TextField("Notes", text: $draft.notes, axis: .vertical)
+                        .lineLimit(2...4)
+                }
+
+                Section {
+                    ShareLink(item: exportJSON()) {
+                        Label("Export reviewed sample", systemImage: "square.and.arrow.up")
+                    }
+                }
+            }
+            .navigationTitle("Blind Review")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(action: onDone) {
+                        Image(systemName: "xmark")
+                    }
+                    .accessibilityLabel("Close calibration review")
+                }
+            }
+        }
+    }
+}
+
+private extension CalibrationSample.CalibrationDomain {
+    var title: String {
+        switch self {
+        case .portrait:
+            return "Portrait"
+        case .landscape:
+            return "Landscape"
+        case .lifestyle:
+            return "Lifestyle"
+        case .night:
+            return "Night"
+        }
+    }
+}
+
+private extension CalibrationSample.CalibrationWeakness {
+    var title: String {
+        switch self {
+        case .composition:
+            return "Composition"
+        case .subjectPosition:
+            return "Subject position"
+        case .cameraAngle:
+            return "Camera angle"
+        case .lighting:
+            return "Lighting"
+        case .background:
+            return "Background"
+        case .horizon:
+            return "Horizon"
+        case .pose:
+            return "Pose"
+        case .sharpnessProbability:
+            return "Sharpness"
+        case .exposure:
+            return "Exposure"
+        case .intentMatch:
+            return "Intent match"
+        }
+    }
+}
+
+private extension GuidanceAction.Reason {
+    var title: String {
+        switch self {
+        case .improveSubjectBackgroundSeparation:
+            return "Improve separation"
+        case .levelHorizon:
+            return "Level horizon"
+        case .protectHighlights:
+            return "Protect highlights"
+        case .improveFaceLight:
+            return "Improve face light"
+        case .reduceClutter:
+            return "Reduce clutter"
+        case .matchReference:
+            return "Match reference"
+        case .improvePose:
+            return "Improve pose"
+        case .increaseSky:
+            return "Increase sky"
+        case .reduceMotionBlur:
+            return "Reduce motion blur"
+        case .readyToCapture:
+            return "Ready to capture"
+        }
     }
 }

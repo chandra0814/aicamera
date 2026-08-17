@@ -92,6 +92,57 @@ final class AiCoreTests: XCTestCase {
         XCTAssertEqual(decoded.targetMatch.overall, result.targetMatch.overall, accuracy: 0.0001)
     }
 
+    func testCalibrationSamplePromoterProducesReviewedSinglePhoneJSON() throws {
+        let sceneState = Self.portraitScene()
+        let deviceCapability = Self.deviceCapability()
+        let prompt = "Give me a cinematic portrait with natural skin and a clean background."
+        let result = LensPilotAiCore().run(
+            prompt: prompt,
+            sceneState: sceneState,
+            deviceCapability: deviceCapability
+        )
+        let exporter = CalibrationSampleExporter()
+        let candidate = exporter.makeCandidate(
+            prompt: prompt,
+            sceneState: sceneState,
+            deviceCapability: deviceCapability,
+            aiResult: result,
+            usesFrontCameraForSelfShot: false,
+            referencePhotoActive: true,
+            capturedAt: Date(timeIntervalSince1970: 1_786_000_000)
+        )
+        let promoter = CalibrationSamplePromoter()
+        let reviewed = try promoter.makeReviewedSample(
+            from: candidate,
+            review: .init(
+                domain: .portrait,
+                reviewCount: 2,
+                preferredGuidanceReason: .reduceClutter,
+                rankedWeaknesses: [.background, .lighting],
+                notes: "Blind review preferred the cleaner-background direction."
+            )
+        )
+        let data = try exporter.encode(reviewed)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(CalibrationSample.self, from: data)
+
+        XCTAssertEqual(decoded.id, "iphone_capture_frame_test_1786000000")
+        XCTAssertEqual(decoded.sourceCandidateId, "candidate_frame_test_1786000000")
+        XCTAssertEqual(decoded.sampleKind, .iphoneCapture)
+        XCTAssertEqual(decoded.domain, .portrait)
+        XCTAssertEqual(decoded.blindPreference?.reviewCount, 2)
+        XCTAssertEqual(decoded.blindPreference?.preferredGuidanceReason, "reduce_clutter")
+        XCTAssertEqual(decoded.blindPreference?.rankedWeaknesses, ["background", "lighting"])
+        XCTAssertEqual(decoded.expected?.singlePhoneOnly, true)
+        XCTAssertLessThanOrEqual(decoded.expected?.targetMatch.overall.min ?? 1, result.targetMatch.overall)
+        XCTAssertGreaterThanOrEqual(decoded.expected?.targetMatch.overall.max ?? 0, result.targetMatch.overall)
+        XCTAssertTrue(decoded.privacy.singlePhoneOnly)
+        XCTAssertFalse(decoded.privacy.cloudAnalysisUsed)
+        XCTAssertFalse(decoded.privacy.generativeEditsAllowed)
+        XCTAssertFalse(decoded.privacy.identityRecognitionAllowed)
+    }
+
     func testCaptureReviewBuilderRanksBurstFrames() {
         let aiResult = LensPilotAiCore().run(
             prompt: "Give me a cinematic portrait with natural skin and a clean background.",

@@ -4,6 +4,8 @@ public struct CalibrationSample: Codable, Equatable, Sendable, Identifiable {
     public let id: String
     public let version: String
     public let sampleKind: SampleKind
+    public let sourceCandidateId: String?
+    public let domain: CalibrationDomain?
     public let prompt: String
     public let captureMetadata: CaptureMetadata
     public let privacy: Privacy
@@ -13,11 +15,15 @@ public struct CalibrationSample: Codable, Equatable, Sendable, Identifiable {
     public let shotPlan: ShotPlan
     public let guidanceAction: GuidanceAction?
     public let targetMatch: TargetMatchSnapshot
+    public let blindPreference: BlindPreference?
+    public let expected: Expected?
 
     public init(
         id: String,
         version: String,
         sampleKind: SampleKind,
+        sourceCandidateId: String? = nil,
+        domain: CalibrationDomain? = nil,
         prompt: String,
         captureMetadata: CaptureMetadata,
         privacy: Privacy,
@@ -26,11 +32,15 @@ public struct CalibrationSample: Codable, Equatable, Sendable, Identifiable {
         shotSpec: ShotSpec,
         shotPlan: ShotPlan,
         guidanceAction: GuidanceAction?,
-        targetMatch: TargetMatchSnapshot
+        targetMatch: TargetMatchSnapshot,
+        blindPreference: BlindPreference? = nil,
+        expected: Expected? = nil
     ) {
         self.id = id
         self.version = version
         self.sampleKind = sampleKind
+        self.sourceCandidateId = sourceCandidateId
+        self.domain = domain
         self.prompt = prompt
         self.captureMetadata = captureMetadata
         self.privacy = privacy
@@ -40,12 +50,34 @@ public struct CalibrationSample: Codable, Equatable, Sendable, Identifiable {
         self.shotPlan = shotPlan
         self.guidanceAction = guidanceAction
         self.targetMatch = targetMatch
+        self.blindPreference = blindPreference
+        self.expected = expected
     }
 
     public enum SampleKind: String, Codable, Sendable {
         case fixtureSeed = "fixture_seed"
         case iphoneCaptureCandidate = "iphone_capture_candidate"
         case iphoneCapture = "iphone_capture"
+    }
+
+    public enum CalibrationDomain: String, Codable, Sendable, CaseIterable {
+        case portrait
+        case landscape
+        case lifestyle
+        case night
+    }
+
+    public enum CalibrationWeakness: String, Codable, Sendable, CaseIterable {
+        case composition
+        case subjectPosition
+        case cameraAngle
+        case lighting
+        case background
+        case horizon
+        case pose
+        case sharpnessProbability
+        case exposure
+        case intentMatch
     }
 
     public struct CaptureMetadata: Codable, Equatable, Sendable {
@@ -86,6 +118,106 @@ public struct CalibrationSample: Codable, Equatable, Sendable, Identifiable {
         }
     }
 
+    public struct ReviewLabel: Equatable, Sendable {
+        public let domain: CalibrationDomain
+        public let reviewCount: Int
+        public let preferredGuidanceReason: GuidanceAction.Reason
+        public let rankedWeaknesses: [CalibrationWeakness]
+        public let notes: String
+
+        public init(
+            domain: CalibrationDomain,
+            reviewCount: Int,
+            preferredGuidanceReason: GuidanceAction.Reason,
+            rankedWeaknesses: [CalibrationWeakness],
+            notes: String = ""
+        ) {
+            self.domain = domain
+            self.reviewCount = reviewCount
+            self.preferredGuidanceReason = preferredGuidanceReason
+            self.rankedWeaknesses = rankedWeaknesses
+            self.notes = notes
+        }
+    }
+
+    public struct BlindPreference: Codable, Equatable, Sendable {
+        public let reviewCount: Int
+        public let preferredGuidanceReason: String
+        public let rankedWeaknesses: [String]
+        public let notes: String
+
+        public init(
+            reviewCount: Int,
+            preferredGuidanceReason: String,
+            rankedWeaknesses: [String],
+            notes: String
+        ) {
+            self.reviewCount = reviewCount
+            self.preferredGuidanceReason = preferredGuidanceReason
+            self.rankedWeaknesses = rankedWeaknesses
+            self.notes = notes
+        }
+    }
+
+    public struct Expected: Codable, Equatable, Sendable {
+        public let singlePhoneOnly: Bool
+        public let targetMatch: TargetMatchExpected
+
+        public init(singlePhoneOnly: Bool, targetMatch: TargetMatchExpected) {
+            self.singlePhoneOnly = singlePhoneOnly
+            self.targetMatch = targetMatch
+        }
+    }
+
+    public struct ScoreRange: Codable, Equatable, Sendable {
+        public let min: Double
+        public let max: Double
+
+        public init(min: Double, max: Double) {
+            self.min = min
+            self.max = max
+        }
+    }
+
+    public struct TargetMatchExpected: Codable, Equatable, Sendable {
+        public let composition: ScoreRange
+        public let subjectPosition: ScoreRange
+        public let cameraAngle: ScoreRange
+        public let lighting: ScoreRange
+        public let background: ScoreRange
+        public let horizon: ScoreRange
+        public let pose: ScoreRange
+        public let sharpnessProbability: ScoreRange
+        public let exposure: ScoreRange
+        public let intentMatch: ScoreRange
+        public let overall: ScoreRange
+
+        public init(snapshot: TargetMatchSnapshot, tolerance: Double) {
+            self.composition = Self.range(snapshot.composition, tolerance: tolerance)
+            self.subjectPosition = Self.range(snapshot.subjectPosition, tolerance: tolerance)
+            self.cameraAngle = Self.range(snapshot.cameraAngle, tolerance: tolerance)
+            self.lighting = Self.range(snapshot.lighting, tolerance: tolerance)
+            self.background = Self.range(snapshot.background, tolerance: tolerance)
+            self.horizon = Self.range(snapshot.horizon, tolerance: tolerance)
+            self.pose = Self.range(snapshot.pose, tolerance: tolerance)
+            self.sharpnessProbability = Self.range(snapshot.sharpnessProbability, tolerance: tolerance)
+            self.exposure = Self.range(snapshot.exposure, tolerance: tolerance)
+            self.intentMatch = Self.range(snapshot.intentMatch, tolerance: tolerance)
+            self.overall = Self.range(snapshot.overall, tolerance: tolerance)
+        }
+
+        private static func range(_ value: Double, tolerance: Double) -> ScoreRange {
+            ScoreRange(
+                min: roundScore(max(0, value - tolerance)),
+                max: roundScore(min(1, value + tolerance))
+            )
+        }
+
+        private static func roundScore(_ value: Double) -> Double {
+            (value * 10_000).rounded() / 10_000
+        }
+    }
+
     public struct TargetMatchSnapshot: Codable, Equatable, Sendable {
         public let composition: Double
         public let subjectPosition: Double
@@ -113,6 +245,16 @@ public struct CalibrationSample: Codable, Equatable, Sendable, Identifiable {
             self.overall = score.overall
         }
     }
+}
+
+public enum CalibrationSamplePromotionError: Error, Equatable, Sendable {
+    case candidateKindRequired
+    case minimumBlindReviewsRequired
+    case rankedWeaknessRequired
+    case singlePhoneRequired
+    case offlineCaptureRequired
+    case realCaptureRequired
+    case invalidTolerance
 }
 
 public struct CalibrationSampleExporter: Sendable {
@@ -176,5 +318,77 @@ public struct CalibrationSampleExporter: Sendable {
         .trimmingCharacters(in: CharacterSet(charactersIn: "_"))
         let frameComponent = sanitizedFrameId.isEmpty ? "frame" : sanitizedFrameId
         return "candidate_\(frameComponent)_\(Int(capturedAt.timeIntervalSince1970))"
+    }
+}
+
+public struct CalibrationSamplePromoter: Sendable {
+    public init() {}
+
+    public func makeReviewedSample(
+        from candidate: CalibrationSample,
+        review: CalibrationSample.ReviewLabel,
+        tolerance: Double = 0.02
+    ) throws -> CalibrationSample {
+        guard candidate.sampleKind == .iphoneCaptureCandidate else {
+            throw CalibrationSamplePromotionError.candidateKindRequired
+        }
+        guard review.reviewCount >= 2 else {
+            throw CalibrationSamplePromotionError.minimumBlindReviewsRequired
+        }
+        guard !review.rankedWeaknesses.isEmpty else {
+            throw CalibrationSamplePromotionError.rankedWeaknessRequired
+        }
+        guard candidate.privacy.singlePhoneOnly else {
+            throw CalibrationSamplePromotionError.singlePhoneRequired
+        }
+        guard !candidate.privacy.cloudAnalysisUsed, !candidate.privacy.generativeEditsAllowed, !candidate.privacy.identityRecognitionAllowed else {
+            throw CalibrationSamplePromotionError.offlineCaptureRequired
+        }
+        guard !candidate.captureMetadata.deviceModel.isEmpty else {
+            throw CalibrationSamplePromotionError.realCaptureRequired
+        }
+        guard tolerance > 0, tolerance <= 0.25 else {
+            throw CalibrationSamplePromotionError.invalidTolerance
+        }
+
+        return CalibrationSample(
+            id: reviewedSampleId(from: candidate.id),
+            version: candidate.version,
+            sampleKind: .iphoneCapture,
+            sourceCandidateId: candidate.id,
+            domain: review.domain,
+            prompt: candidate.prompt,
+            captureMetadata: candidate.captureMetadata,
+            privacy: .init(
+                singlePhoneOnly: true,
+                cloudAnalysisUsed: false,
+                generativeEditsAllowed: false,
+                identityRecognitionAllowed: false
+            ),
+            deviceCapability: candidate.deviceCapability,
+            sceneState: candidate.sceneState,
+            shotSpec: candidate.shotSpec,
+            shotPlan: candidate.shotPlan,
+            guidanceAction: candidate.guidanceAction,
+            targetMatch: candidate.targetMatch,
+            blindPreference: .init(
+                reviewCount: review.reviewCount,
+                preferredGuidanceReason: review.preferredGuidanceReason.rawValue,
+                rankedWeaknesses: review.rankedWeaknesses.map(\.rawValue),
+                notes: review.notes
+            ),
+            expected: .init(
+                singlePhoneOnly: true,
+                targetMatch: .init(snapshot: candidate.targetMatch, tolerance: tolerance)
+            )
+        )
+    }
+
+    private func reviewedSampleId(from candidateId: String) -> String {
+        if candidateId.hasPrefix("candidate_") {
+            return "iphone_capture_\(candidateId.dropFirst("candidate_".count))"
+        }
+
+        return "iphone_capture_\(candidateId)"
     }
 }

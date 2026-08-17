@@ -4,11 +4,18 @@ import SwiftUI
 public struct CaptureResultReviewView: View {
     private let rankedShots: [RankedShot]
     private let bestImage: Image?
+    private let onLabelCalibration: (() -> Void)?
     private let onDone: () -> Void
 
-    public init(rankedShots: [RankedShot], bestImage: Image? = nil, onDone: @escaping () -> Void) {
+    public init(
+        rankedShots: [RankedShot],
+        bestImage: Image? = nil,
+        onLabelCalibration: (() -> Void)? = nil,
+        onDone: @escaping () -> Void
+    ) {
         self.rankedShots = rankedShots
         self.bestImage = bestImage
+        self.onLabelCalibration = onLabelCalibration
         self.onDone = onDone
     }
 
@@ -18,6 +25,15 @@ public struct CaptureResultReviewView: View {
                 Text("Result")
                     .font(.headline)
                 Spacer()
+                if let onLabelCalibration {
+                    Button(action: onLabelCalibration) {
+                        Image(systemName: "tag")
+                            .font(.headline)
+                            .frame(width: 36, height: 36)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Label calibration review")
+                }
                 Button(action: onDone) {
                     Image(systemName: "xmark")
                         .font(.headline)

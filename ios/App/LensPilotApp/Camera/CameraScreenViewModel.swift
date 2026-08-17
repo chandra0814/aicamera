@@ -25,6 +25,7 @@ final class CameraScreenViewModel: ObservableObject {
     @Published private(set) var latestSceneDebugState: SceneDebugState?
     @Published private(set) var referenceImageData: Data?
     @Published private(set) var captureReview: CaptureReviewPresentation?
+    @Published private(set) var lastCalibrationCandidate: CalibrationSample?
     @Published private(set) var isCapturing = false
     @Published var intentText = "Give me a cinematic portrait"
     @Published var usesFrontCameraForSelfShot = false
@@ -38,6 +39,7 @@ final class CameraScreenViewModel: ObservableObject {
     private let photoCaptureController = PhotoCaptureController()
     private let captureReviewBuilder = CaptureReviewBuilder()
     private let calibrationSampleExporter = CalibrationSampleExporter()
+    private let calibrationSamplePromoter = CalibrationSamplePromoter()
     private lazy var frameAnalysisCoordinator = CameraFrameAnalysisCoordinator(analyzer: frameAnalyzer)
     private var isFrameAnalysisConnected = false
 
@@ -145,6 +147,9 @@ final class CameraScreenViewModel: ObservableObject {
     func capture() {
         guard !isCapturing else { return }
         isCapturing = true
+        captureReview = nil
+        lastCaptureData = nil
+        lastCalibrationCandidate = nil
 
         Task {
             defer {
@@ -166,6 +171,27 @@ final class CameraScreenViewModel: ObservableObject {
     }
 
     func makeCalibrationSampleExport() -> String {
+        let sample = makeCalibrationCandidate()
+
+        do {
+            return try calibrationSampleExporter.encodeJSONString(sample)
+        } catch {
+            return #"{"error":"calibration_sample_encoding_failed"}"#
+        }
+    }
+
+    func makeReviewedCalibrationSampleExport(review: CalibrationSample.ReviewLabel) -> String {
+        let candidate = lastCalibrationCandidate ?? makeCalibrationCandidate()
+
+        do {
+            let reviewedSample = try calibrationSamplePromoter.makeReviewedSample(from: candidate, review: review)
+            return try calibrationSampleExporter.encodeJSONString(reviewedSample)
+        } catch {
+            return #"{"error":"calibration_review_encoding_failed"}"#
+        }
+    }
+
+    private func makeCalibrationCandidate() -> CalibrationSample {
         let sceneState = currentSceneState()
         let capability = deviceCapability ?? fallbackCapability()
         let result = aiCore.run(
@@ -181,12 +207,7 @@ final class CameraScreenViewModel: ObservableObject {
             usesFrontCameraForSelfShot: usesFrontCameraForSelfShot,
             referencePhotoActive: referenceImageData != nil
         )
-
-        do {
-            return try calibrationSampleExporter.encodeJSONString(sample)
-        } catch {
-            return #"{"error":"calibration_sample_encoding_failed"}"#
-        }
+        return sample
     }
 
     private func presentCaptureReview(for frames: [Data]) {
@@ -208,6 +229,7 @@ final class CameraScreenViewModel: ObservableObject {
         let bestPhotoData = frames[bestIndex]
 
         lastCaptureData = bestPhotoData
+        lastCalibrationCandidate = makeCalibrationCandidate()
         captureReview = CaptureReviewPresentation(
             id: "review_\(UUID().uuidString.lowercased())",
             bestPhotoData: bestPhotoData,

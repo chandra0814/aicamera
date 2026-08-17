@@ -21,6 +21,7 @@ This implementation completes the MVP AI control skeleton, not the final product
 - Target Match calibration scaffold: scoring weights are explicit in Swift and TypeScript, and CI validates the calibration manifest.
 - Calibration sample export: the single-phone camera UI can share anonymous `iphone_capture_candidate` JSON with prompt, scene, device, guidance, and Target Match data.
 - Calibration promotion tool: reviewed candidates can be promoted into `iphone_capture` manifest entries only when single-phone privacy flags, domain labels, blind preference labels, and expected Target Match ranges are present.
+- In-app blind review labeling: after capture, the same phone opens a score-free label sheet for domain, preferred fix, ranked weaknesses, reviewer count, and reviewed-sample export.
 
 ## Not Yet Production AI
 
@@ -39,6 +40,6 @@ LensPilot must remain a reliable camera first. A deterministic AI core lets us p
 ## Required Next AI Work
 
 1. Collect real portrait, landscape, sky, clutter, backlight, horizon, and motion samples from iPhone captures.
-2. Add blind preference labels, then promote those samples with `npm run calibration:promote`.
+2. Add blind preference labels in the app or with `npm run calibration:promote`.
 3. Tune benchmark thresholds and sub-score weights against blind preference tests.
 4. Add optional cloud reasoning only for event-triggered creative interpretation.

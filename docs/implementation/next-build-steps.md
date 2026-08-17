@@ -4,7 +4,7 @@
 
 1. Open `ios/Package` from Xcode on macOS and run the `LensPilotCoreTests` test target.
 2. Use the in-app share control to export `iphone_capture_candidate` JSON for portrait, landscape, sky, clutter, backlight, horizon, and motion samples.
-3. Add blind preference labels, then promote reviewed candidates with `npm run calibration:promote -- --candidate <candidate.json> --sample-id <stable_id> --review-count 2 --preferred-guidance-reason <reason> --weaknesses background,lighting --write`.
+3. Add blind preference labels from the in-app tag control or promote reviewed candidates with `npm run calibration:promote -- --candidate <candidate.json> --sample-id <stable_id> --review-count 2 --preferred-guidance-reason <reason> --weaknesses background,lighting --write`.
 4. Calibrate the on-device metric weights against those reviewed samples and keep benchmark validation green.
 5. Add `NSMicrophoneUsageDescription` later, when voice input is wired.
 
@@ -24,6 +24,7 @@
 - Target Match calibration weights are explicit in Swift and TypeScript, with a CI-validated calibration manifest and protocol.
 - The single-phone camera UI can share anonymous calibration candidate JSON for real-capture scoring.
 - Reviewed candidate promotion is now scripted and validated before samples can gate Target Match calibration.
+- The single-phone app can label the latest captured sample in a score-free blind review sheet and export reviewed calibration JSON.
 - `scripts/test-all.ps1` now fails on external command failures instead of continuing after a broken `npm` or Swift run.
 
 ## Single-Phone Verification Checklist
