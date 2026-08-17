@@ -471,13 +471,16 @@ final class AiCoreTests: XCTestCase {
         let secondURL = URL(string: "https://example.test/second.jpg")!
 
         try await cache.store(Data([1, 2, 3]), for: firstURL, maxObjectBytes: 10)
-        XCTAssertEqual(try await cache.cachedData(for: firstURL), Data([1, 2, 3]))
+        let firstCachedData = try await cache.cachedData(for: firstURL)
+        XCTAssertEqual(firstCachedData, Data([1, 2, 3]))
 
         try await Task.sleep(nanoseconds: 5_000_000)
         try await cache.store(Data([4, 5, 6]), for: secondURL, maxObjectBytes: 10)
 
-        XCTAssertNil(try await cache.cachedData(for: firstURL))
-        XCTAssertEqual(try await cache.cachedData(for: secondURL), Data([4, 5, 6]))
+        let evictedFirstData = try await cache.cachedData(for: firstURL)
+        let secondCachedData = try await cache.cachedData(for: secondURL)
+        XCTAssertNil(evictedFirstData)
+        XCTAssertEqual(secondCachedData, Data([4, 5, 6]))
 
         try await cache.removeAll()
     }
