@@ -29,6 +29,7 @@
 - The app target bundles `target-match-calibration.json`, validates its single-phone invariants, and applies its Target Match weights to the live on-device AI core with a safe fallback to defaults.
 - Reviewed `iphone_capture` labels now produce small domain-aware guidance boosts, so blind preferences can influence the next selected action without bypassing safety or confidence gates.
 - `scripts/test-all.ps1` now fails on external command failures instead of continuing after a broken `npm` or Swift run.
+- The live director now stabilizes one-action-at-a-time guidance with TTL, opposite-action suppression, and short completed-action memory to reduce frame-to-frame instruction flipping.
 
 ## Single-Phone Verification Checklist
 

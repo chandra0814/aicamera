@@ -40,6 +40,7 @@ final class CameraScreenViewModel: ObservableObject {
     private let captureReviewBuilder = CaptureReviewBuilder()
     private let calibrationSampleExporter = CalibrationSampleExporter()
     private let calibrationSamplePromoter = CalibrationSamplePromoter()
+    private var guidanceStabilizer = GuidanceStabilizer()
     private lazy var frameAnalysisCoordinator = CameraFrameAnalysisCoordinator(analyzer: frameAnalyzer)
     private var isFrameAnalysisConnected = false
 
@@ -105,12 +106,14 @@ final class CameraScreenViewModel: ObservableObject {
 
     func toggleSelfShotCamera() {
         usesFrontCameraForSelfShot.toggle()
+        guidanceStabilizer.reset()
         Task {
             await configureCamera()
         }
     }
 
     func makePlanFromIntent() {
+        guidanceStabilizer.reset()
         runAi(sceneState: currentSceneState())
     }
 
@@ -130,8 +133,9 @@ final class CameraScreenViewModel: ObservableObject {
         currentShotSpec = result.shotSpec
         currentShotPlan = result.shotPlan
         currentTargetMatch = result.targetMatch
+        let guidanceAction = guidanceStabilizer.stabilize(result.guidanceAction)
         directorState.updateGuidance(
-            instruction: result.guidanceAction.map(Self.instructionText),
+            instruction: guidanceAction.map(Self.instructionText),
             targetMatch: result.targetMatch.overall
         )
     }
@@ -150,6 +154,7 @@ final class CameraScreenViewModel: ObservableObject {
     }
 
     private func activateReferencePhoto(assetIdentifier: String?) {
+        guidanceStabilizer.reset()
         let referenceId = "ref_\(UUID().uuidString.lowercased())"
         let assetPath = assetIdentifier.map { "ph://\($0)" } ?? "local://\(referenceId)"
         let reference = ReferencePhotoState(

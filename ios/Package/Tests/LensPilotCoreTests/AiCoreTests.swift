@@ -212,6 +212,54 @@ final class AiCoreTests: XCTestCase {
         XCTAssertNil(review.bestShotId)
     }
 
+    func testGuidanceStabilizerSuppressesImmediateOppositeMovement() {
+        var stabilizer = GuidanceStabilizer()
+        let now = Date(timeIntervalSince1970: 0)
+        let left = Self.guidanceAction(id: "move_left", action: .moveLeft, direction: .left)
+        let right = Self.guidanceAction(id: "move_right", action: .moveRight, direction: .right)
+
+        XCTAssertEqual(stabilizer.stabilize(left, now: now)?.action, .moveLeft)
+        XCTAssertEqual(stabilizer.stabilize(right, now: now.addingTimeInterval(1))?.action, .moveLeft)
+        XCTAssertEqual(stabilizer.stabilize(right, now: now.addingTimeInterval(6))?.action, .moveRight)
+    }
+
+    func testGuidanceStabilizerRemembersCompletedMovementAfterReadyState() {
+        var stabilizer = GuidanceStabilizer()
+        let now = Date(timeIntervalSince1970: 0)
+        let left = Self.guidanceAction(id: "move_left", action: .moveLeft, direction: .left)
+        let ready = Self.guidanceAction(
+            id: "hold_steady_ready",
+            action: .holdSteady,
+            reason: .readyToCapture,
+            expectedGain: 0.04,
+            priority: 50
+        )
+
+        XCTAssertEqual(stabilizer.stabilize(left, now: now)?.action, .moveLeft)
+        XCTAssertEqual(stabilizer.stabilize(ready, now: now.addingTimeInterval(1))?.reason, .readyToCapture)
+        XCTAssertEqual(stabilizer.stabilize(left, now: now.addingTimeInterval(2))?.reason, .readyToCapture)
+        XCTAssertEqual(stabilizer.stabilize(left, now: now.addingTimeInterval(4))?.action, .moveLeft)
+    }
+
+    func testGuidanceStabilizerAllowsUrgentCameraActionToInterruptMovementHold() {
+        var stabilizer = GuidanceStabilizer()
+        let now = Date(timeIntervalSince1970: 0)
+        let left = Self.guidanceAction(id: "move_left", action: .moveLeft, direction: .left)
+        let exposure = Self.guidanceAction(
+            id: "protect_highlights",
+            actor: .camera,
+            action: .adjustExposure,
+            magnitude: -0.3,
+            unit: .ev,
+            reason: .protectHighlights,
+            expectedGain: 0.12,
+            priority: 82
+        )
+
+        XCTAssertEqual(stabilizer.stabilize(left, now: now)?.action, .moveLeft)
+        XCTAssertEqual(stabilizer.stabilize(exposure, now: now.addingTimeInterval(0.4))?.action, .adjustExposure)
+    }
+
     private static func portraitScene() -> SceneState {
         SceneState(
             timestamp: Date(timeIntervalSince1970: 0),
@@ -334,5 +382,33 @@ final class AiCoreTests: XCTestCase {
         """
 
         return Data(json.utf8)
+    }
+
+    private static func guidanceAction(
+        id: String,
+        actor: GuidanceAction.Actor = .photographer,
+        action: GuidanceAction.Action,
+        magnitude: Double? = 0.4,
+        unit: GuidanceAction.Unit? = .meter,
+        direction: GuidanceAction.Direction? = nil,
+        reason: GuidanceAction.Reason = .reduceClutter,
+        expectedGain: Double = 0.16,
+        priority: Int = 88
+    ) -> GuidanceAction {
+        GuidanceAction(
+            id: id,
+            actor: actor,
+            action: action,
+            magnitude: magnitude,
+            unit: unit,
+            direction: direction,
+            confidence: 0.76,
+            reason: reason,
+            expectedGain: expectedGain,
+            safetyQualifier: actor == .photographer ? .ifSafe : nil,
+            priority: priority,
+            ttlMs: 3_500,
+            suppressOppositeUntilMs: 5_000
+        )
     }
 }

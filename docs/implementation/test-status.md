@@ -13,8 +13,9 @@
   - Target Match calibration manifest validation, including candidate-sample privacy checks
   - reviewed candidate promotion into labeled `iphone_capture` calibration samples
   - reviewed app export normalization before manifest import
+  - guidance stabilizer checks for immediate opposite-action suppression and completed-action memory
 - `LensPilotVisionTests` on macOS CI, covering the `SceneDebugState` to native `SceneState` bridge and on-device quality metric mapping.
-- `LensPilotCoreTests` on macOS CI, covering burst capture review ranking, empty-burst handling, calibration weight tuning, reviewed guidance-priority calibration, calibration sample export, and reviewed calibration sample promotion.
+- `LensPilotCoreTests` on macOS CI, covering burst capture review ranking, empty-burst handling, calibration weight tuning, reviewed guidance-priority calibration, guidance stabilization, calibration sample export, and reviewed calibration sample promotion.
 - `AiBenchmarkTests` on macOS CI, covering the deterministic single-phone guidance benchmark suite.
 - GitHub Actions `iOS app build`, covering the SwiftUI app target, local package dependency wiring, camera screen, reference picker, popup, and result review compilation.
 

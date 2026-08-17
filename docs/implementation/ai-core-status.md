@@ -7,6 +7,7 @@ This implementation completes the MVP AI control skeleton, not the final product
 - Intent Engine: maps natural-language prompts into `ShotSpec`.
 - Shot Planner: maps `ShotSpec + SceneState + DeviceCapability` into `ShotPlan`.
 - Guidance Policy: selects one best next action using confidence, expected gain, priority, interaction cost, safety qualifier, and small reviewed-sample calibration boosts.
+- Guidance Stabilizer: holds one action long enough to be usable, suppresses immediate opposite movement/rotation instructions, and remembers just-completed movement when the scene reaches ready state.
 - Target Match Engine: calculates normalized sub-scores and an overall match from measured scene values.
 - Preview Safety Engine: enforces Natural, Enhanced, and Creative labels.
 - Best-Shot Ranker: ranks burst candidates by sharpness, exposure, face quality, pose, composition, background, and intent match.
@@ -24,6 +25,7 @@ This implementation completes the MVP AI control skeleton, not the final product
 - In-app blind review labeling: after capture, the same phone opens a score-free label sheet for domain, preferred fix, ranked weaknesses, reviewer count, and reviewed-sample export.
 - Reviewed-sample importer: app exports can be normalized and appended to the calibration manifest only after single-phone privacy, blind-review, domain, and expected score-range validation passes.
 - Runtime calibration loading: the iOS app bundles the Target Match calibration manifest, validates that it remains single-phone only, and initializes the on-device AI core with reviewed scoring weights and domain-aware guidance-priority boosts when available.
+- Live director stabilization: the iOS camera screen now applies guidance TTL, opposite-action suppression, and completed-action memory before updating the single on-screen instruction.
 
 ## Not Yet Production AI
 

@@ -33,6 +33,11 @@ export interface GuidanceCalibration {
   domainReasonBoosts: Partial<Record<CaptureDomain, Partial<Record<GuidanceReason, number>>>>;
 }
 
+export interface GuidanceStabilizerConfiguration {
+  minimumHoldMs: number;
+  completedActionMemoryMs: number;
+}
+
 export interface TargetMatchCalibrationManifest {
   version: string;
   collectionPlan: {
@@ -343,6 +348,118 @@ export class GuidancePolicy {
   }
 }
 
+export class GuidanceStabilizer {
+  private activeAction?: GuidanceAction;
+  private activeUntilMs = 0;
+  private minimumHoldUntilMs = 0;
+  private readonly suppressedActionUntilMs: Partial<Record<GuidanceAction["action"], number>> = {};
+  private readonly completedActionUntilMs: Record<string, number> = {};
+
+  constructor(
+    private readonly configuration: GuidanceStabilizerConfiguration = {
+      minimumHoldMs: 1_200,
+      completedActionMemoryMs: 2_500,
+    }
+  ) {}
+
+  reset(): void {
+    this.activeAction = undefined;
+    this.activeUntilMs = 0;
+    this.minimumHoldUntilMs = 0;
+    clearRecord(this.suppressedActionUntilMs);
+    clearRecord(this.completedActionUntilMs);
+  }
+
+  stabilize(proposedAction: GuidanceAction | undefined, nowMs = Date.now()): GuidanceAction | undefined {
+    this.expireMemory(nowMs);
+
+    if (!proposedAction) {
+      this.clearActive();
+      return undefined;
+    }
+
+    if (isReadyAction(proposedAction) && this.activeAction && !isReadyAction(this.activeAction)) {
+      this.rememberCompleted(this.activeAction, nowMs);
+      this.begin(proposedAction, nowMs);
+      return proposedAction;
+    }
+
+    if (this.isCompleted(proposedAction, nowMs)) {
+      if (this.activeAction && isReadyAction(this.activeAction) && this.isActive(nowMs)) {
+        return this.activeAction;
+      }
+      return undefined;
+    }
+
+    if (this.isSuppressed(proposedAction.action, nowMs)) {
+      if (this.activeAction && this.isActive(nowMs)) {
+        return this.activeAction;
+      }
+      return undefined;
+    }
+
+    if (this.activeAction && this.isActive(nowMs) && sameInstruction(this.activeAction, proposedAction)) {
+      this.begin(proposedAction, nowMs);
+      return proposedAction;
+    }
+
+    if (
+      this.activeAction &&
+      this.isActive(nowMs) &&
+      this.minimumHoldUntilMs > nowMs &&
+      !canInterrupt(proposedAction, this.activeAction)
+    ) {
+      return this.activeAction;
+    }
+
+    this.begin(proposedAction, nowMs);
+    return proposedAction;
+  }
+
+  private begin(action: GuidanceAction, nowMs: number): void {
+    this.activeAction = action;
+    this.activeUntilMs = nowMs + Math.max(0, action.ttlMs);
+    this.minimumHoldUntilMs = nowMs + Math.min(Math.max(0, this.configuration.minimumHoldMs), Math.max(0, action.ttlMs));
+
+    const oppositeAction = oppositeGuidanceAction(action.action);
+    if (oppositeAction) {
+      this.suppressedActionUntilMs[oppositeAction] = nowMs + Math.max(0, action.suppressOppositeUntilMs);
+    }
+  }
+
+  private rememberCompleted(action: GuidanceAction, nowMs: number): void {
+    if (isReadyAction(action)) return;
+    this.completedActionUntilMs[completedActionKey(action)] = nowMs + Math.max(0, this.configuration.completedActionMemoryMs);
+  }
+
+  private expireMemory(nowMs: number): void {
+    expireRecord(this.suppressedActionUntilMs, nowMs);
+    expireRecord(this.completedActionUntilMs, nowMs);
+
+    if (!this.isActive(nowMs)) {
+      this.clearActive();
+    }
+  }
+
+  private clearActive(): void {
+    this.activeAction = undefined;
+    this.activeUntilMs = 0;
+    this.minimumHoldUntilMs = 0;
+  }
+
+  private isActive(nowMs: number): boolean {
+    return this.activeUntilMs > nowMs;
+  }
+
+  private isSuppressed(action: GuidanceAction["action"], nowMs: number): boolean {
+    return (this.suppressedActionUntilMs[action] ?? 0) > nowMs;
+  }
+
+  private isCompleted(action: GuidanceAction, nowMs: number): boolean {
+    return (this.completedActionUntilMs[completedActionKey(action)] ?? 0) > nowMs;
+  }
+}
+
 export class TargetMatchEngine {
   constructor(private readonly calibration: TargetMatchCalibration = defaultTargetMatchCalibration) {}
 
@@ -545,6 +662,71 @@ function actionScore(action: GuidanceAction, calibration: GuidanceCalibration, d
   const interactionCost = action.actor === "subject" ? 0.08 : 0.04;
   const safetyRisk = action.safetyQualifier === "if_safe" ? 0.08 : 0;
   return action.expectedGain * action.confidence * ease - interactionCost - safetyRisk + action.priority / 1000 + guidanceBoost(action, calibration, domain);
+}
+
+function isReadyAction(action: GuidanceAction): boolean {
+  return action.reason === "ready_to_capture" || action.action === "capture_now";
+}
+
+function sameInstruction(lhs: GuidanceAction, rhs: GuidanceAction): boolean {
+  return lhs.actor === rhs.actor &&
+    lhs.action === rhs.action &&
+    lhs.reason === rhs.reason &&
+    lhs.direction === rhs.direction;
+}
+
+function canInterrupt(proposedAction: GuidanceAction, activeAction: GuidanceAction): boolean {
+  if (proposedAction.actor === "camera" && activeAction.actor !== "camera") return true;
+  if (proposedAction.reason === "reduce_motion_blur" && activeAction.reason !== "reduce_motion_blur") return true;
+  if (proposedAction.priority >= activeAction.priority + 12) return true;
+  return proposedAction.expectedGain >= activeAction.expectedGain + 0.08;
+}
+
+function oppositeGuidanceAction(action: GuidanceAction["action"]): GuidanceAction["action"] | undefined {
+  switch (action) {
+    case "move_left":
+      return "move_right";
+    case "move_right":
+      return "move_left";
+    case "move_forward":
+      return "if_safe_move";
+    case "move_backward":
+    case "if_safe_move":
+      return "move_forward";
+    case "raise_camera":
+      return "lower_camera";
+    case "lower_camera":
+      return "raise_camera";
+    case "rotate_clockwise":
+      return "rotate_counterclockwise";
+    case "rotate_counterclockwise":
+      return "rotate_clockwise";
+    default:
+      return undefined;
+  }
+}
+
+function completedActionKey(action: GuidanceAction): string {
+  return [
+    action.actor,
+    action.action,
+    action.reason,
+    action.direction ?? "none",
+  ].join("|");
+}
+
+function clearRecord(record: object): void {
+  for (const key of Object.keys(record)) {
+    delete (record as Record<string, unknown>)[key];
+  }
+}
+
+function expireRecord(record: object, nowMs: number): void {
+  for (const [key, value] of Object.entries(record as Record<string, number | undefined>)) {
+    if ((value ?? 0) <= nowMs) {
+      delete (record as Record<string, unknown>)[key];
+    }
+  }
 }
 
 function rectSimilarity(a: NormalizedRectangle, b: NormalizedRectangle): number {
