@@ -45,18 +45,24 @@ let realCaptureSamples = 0;
 
 for (const sample of manifest.samples) {
   assert(typeof sample.id === "string" && sample.id.length > 0, "Calibration sample needs an id.");
-  assert(["fixture_seed", "iphone_capture"].includes(sample.sampleKind), `${sample.id}: unsupported sampleKind ${sample.sampleKind}.`);
+  assert(["fixture_seed", "iphone_capture_candidate", "iphone_capture"].includes(sample.sampleKind), `${sample.id}: unsupported sampleKind ${sample.sampleKind}.`);
   assert(typeof sample.prompt === "string" && sample.prompt.length > 0, `${sample.id}: prompt is required.`);
 
   const deviceCapability = readSampleJson(sample.deviceCapabilityPath, sample.deviceCapability, sample.id, "device capability");
   const sceneState = readSampleJson(sample.sceneStatePath, sample.sceneState, sample.id, "scene state");
   assert(deviceCapability.physicalCameras?.length > 0, `${sample.id}: device capability must include physical cameras.`);
   assert(sceneState.safety?.movementGuidanceAllowed !== undefined, `${sample.id}: scene safety state is required.`);
+  assert(sample.privacy?.singlePhoneOnly !== false, `${sample.id}: calibration samples must stay single-phone only.`);
+  assert(sample.privacy?.cloudAnalysisUsed !== true, `${sample.id}: calibration samples must not require cloud analysis.`);
+  assert(sample.privacy?.identityRecognitionAllowed !== true, `${sample.id}: calibration samples must not include identity recognition.`);
+
+  if (sample.sampleKind === "iphone_capture_candidate" || sample.sampleKind === "iphone_capture") {
+    assert(sample.captureMetadata?.capturedAt, `${sample.id}: real captures need captureMetadata.capturedAt.`);
+    assert(sample.captureMetadata?.deviceModel, `${sample.id}: real captures need captureMetadata.deviceModel.`);
+  }
 
   if (sample.sampleKind === "iphone_capture") {
     realCaptureSamples += 1;
-    assert(sample.captureMetadata?.capturedAt, `${sample.id}: real captures need captureMetadata.capturedAt.`);
-    assert(sample.captureMetadata?.deviceModel, `${sample.id}: real captures need captureMetadata.deviceModel.`);
     assert((sample.blindPreference?.reviewCount ?? 0) >= manifest.collectionPlan.minimumBlindReviewers, `${sample.id}: real captures need blind preference reviews.`);
   }
 
@@ -66,7 +72,11 @@ for (const sample of manifest.samples) {
   assert(shotSpec.subject.identityRecognitionAllowed === false, `${sample.id}: identity recognition must stay disabled.`);
 
   const targetMatch = scoreTargetMatch(shotSpec, sceneState, weights);
-  checkExpectedTargetMatch(sample.expected?.targetMatch, targetMatch, sample.id);
+  if (sample.expected?.targetMatch) {
+    checkExpectedTargetMatch(sample.expected.targetMatch, targetMatch, sample.id);
+  } else {
+    assert(sample.sampleKind === "iphone_capture_candidate", `${sample.id}: expected targetMatch ranges are required before a sample can gate calibration.`);
+  }
 }
 
 console.log(JSON.stringify({

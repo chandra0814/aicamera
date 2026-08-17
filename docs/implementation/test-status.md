@@ -10,9 +10,9 @@
   - normalized Target Match
   - safety-qualified movement guidance
   - deterministic AI guidance benchmarks
-  - Target Match calibration manifest validation
+  - Target Match calibration manifest validation, including candidate-sample privacy checks
 - `LensPilotVisionTests` on macOS CI, covering the `SceneDebugState` to native `SceneState` bridge and on-device quality metric mapping.
-- `LensPilotCoreTests` on macOS CI, covering burst capture review ranking, empty-burst handling, and calibration weight tuning.
+- `LensPilotCoreTests` on macOS CI, covering burst capture review ranking, empty-burst handling, calibration weight tuning, and calibration sample export.
 - `AiBenchmarkTests` on macOS CI, covering the deterministic single-phone guidance benchmark suite.
 - GitHub Actions `iOS app build`, covering the SwiftUI app target, local package dependency wiring, camera screen, reference picker, popup, and result review compilation.
 
@@ -20,7 +20,7 @@
 
 - GitHub Actions run #17 passed AI fixture validation, Swift package tests, and the iOS app build for commit `931ca7e`.
 - Local `.\scripts\test-all.ps1` passed JSON validation, TypeScript AI fixture validation, six deterministic AI guidance benchmarks, and Target Match calibration validation on Windows.
-- The new Swift calibration tuning test is queued for the next macOS CI run because this Windows workspace does not have Swift/Xcode installed.
+- The new Swift calibration export test is queued for the next macOS CI run because this Windows workspace does not have Swift/Xcode installed.
 
 ## Not Runnable Here
 

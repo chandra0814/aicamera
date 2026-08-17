@@ -37,6 +37,7 @@ final class CameraScreenViewModel: ObservableObject {
     private let frameAnalyzer = FrameAnalyzer()
     private let photoCaptureController = PhotoCaptureController()
     private let captureReviewBuilder = CaptureReviewBuilder()
+    private let calibrationSampleExporter = CalibrationSampleExporter()
     private lazy var frameAnalysisCoordinator = CameraFrameAnalysisCoordinator(analyzer: frameAnalyzer)
     private var isFrameAnalysisConnected = false
 
@@ -162,6 +163,30 @@ final class CameraScreenViewModel: ObservableObject {
 
     func dismissCaptureReview() {
         captureReview = nil
+    }
+
+    func makeCalibrationSampleExport() -> String {
+        let sceneState = currentSceneState()
+        let capability = deviceCapability ?? fallbackCapability()
+        let result = aiCore.run(
+            prompt: intentText,
+            sceneState: sceneState,
+            deviceCapability: capability
+        )
+        let sample = calibrationSampleExporter.makeCandidate(
+            prompt: intentText,
+            sceneState: sceneState,
+            deviceCapability: capability,
+            aiResult: result,
+            usesFrontCameraForSelfShot: usesFrontCameraForSelfShot,
+            referencePhotoActive: referenceImageData != nil
+        )
+
+        do {
+            return try calibrationSampleExporter.encodeJSONString(sample)
+        } catch {
+            return #"{"error":"calibration_sample_encoding_failed"}"#
+        }
     }
 
     private func presentCaptureReview(for frames: [Data]) {

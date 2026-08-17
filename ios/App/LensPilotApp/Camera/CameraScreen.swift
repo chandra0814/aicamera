@@ -123,6 +123,15 @@ struct CameraScreen: View {
                 .foregroundStyle(.white)
                 .accessibilityLabel("Add reference photo")
 
+                ShareLink(item: viewModel.makeCalibrationSampleExport()) {
+                    Image(systemName: "square.and.arrow.up")
+                        .font(.headline)
+                        .frame(width: 52, height: 52)
+                        .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 8))
+                }
+                .foregroundStyle(.white)
+                .accessibilityLabel("Export calibration sample")
+
                 Button {
                     viewModel.capture()
                 } label: {

@@ -19,6 +19,7 @@ This implementation completes the MVP AI control skeleton, not the final product
 - Capture review loop: the app captures a plan-sized burst, ranks frame candidates on-device, and presents the best result plus alternatives.
 - AI guidance benchmark suite: six deterministic calibration cases now cover cluttered portrait, tilted horizon, sunset highlight protection, motion blur, backlit face guidance, and ready-to-capture.
 - Target Match calibration scaffold: scoring weights are explicit in Swift and TypeScript, and CI validates the calibration manifest.
+- Calibration sample export: the single-phone camera UI can share anonymous `iphone_capture_candidate` JSON with prompt, scene, device, guidance, and Target Match data.
 
 ## Not Yet Production AI
 

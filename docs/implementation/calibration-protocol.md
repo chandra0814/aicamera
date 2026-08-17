@@ -6,7 +6,8 @@ LensPilot calibration must use single-phone captures only. A sample can include 
 
 Add calibration entries to `tests/calibration/target-match-calibration.json`.
 
-- Use `sampleKind: "iphone_capture"` for real captured samples.
+- Use the in-app share control to export `sampleKind: "iphone_capture_candidate"` JSON from the current single-phone camera state.
+- Promote a candidate to `sampleKind: "iphone_capture"` only after blind preference labels are added.
 - Include either inline `sceneState` and `deviceCapability`, or paths to JSON files.
 - Include `captureMetadata.capturedAt` and `captureMetadata.deviceModel`.
 - Include at least two blind preference reviews before using a sample to tune weights.

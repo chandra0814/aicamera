@@ -3,9 +3,9 @@
 ## Immediate iOS Work
 
 1. Open `ios/Package` from Xcode on macOS and run the `LensPilotCoreTests` test target.
-2. Collect real portrait, landscape, sky, clutter, backlight, horizon, and motion samples from iPhone captures.
-3. Add real `iphone_capture` entries to `tests/calibration/target-match-calibration.json` with at least two blind preference reviews each.
-4. Calibrate the on-device metric weights against those real samples and keep benchmark validation green.
+2. Use the in-app share control to export `iphone_capture_candidate` JSON for portrait, landscape, sky, clutter, backlight, horizon, and motion samples.
+3. Add blind preference labels, then promote reviewed candidates to `iphone_capture` entries in `tests/calibration/target-match-calibration.json`.
+4. Calibrate the on-device metric weights against those reviewed samples and keep benchmark validation green.
 5. Add `NSMicrophoneUsageDescription` later, when voice input is wired.
 
 ## Completed Single-Phone Runtime Work
@@ -22,6 +22,7 @@
 - The live scene bridge is covered by `LensPilotVisionTests`.
 - The AI guidance benchmark suite now covers cluttered portrait, tilted horizon, sunset highlight protection, motion blur, backlit face guidance, and ready-to-capture.
 - Target Match calibration weights are explicit in Swift and TypeScript, with a CI-validated calibration manifest and protocol.
+- The single-phone camera UI can share anonymous calibration candidate JSON for real-capture scoring.
 - `scripts/test-all.ps1` now fails on external command failures instead of continuing after a broken `npm` or Swift run.
 
 ## Single-Phone Verification Checklist

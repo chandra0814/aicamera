@@ -57,6 +57,40 @@ final class AiCoreTests: XCTestCase {
         XCTAssertGreaterThan(tunedScore.intentMatch, defaultScore.intentMatch)
     }
 
+    func testCalibrationSampleExporterProducesSinglePhoneCandidateJSON() throws {
+        let sceneState = Self.portraitScene()
+        let deviceCapability = Self.deviceCapability()
+        let result = LensPilotAiCore().run(
+            prompt: "Give me a cinematic portrait with natural skin and a clean background.",
+            sceneState: sceneState,
+            deviceCapability: deviceCapability
+        )
+        let exporter = CalibrationSampleExporter()
+        let sample = exporter.makeCandidate(
+            prompt: result.shotSpec.originalPrompt,
+            sceneState: sceneState,
+            deviceCapability: deviceCapability,
+            aiResult: result,
+            usesFrontCameraForSelfShot: false,
+            referencePhotoActive: true,
+            capturedAt: Date(timeIntervalSince1970: 1_786_000_000)
+        )
+        let data = try exporter.encode(sample)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(CalibrationSample.self, from: data)
+
+        XCTAssertEqual(decoded.sampleKind, .iphoneCaptureCandidate)
+        XCTAssertEqual(decoded.id, "candidate_frame_test_1786000000")
+        XCTAssertTrue(decoded.privacy.singlePhoneOnly)
+        XCTAssertFalse(decoded.privacy.cloudAnalysisUsed)
+        XCTAssertFalse(decoded.privacy.generativeEditsAllowed)
+        XCTAssertFalse(decoded.privacy.identityRecognitionAllowed)
+        XCTAssertEqual(decoded.captureMetadata.deviceModel, "iPhone MVP Test Device")
+        XCTAssertTrue(decoded.captureMetadata.referencePhotoActive)
+        XCTAssertEqual(decoded.targetMatch.overall, result.targetMatch.overall, accuracy: 0.0001)
+    }
+
     func testCaptureReviewBuilderRanksBurstFrames() {
         let aiResult = LensPilotAiCore().run(
             prompt: "Give me a cinematic portrait with natural skin and a clean background.",
