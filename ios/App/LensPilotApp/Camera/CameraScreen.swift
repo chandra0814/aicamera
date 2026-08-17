@@ -144,6 +144,23 @@ struct CameraScreen: View {
                     .foregroundStyle(.white)
 
                 Button {
+                    viewModel.toggleSpeechIntentInput()
+                } label: {
+                    Image(systemName: viewModel.speechIntentState.iconName)
+                        .font(.headline)
+                        .frame(width: 44, height: 44)
+                        .background(
+                            viewModel.speechIntentState.isActive
+                                ? Color.white.opacity(0.9)
+                                : Color.black.opacity(0.55),
+                            in: RoundedRectangle(cornerRadius: 8)
+                        )
+                }
+                .foregroundStyle(viewModel.speechIntentState.isActive ? Color.black : Color.white)
+                .accessibilityLabel(viewModel.speechIntentState.accessibilityLabel)
+                .disabled(!viewModel.speechIntentState.allowsToggle)
+
+                Button {
                     viewModel.makePlanFromIntent()
                 } label: {
                     Image(systemName: "sparkles")
@@ -795,5 +812,49 @@ private extension OnlineInspirationLoadState {
         }
 
         return nil
+    }
+}
+
+private extension SpeechIntentState {
+    var iconName: String {
+        switch self {
+        case .idle, .unavailable, .failed:
+            return "mic"
+        case .requestingPermission, .finalizing:
+            return "hourglass"
+        case .listening:
+            return "mic.fill"
+        }
+    }
+
+    var isActive: Bool {
+        switch self {
+        case .requestingPermission, .listening, .finalizing:
+            return true
+        case .idle, .unavailable, .failed:
+            return false
+        }
+    }
+
+    var allowsToggle: Bool {
+        switch self {
+        case .requestingPermission, .finalizing:
+            return false
+        case .idle, .listening, .unavailable, .failed:
+            return true
+        }
+    }
+
+    var accessibilityLabel: String {
+        switch self {
+        case .listening:
+            return "Stop voice request"
+        case .requestingPermission:
+            return "Requesting voice permission"
+        case .finalizing:
+            return "Finalizing voice request"
+        case .idle, .unavailable, .failed:
+            return "Start voice request"
+        }
     }
 }

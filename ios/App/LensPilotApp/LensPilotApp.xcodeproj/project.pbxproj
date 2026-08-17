@@ -12,6 +12,7 @@
 		101010101010101010101003 /* CameraScreenViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 202020202020202020202003 /* CameraScreenViewModel.swift */; };
 		101010101010101010101004 /* CameraFrameAnalysisCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 202020202020202020202004 /* CameraFrameAnalysisCoordinator.swift */; };
 		101010101010101010101005 /* ReferenceViewer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 202020202020202020202005 /* ReferenceViewer.swift */; };
+		101010101010101010101011 /* SpeechIntentController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 202020202020202020202009 /* SpeechIntentController.swift */; };
 		101010101010101010101006 /* LensPilotCore in Frameworks */ = {isa = PBXBuildFile; productRef = 909090909090909090909001 /* LensPilotCore */; };
 		101010101010101010101007 /* LensPilotCamera in Frameworks */ = {isa = PBXBuildFile; productRef = 909090909090909090909002 /* LensPilotCamera */; };
 		101010101010101010101008 /* LensPilotVision in Frameworks */ = {isa = PBXBuildFile; productRef = 909090909090909090909003 /* LensPilotVision */; };
@@ -28,6 +29,7 @@
 		202020202020202020202006 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		202020202020202020202007 /* LensPilotApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LensPilotApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		202020202020202020202008 /* target-match-calibration.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = "target-match-calibration.json"; path = "../../../tests/calibration/target-match-calibration.json"; sourceTree = SOURCE_ROOT; };
+		202020202020202020202009 /* SpeechIntentController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechIntentController.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -70,6 +72,7 @@
 				202020202020202020202004 /* CameraFrameAnalysisCoordinator.swift */,
 				202020202020202020202002 /* CameraScreen.swift */,
 				202020202020202020202003 /* CameraScreenViewModel.swift */,
+				202020202020202020202009 /* SpeechIntentController.swift */,
 			);
 			path = Camera;
 			sourceTree = "<group>";
@@ -181,6 +184,7 @@
 				101010101010101010101004 /* CameraFrameAnalysisCoordinator.swift in Sources */,
 				101010101010101010101002 /* CameraScreen.swift in Sources */,
 				101010101010101010101003 /* CameraScreenViewModel.swift in Sources */,
+				101010101010101010101011 /* SpeechIntentController.swift in Sources */,
 				101010101010101010101005 /* ReferenceViewer.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

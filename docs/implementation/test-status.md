@@ -25,8 +25,8 @@
 
 ## Latest Verification
 
-- GitHub Actions run #33 passed AI fixture validation, Swift package tests, and the iOS app build for commit `1b9a4cc`.
-- Local `.\scripts\test-all.ps1` passed JSON validation, TypeScript AI fixture validation, six deterministic AI guidance benchmarks, Target Match calibration validation, calibration promotion validation, reviewed import normalization, Personal Visual AI validation, and multi-provider public inspiration validation on Windows.
+- GitHub Actions run #34 passed AI fixture validation, Swift package tests, and the iOS app build for commit `f64cf24`.
+- Local `.\scripts\test-all.ps1` passed JSON validation, TypeScript AI fixture validation, six deterministic AI guidance benchmarks, Target Match calibration validation, calibration promotion validation, reviewed import normalization, Personal Visual AI validation, and multi-provider public inspiration validation on Windows after same-phone voice input wiring.
 - Swift package tests still need GitHub/macOS CI for this workspace because Windows does not have Swift/Xcode installed.
 
 ## Not Runnable Here

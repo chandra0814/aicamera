@@ -6,7 +6,6 @@
 2. Use the in-app share control to export `iphone_capture_candidate` JSON for portrait, landscape, sky, clutter, backlight, horizon, and motion samples.
 3. Add blind preference labels from the in-app tag control, then import reviewed app exports with `npm run calibration:import-reviewed -- --sample <reviewed-sample.json> --write`.
 4. Calibrate the on-device metric weights and guidance priorities against those reviewed samples; the app now loads the bundled manifest into `LensPilotAiCore`.
-5. Add `NSMicrophoneUsageDescription` later, when voice input is wired.
 
 ## Completed Single-Phone Runtime Work
 
@@ -36,6 +35,7 @@
 - The app can fetch public Wikimedia Commons image references from the consent-gated plan and load a selected public image into the same-phone reference popup.
 - Online inspiration results are ranked for photographic relevance and warmed through a bounded same-phone thumbnail cache.
 - Online inspiration now queries diversified public sources through Wikimedia Commons and Openverse-style public image search, deduplicates repeated assets, and promotes cross-provider variety near the top of the result list.
+- Voice intent is wired into the single-phone camera screen with native microphone and speech permissions, on-device speech recognition when available, and typed intent as the fallback path.
 
 ## Single-Phone Verification Checklist
 
@@ -47,6 +47,7 @@
 - Delete Learned Profile resets the local profile on the same phone without affecting the reference popup, camera preview, or capture flow.
 - Online source lookup is user-triggered from settings and uses prompt-derived search queries only; live camera frames and private reference photos are not uploaded.
 - Cloud is not required for camera preview, basic ShotSpec, basic ShotPlan, guidance, capture, or best-shot selection.
+- Voice input is tap-triggered on the same phone and uses the same ShotSpec path as typed intent.
 
 ## MVP Boundary
 

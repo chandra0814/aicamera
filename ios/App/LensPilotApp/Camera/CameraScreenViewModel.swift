@@ -44,6 +44,8 @@ final class CameraScreenViewModel: ObservableObject {
     @Published private(set) var onlineInspirationResults: [OnlineInspirationResult] = []
     @Published private(set) var onlineInspirationThumbnailData: [String: Data] = [:]
     @Published private(set) var onlineInspirationLoadState: OnlineInspirationLoadState = .idle
+    @Published private(set) var speechIntentState: SpeechIntentState = .idle
+    @Published private(set) var speechIntentTranscript = ""
     @Published private(set) var isCapturing = false
     @Published var intentText = "Give me a cinematic portrait"
     @Published var usesFrontCameraForSelfShot = false
@@ -62,11 +64,13 @@ final class CameraScreenViewModel: ObservableObject {
     private let personalLearningEngine = PersonalVisualLearningEngine()
     private let onlineInspirationService = OnlineInspirationService()
     private let onlineInspirationThumbnailCache = OnlineInspirationThumbnailCache()
+    private let speechIntentController = SpeechIntentController()
     private var guidanceStabilizer = GuidanceStabilizer()
     private lazy var frameAnalysisCoordinator = CameraFrameAnalysisCoordinator(analyzer: frameAnalyzer)
     private var isFrameAnalysisConnected = false
     private var latestGuidanceAction: GuidanceAction?
     private var hasLoadedOnlineInspiration = false
+    private var cancellables: Set<AnyCancellable> = []
 
     private static let personalProfileStorageKey = "com.lenspilot.personalVisualProfile.v1"
 
@@ -81,6 +85,7 @@ final class CameraScreenViewModel: ObservableObject {
         self.reviewedGuidanceCalibration = configuration.guidanceCalibration
         self.personalizationConsent = storedProfile?.consent ?? .disabled
         self.personalProfile = storedProfile ?? .empty(consent: .disabled)
+        bindSpeechIntentController()
     }
 
     func start() {
@@ -129,6 +134,7 @@ final class CameraScreenViewModel: ObservableObject {
     }
 
     func stop() {
+        speechIntentController.stopListening()
         camera.videoDataOutput.setSampleBufferDelegate(nil, queue: nil)
         isFrameAnalysisConnected = false
         Task {
@@ -145,8 +151,22 @@ final class CameraScreenViewModel: ObservableObject {
     }
 
     func makePlanFromIntent() {
+        if speechIntentController.isListening {
+            speechIntentController.stopListening()
+        }
         guidanceStabilizer.reset()
         runAi(sceneState: currentSceneState())
+    }
+
+    func toggleSpeechIntentInput() {
+        if speechIntentController.isListening {
+            speechIntentController.stopListening(commitTranscript: true)
+            return
+        }
+
+        Task {
+            await speechIntentController.startListening()
+        }
     }
 
     func setLocalPersonalLearningEnabled(_ isEnabled: Bool) {
@@ -243,6 +263,33 @@ final class CameraScreenViewModel: ObservableObject {
     private func handleSceneDebugState(_ debugState: SceneDebugState) {
         latestSceneDebugState = debugState
         runAi(sceneState: sceneState(from: debugState))
+    }
+
+    private func bindSpeechIntentController() {
+        speechIntentController.$state
+            .sink { [weak self] state in
+                self?.speechIntentState = state
+            }
+            .store(in: &cancellables)
+
+        speechIntentController.$transcript
+            .sink { [weak self] transcript in
+                self?.speechIntentTranscript = transcript
+
+                guard !transcript.isEmpty else { return }
+                self?.intentText = transcript
+            }
+            .store(in: &cancellables)
+
+        speechIntentController.onFinalTranscript = { [weak self] transcript in
+            guard let self, !transcript.isEmpty else { return }
+            self.intentText = transcript
+            self.makePlanFromIntent()
+        }
+
+        speechIntentController.onFailure = { [weak self] message in
+            self?.errorMessage = message
+        }
     }
 
     private func runAi(sceneState: SceneState) {

@@ -22,8 +22,12 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>NSCameraUsageDescription</key>
 	<string>LensPilot needs camera access to show live framing guidance and capture photos on this phone.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>LensPilot uses the microphone only when you tap voice input to turn your spoken photo request into camera guidance on this phone.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>LensPilot needs photo library access so you can choose a reference photo on this phone.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>LensPilot uses speech recognition only after you tap voice input to convert your request into a photo plan.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
