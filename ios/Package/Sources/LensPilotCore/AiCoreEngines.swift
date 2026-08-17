@@ -118,7 +118,7 @@ public struct GuidanceCalibration: Equatable, Sendable {
 
     private static func clampedBoost(_ value: Double) -> Double {
         guard value.isFinite else { return 0 }
-        min(0.08, max(0, value))
+        return min(0.08, max(0, value))
     }
 }
 
