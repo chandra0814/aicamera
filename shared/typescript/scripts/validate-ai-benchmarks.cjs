@@ -3,12 +3,14 @@ const fs = require("node:fs");
 const readJson = (relativePath) => JSON.parse(fs.readFileSync(relativePath, "utf8"));
 const suite = readJson("../../tests/benchmarks/ai-guidance-benchmarks.json");
 const deviceCapability = readJson("../../tests/fixtures/iphone-device-capability.json");
-const calibration = readJson("../../tests/calibration/target-match-calibration.json").targetMatchCalibration;
+const calibrationManifest = readJson("../../tests/calibration/target-match-calibration.json");
+const calibration = calibrationManifest.targetMatchCalibration;
+const guidanceCalibration = guidanceCalibrationFromManifest(calibrationManifest);
 
 for (const benchmark of suite.cases) {
   const shotSpec = parseIntent(benchmark.prompt);
   const shotPlan = plan(shotSpec, benchmark.sceneState, deviceCapability);
-  const guidanceAction = selectNextAction(shotPlan);
+  const guidanceAction = selectNextAction(shotPlan, shotSpec.domain, guidanceCalibration);
   const targetMatch = scoreTargetMatch(shotSpec, shotPlan, benchmark.sceneState, calibration);
   const expected = benchmark.expected;
 
@@ -231,17 +233,17 @@ function action(input) {
   };
 }
 
-function selectNextAction(shotPlan) {
+function selectNextAction(shotPlan, domain, guidanceCalibration) {
   return [...shotPlan.photographerChanges, ...shotPlan.subjectDirections]
     .filter((candidate) => candidate.confidence >= 0.55 && candidate.expectedGain >= 0.04)
-    .sort((a, b) => actionScore(b) - actionScore(a))[0];
+    .sort((a, b) => actionScore(b, domain, guidanceCalibration) - actionScore(a, domain, guidanceCalibration))[0];
 }
 
-function actionScore(candidate) {
+function actionScore(candidate, domain, guidanceCalibration) {
   const ease = candidate.actor === "camera" ? 0.95 : candidate.safetyQualifier === "if_safe" ? 0.72 : 0.8;
   const interactionCost = candidate.actor === "subject" ? 0.08 : 0.04;
   const safetyRisk = candidate.safetyQualifier === "if_safe" ? 0.08 : 0;
-  return candidate.expectedGain * candidate.confidence * ease - interactionCost - safetyRisk + candidate.priority / 1000;
+  return candidate.expectedGain * candidate.confidence * ease - interactionCost - safetyRisk + candidate.priority / 1000 + guidanceBoost(candidate, domain, guidanceCalibration);
 }
 
 function recommendLens(shotSpec, deviceCapability) {
@@ -309,6 +311,93 @@ function checkMinimum(expected, actual, label, benchmarkId) {
 function checkMaximum(expected, actual, label, benchmarkId) {
   if (typeof expected !== "number") return;
   assert(actual <= expected, `${benchmarkId}: expected ${label} <= ${expected}, got ${actual}.`);
+}
+
+function guidanceCalibrationFromManifest(manifest) {
+  const globalReasonBoosts = {};
+  const domainReasonBoosts = {};
+  const minimumReviewers = Math.max(1, manifest.collectionPlan.minimumBlindReviewers);
+
+  for (const sample of manifest.samples) {
+    const preference = sample.blindPreference;
+    if (sample.sampleKind !== "iphone_capture" || !preference || preference.reviewCount < minimumReviewers) {
+      continue;
+    }
+
+    const reviewScale = Math.min(3, preference.reviewCount / minimumReviewers);
+    addGuidanceBoost(preference.preferredGuidanceReason, sample.domain, 0.02 * reviewScale, globalReasonBoosts, domainReasonBoosts);
+
+    preference.rankedWeaknesses.slice(0, 3).forEach((weakness, index) => {
+      const reason = preferredReasonForWeakness(weakness);
+      if (!reason) return;
+      addGuidanceBoost(reason, sample.domain, 0.006 * reviewScale / (index + 1), globalReasonBoosts, domainReasonBoosts);
+    });
+  }
+
+  return {
+    globalReasonBoosts: clampBoosts(globalReasonBoosts),
+    domainReasonBoosts: Object.fromEntries(
+      Object.entries(domainReasonBoosts).map(([domain, boosts]) => [domain, clampBoosts(boosts)])
+    ),
+  };
+}
+
+function addGuidanceBoost(reason, domain, amount, globalReasonBoosts, domainReasonBoosts) {
+  if (!isGuidanceReason(reason)) return;
+
+  if (domain && isCaptureDomain(domain)) {
+    domainReasonBoosts[domain] ??= {};
+    domainReasonBoosts[domain][reason] = (domainReasonBoosts[domain][reason] ?? 0) + amount;
+  } else {
+    globalReasonBoosts[reason] = (globalReasonBoosts[reason] ?? 0) + amount;
+  }
+}
+
+function guidanceBoost(candidate, domain, guidanceCalibration) {
+  const globalBoost = guidanceCalibration.globalReasonBoosts[candidate.reason] ?? 0;
+  const domainBoost = domain ? guidanceCalibration.domainReasonBoosts[domain]?.[candidate.reason] ?? 0 : 0;
+  return clampBoost(globalBoost + domainBoost);
+}
+
+function clampBoost(value) {
+  return Math.max(0, Math.min(0.08, Number.isFinite(value) ? value : 0));
+}
+
+function clampBoosts(boosts) {
+  return Object.fromEntries(
+    Object.entries(boosts).map(([reason, boost]) => [reason, clampBoost(boost)])
+  );
+}
+
+function preferredReasonForWeakness(weakness) {
+  if (weakness === "background") return "reduce_clutter";
+  if (weakness === "horizon") return "level_horizon";
+  if (weakness === "lighting") return "improve_face_light";
+  if (weakness === "exposure") return "protect_highlights";
+  if (weakness === "pose") return "improve_pose";
+  if (weakness === "sharpnessProbability") return "reduce_motion_blur";
+  if (weakness === "composition" || weakness === "subjectPosition") return "improve_subject_background_separation";
+  if (weakness === "cameraAngle" || weakness === "intentMatch") return "match_reference";
+  return undefined;
+}
+
+function isGuidanceReason(value) {
+  return [
+    "improve_subject_background_separation",
+    "level_horizon",
+    "protect_highlights",
+    "improve_face_light",
+    "reduce_clutter",
+    "match_reference",
+    "improve_pose",
+    "increase_sky",
+    "reduce_motion_blur",
+    "ready_to_capture",
+  ].includes(value);
+}
+
+function isCaptureDomain(value) {
+  return ["portrait", "landscape", "travel", "lifestyle", "night", "reference"].includes(value);
 }
 
 function average(values) {

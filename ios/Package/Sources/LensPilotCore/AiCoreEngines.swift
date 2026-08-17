@@ -93,21 +93,58 @@ public struct TargetMatchCalibration: Codable, Equatable, Sendable {
     }
 }
 
+public struct GuidanceCalibration: Equatable, Sendable {
+    public static let standard = GuidanceCalibration()
+
+    public let globalReasonBoosts: [String: Double]
+    public let domainReasonBoosts: [String: [String: Double]]
+
+    public init(
+        globalReasonBoosts: [String: Double] = [:],
+        domainReasonBoosts: [String: [String: Double]] = [:]
+    ) {
+        self.globalReasonBoosts = globalReasonBoosts.mapValues(Self.clampedBoost)
+        self.domainReasonBoosts = domainReasonBoosts.mapValues { boosts in
+            boosts.mapValues(Self.clampedBoost)
+        }
+    }
+
+    public func scoreBoost(for action: GuidanceAction, domain: CaptureDomain?) -> Double {
+        let reason = action.reason.rawValue
+        let globalBoost = globalReasonBoosts[reason] ?? 0
+        let domainBoost = domain.flatMap { domainReasonBoosts[$0.rawValue]?[reason] } ?? 0
+        return Self.clampedBoost(globalBoost + domainBoost)
+    }
+
+    private static func clampedBoost(_ value: Double) -> Double {
+        guard value.isFinite else { return 0 }
+        min(0.08, max(0, value))
+    }
+}
+
 public struct GuidancePolicy: Sendable {
-    public init() {}
+    private let calibration: GuidanceCalibration
+
+    public init(calibration: GuidanceCalibration = .standard) {
+        self.calibration = calibration
+    }
 
     public func selectNextAction(from shotPlan: ShotPlan) -> GuidanceAction? {
+        selectNextAction(from: shotPlan, domain: nil)
+    }
+
+    public func selectNextAction(from shotPlan: ShotPlan, domain: CaptureDomain?) -> GuidanceAction? {
         (shotPlan.photographerChanges + shotPlan.subjectDirections)
             .filter { $0.confidence >= 0.55 && $0.expectedGain >= 0.04 }
-            .sorted { actionScore($0) > actionScore($1) }
+            .sorted { actionScore($0, domain: domain) > actionScore($1, domain: domain) }
             .first
     }
 
-    private func actionScore(_ action: GuidanceAction) -> Double {
+    private func actionScore(_ action: GuidanceAction, domain: CaptureDomain?) -> Double {
         let ease = action.actor == .camera ? 0.95 : (action.safetyQualifier == .ifSafe ? 0.72 : 0.8)
         let interactionCost = action.actor == .subject ? 0.08 : 0.04
         let safetyRisk = action.safetyQualifier == .ifSafe ? 0.08 : 0
-        return action.expectedGain * action.confidence * ease - interactionCost - safetyRisk + Double(action.priority) / 1000
+        return action.expectedGain * action.confidence * ease - interactionCost - safetyRisk + Double(action.priority) / 1000 + calibration.scoreBoost(for: action, domain: domain)
     }
 }
 
@@ -245,14 +282,20 @@ public struct LensPilotAiCore: Sendable {
         self.previewSafetyEngine = previewSafetyEngine
     }
 
-    public init(targetMatchCalibration: TargetMatchCalibration) {
-        self.init(targetMatchEngine: TargetMatchEngine(calibration: targetMatchCalibration))
+    public init(
+        targetMatchCalibration: TargetMatchCalibration,
+        guidanceCalibration: GuidanceCalibration = .standard
+    ) {
+        self.init(
+            guidancePolicy: GuidancePolicy(calibration: guidanceCalibration),
+            targetMatchEngine: TargetMatchEngine(calibration: targetMatchCalibration)
+        )
     }
 
     public func run(prompt: String, sceneState: SceneState, deviceCapability: DeviceCapability) -> AiPipelineResult {
         let shotSpec = intentEngine.makeShotSpec(from: prompt, source: .text)
         let shotPlan = shotPlanner.makeInitialPlan(for: shotSpec, sceneState: sceneState, deviceCapability: deviceCapability)
-        let guidanceAction = guidancePolicy.selectNextAction(from: shotPlan)
+        let guidanceAction = guidancePolicy.selectNextAction(from: shotPlan, domain: shotSpec.domain)
         let targetMatch = targetMatchEngine.score(shotSpec: shotSpec, shotPlan: shotPlan, sceneState: sceneState)
         let previewSafety = previewSafetyEngine.evaluate(shotSpec: shotSpec, shotPlan: shotPlan)
 

@@ -9,18 +9,18 @@
   - telephoto lens recommendation from fixture device capabilities
   - normalized Target Match
   - safety-qualified movement guidance
-  - deterministic AI guidance benchmarks
+  - deterministic AI guidance benchmarks with manifest-derived guidance calibration
   - Target Match calibration manifest validation, including candidate-sample privacy checks
   - reviewed candidate promotion into labeled `iphone_capture` calibration samples
   - reviewed app export normalization before manifest import
 - `LensPilotVisionTests` on macOS CI, covering the `SceneDebugState` to native `SceneState` bridge and on-device quality metric mapping.
-- `LensPilotCoreTests` on macOS CI, covering burst capture review ranking, empty-burst handling, calibration weight tuning, calibration sample export, and reviewed calibration sample promotion.
+- `LensPilotCoreTests` on macOS CI, covering burst capture review ranking, empty-burst handling, calibration weight tuning, reviewed guidance-priority calibration, calibration sample export, and reviewed calibration sample promotion.
 - `AiBenchmarkTests` on macOS CI, covering the deterministic single-phone guidance benchmark suite.
 - GitHub Actions `iOS app build`, covering the SwiftUI app target, local package dependency wiring, camera screen, reference picker, popup, and result review compilation.
 
 ## Latest Verification
 
-- GitHub Actions run #20 passed AI fixture validation, Swift package tests, and the iOS app build for commit `d000fd1`.
+- GitHub Actions run #25 passed AI fixture validation, Swift package tests, and the iOS app build for commit `7825376`.
 - Local `.\scripts\test-all.ps1` passed JSON validation, TypeScript AI fixture validation, six deterministic AI guidance benchmarks, Target Match calibration validation, calibration promotion validation, and reviewed import normalization on Windows.
 - Swift package tests still need GitHub/macOS CI for this workspace because Windows does not have Swift/Xcode installed.
 

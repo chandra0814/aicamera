@@ -55,7 +55,47 @@ public struct TargetMatchCalibrationManifest: Codable, Equatable, Sendable {
     }
 
     public func makeAiCore() -> LensPilotAiCore {
-        LensPilotAiCore(targetMatchCalibration: targetMatchCalibration)
+        LensPilotAiCore(
+            targetMatchCalibration: targetMatchCalibration,
+            guidanceCalibration: makeGuidanceCalibration()
+        )
+    }
+
+    public func makeGuidanceCalibration() -> GuidanceCalibration {
+        var globalReasonBoosts: [String: Double] = [:]
+        var domainReasonBoosts: [String: [String: Double]] = [:]
+        let minimumReviewers = max(1, collectionPlan.minimumBlindReviewers)
+
+        for sample in samples where sample.sampleKind == "iphone_capture" {
+            guard let preference = sample.blindPreference, preference.reviewCount >= minimumReviewers else {
+                continue
+            }
+
+            let reviewScale = min(3, Double(preference.reviewCount) / Double(minimumReviewers))
+            Self.addBoost(
+                for: preference.preferredGuidanceReason,
+                domain: sample.domain,
+                amount: 0.02 * reviewScale,
+                globalReasonBoosts: &globalReasonBoosts,
+                domainReasonBoosts: &domainReasonBoosts
+            )
+
+            for (index, weakness) in preference.rankedWeaknesses.prefix(3).enumerated() {
+                guard let reason = Self.preferredReason(forWeakness: weakness) else { continue }
+                Self.addBoost(
+                    for: reason,
+                    domain: sample.domain,
+                    amount: 0.006 * reviewScale / Double(index + 1),
+                    globalReasonBoosts: &globalReasonBoosts,
+                    domainReasonBoosts: &domainReasonBoosts
+                )
+            }
+        }
+
+        return GuidanceCalibration(
+            globalReasonBoosts: globalReasonBoosts,
+            domainReasonBoosts: domainReasonBoosts
+        )
     }
 
     public var reviewedSampleCount: Int {
@@ -106,6 +146,47 @@ public struct TargetMatchCalibrationManifest: Codable, Equatable, Sendable {
     private static func require(_ value: Double, _ label: String, min: Double, max: Double) throws {
         guard value >= min, value <= max else {
             throw TargetMatchCalibrationManifestError.invalidWeight(label)
+        }
+    }
+
+    private static func addBoost(
+        for reason: String,
+        domain: String?,
+        amount: Double,
+        globalReasonBoosts: inout [String: Double],
+        domainReasonBoosts: inout [String: [String: Double]]
+    ) {
+        guard GuidanceAction.Reason(rawValue: reason) != nil else { return }
+
+        if let domain, CaptureDomain(rawValue: domain) != nil {
+            var boosts = domainReasonBoosts[domain] ?? [:]
+            boosts[reason, default: 0] += amount
+            domainReasonBoosts[domain] = boosts
+        } else {
+            globalReasonBoosts[reason, default: 0] += amount
+        }
+    }
+
+    private static func preferredReason(forWeakness weakness: String) -> String? {
+        switch weakness {
+        case "background":
+            return GuidanceAction.Reason.reduceClutter.rawValue
+        case "horizon":
+            return GuidanceAction.Reason.levelHorizon.rawValue
+        case "lighting":
+            return GuidanceAction.Reason.improveFaceLight.rawValue
+        case "exposure":
+            return GuidanceAction.Reason.protectHighlights.rawValue
+        case "pose":
+            return GuidanceAction.Reason.improvePose.rawValue
+        case "sharpnessProbability":
+            return GuidanceAction.Reason.reduceMotionBlur.rawValue
+        case "composition", "subjectPosition":
+            return GuidanceAction.Reason.improveSubjectBackgroundSeparation.rawValue
+        case "cameraAngle", "intentMatch":
+            return GuidanceAction.Reason.matchReference.rawValue
+        default:
+            return nil
         }
     }
 

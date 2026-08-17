@@ -6,7 +6,7 @@ This implementation completes the MVP AI control skeleton, not the final product
 
 - Intent Engine: maps natural-language prompts into `ShotSpec`.
 - Shot Planner: maps `ShotSpec + SceneState + DeviceCapability` into `ShotPlan`.
-- Guidance Policy: selects one best next action using confidence, expected gain, priority, interaction cost, and safety qualifier.
+- Guidance Policy: selects one best next action using confidence, expected gain, priority, interaction cost, safety qualifier, and small reviewed-sample calibration boosts.
 - Target Match Engine: calculates normalized sub-scores and an overall match from measured scene values.
 - Preview Safety Engine: enforces Natural, Enhanced, and Creative labels.
 - Best-Shot Ranker: ranks burst candidates by sharpness, exposure, face quality, pose, composition, background, and intent match.
@@ -23,7 +23,7 @@ This implementation completes the MVP AI control skeleton, not the final product
 - Calibration promotion tool: reviewed candidates can be promoted into `iphone_capture` manifest entries only when single-phone privacy flags, domain labels, blind preference labels, and expected Target Match ranges are present.
 - In-app blind review labeling: after capture, the same phone opens a score-free label sheet for domain, preferred fix, ranked weaknesses, reviewer count, and reviewed-sample export.
 - Reviewed-sample importer: app exports can be normalized and appended to the calibration manifest only after single-phone privacy, blind-review, domain, and expected score-range validation passes.
-- Runtime calibration loading: the iOS app bundles the Target Match calibration manifest, validates that it remains single-phone only, and initializes the on-device AI core with those reviewed scoring weights when available.
+- Runtime calibration loading: the iOS app bundles the Target Match calibration manifest, validates that it remains single-phone only, and initializes the on-device AI core with reviewed scoring weights and domain-aware guidance-priority boosts when available.
 
 ## Not Yet Production AI
 
@@ -42,5 +42,5 @@ LensPilot must remain a reliable camera first. A deterministic AI core lets us p
 ## Required Next AI Work
 
 1. Collect real portrait, landscape, sky, clutter, backlight, horizon, and motion samples from iPhone captures.
-2. Tune benchmark thresholds and sub-score weights against blind preference tests now that the app can load the manifest at runtime.
+2. Tune benchmark thresholds, sub-score weights, and guidance-priority boosts against blind preference tests now that the app can load the manifest at runtime.
 3. Add optional cloud reasoning only for event-triggered creative interpretation.

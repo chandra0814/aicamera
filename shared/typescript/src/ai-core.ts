@@ -2,6 +2,9 @@ import type { DeviceCapability, ShotSpec } from "./contracts";
 import type { GuidanceAction, NormalizedRectangle, ShotPlan } from "./planning";
 import type { SceneState, SubjectObservation } from "./scene-state";
 
+export type CaptureDomain = ShotSpec["domain"];
+export type GuidanceReason = GuidanceAction["reason"];
+
 export interface AiPipelineResult {
   shotSpec: ShotSpec;
   shotPlan: ShotPlan;
@@ -23,6 +26,11 @@ export interface TargetMatchCalibration {
   missingFaceLightQuality: number;
   missingPoseScore: number;
   nonPortraitCameraAngleScore: number;
+}
+
+export interface GuidanceCalibration {
+  globalReasonBoosts: Partial<Record<GuidanceReason, number>>;
+  domainReasonBoosts: Partial<Record<CaptureDomain, Partial<Record<GuidanceReason, number>>>>;
 }
 
 export interface TargetMatchCalibrationManifest {
@@ -62,6 +70,11 @@ export const defaultTargetMatchCalibration: TargetMatchCalibration = {
   nonPortraitCameraAngleScore: 0.75,
 };
 
+export const defaultGuidanceCalibration: GuidanceCalibration = {
+  globalReasonBoosts: {},
+  domainReasonBoosts: {},
+};
+
 export function targetMatchCalibrationFromManifest(manifest: TargetMatchCalibrationManifest): TargetMatchCalibration {
   if (!manifest.collectionPlan.singlePhoneOnly) {
     throw new Error("Target Match calibration must stay single-phone only.");
@@ -77,6 +90,42 @@ export function targetMatchCalibrationFromManifest(manifest: TargetMatchCalibrat
 
   validateTargetMatchCalibration(manifest.targetMatchCalibration);
   return { ...manifest.targetMatchCalibration };
+}
+
+export function guidanceCalibrationFromManifest(manifest: TargetMatchCalibrationManifest): GuidanceCalibration {
+  const globalReasonBoosts: Partial<Record<GuidanceReason, number>> = {};
+  const domainReasonBoosts: Partial<Record<CaptureDomain, Partial<Record<GuidanceReason, number>>>> = {};
+  const minimumReviewers = Math.max(1, manifest.collectionPlan.minimumBlindReviewers);
+
+  for (const sample of manifest.samples) {
+    const preference = sample.blindPreference;
+    if (sample.sampleKind !== "iphone_capture" || !preference || preference.reviewCount < minimumReviewers) {
+      continue;
+    }
+
+    const reviewScale = Math.min(3, preference.reviewCount / minimumReviewers);
+    addGuidanceBoost(preference.preferredGuidanceReason, sample.domain, 0.02 * reviewScale, globalReasonBoosts, domainReasonBoosts);
+
+    preference.rankedWeaknesses.slice(0, 3).forEach((weakness, index) => {
+      const reason = preferredReasonForWeakness(weakness);
+      if (!reason) return;
+      addGuidanceBoost(reason, sample.domain, 0.006 * reviewScale / (index + 1), globalReasonBoosts, domainReasonBoosts);
+    });
+  }
+
+  return {
+    globalReasonBoosts: clampBoosts(globalReasonBoosts),
+    domainReasonBoosts: Object.fromEntries(
+      Object.entries(domainReasonBoosts).map(([domain, boosts]) => [domain, clampBoosts(boosts ?? {})])
+    ) as GuidanceCalibration["domainReasonBoosts"],
+  };
+}
+
+export function aiCoreFromCalibrationManifest(manifest: TargetMatchCalibrationManifest): LensPilotAiCore {
+  return new LensPilotAiCore(
+    targetMatchCalibrationFromManifest(manifest),
+    guidanceCalibrationFromManifest(manifest)
+  );
 }
 
 export interface TargetMatchScore {
@@ -283,10 +332,12 @@ export class ShotPlanner {
 }
 
 export class GuidancePolicy {
-  selectNextAction(shotPlan: ShotPlan): GuidanceAction | undefined {
+  constructor(private readonly calibration: GuidanceCalibration = defaultGuidanceCalibration) {}
+
+  selectNextAction(shotPlan: ShotPlan, domain?: CaptureDomain): GuidanceAction | undefined {
     const candidates = [...shotPlan.photographerChanges, ...shotPlan.subjectDirections]
       .filter((action) => action.confidence >= 0.55 && action.expectedGain >= 0.04)
-      .sort((a, b) => actionScore(b) - actionScore(a));
+      .sort((a, b) => actionScore(b, this.calibration, domain) - actionScore(a, this.calibration, domain));
 
     return candidates[0];
   }
@@ -380,18 +431,22 @@ export class BestShotRanker {
 export class LensPilotAiCore {
   private readonly intentEngine = new IntentEngine();
   private readonly shotPlanner = new ShotPlanner();
-  private readonly guidancePolicy = new GuidancePolicy();
   private readonly previewSafetyEngine = new PreviewSafetyEngine();
+  private readonly guidancePolicy: GuidancePolicy;
   private readonly targetMatchEngine: TargetMatchEngine;
 
-  constructor(targetMatchCalibration: TargetMatchCalibration = defaultTargetMatchCalibration) {
+  constructor(
+    targetMatchCalibration: TargetMatchCalibration = defaultTargetMatchCalibration,
+    guidanceCalibration: GuidanceCalibration = defaultGuidanceCalibration
+  ) {
+    this.guidancePolicy = new GuidancePolicy(guidanceCalibration);
     this.targetMatchEngine = new TargetMatchEngine(targetMatchCalibration);
   }
 
   run(prompt: string, sceneState: SceneState, deviceCapability: DeviceCapability): AiPipelineResult {
     const shotSpec = this.intentEngine.parseIntent(prompt);
     const shotPlan = this.shotPlanner.plan(shotSpec, sceneState, deviceCapability);
-    const guidanceAction = this.guidancePolicy.selectNextAction(shotPlan);
+    const guidanceAction = this.guidancePolicy.selectNextAction(shotPlan, shotSpec.domain);
     const targetMatch = this.targetMatchEngine.score(shotSpec, shotPlan, sceneState);
     const previewSafety = this.previewSafetyEngine.evaluate(shotSpec, shotPlan);
 
@@ -485,11 +540,11 @@ function previewConfiguration(shotSpec: ShotSpec): ShotPlan["previewConfiguratio
   };
 }
 
-function actionScore(action: GuidanceAction): number {
+function actionScore(action: GuidanceAction, calibration: GuidanceCalibration, domain?: CaptureDomain): number {
   const ease = action.actor === "camera" ? 0.95 : action.safetyQualifier === "if_safe" ? 0.72 : 0.8;
   const interactionCost = action.actor === "subject" ? 0.08 : 0.04;
   const safetyRisk = action.safetyQualifier === "if_safe" ? 0.08 : 0;
-  return action.expectedGain * action.confidence * ease - interactionCost - safetyRisk + action.priority / 1000;
+  return action.expectedGain * action.confidence * ease - interactionCost - safetyRisk + action.priority / 1000 + guidanceBoost(action, calibration, domain);
 }
 
 function rectSimilarity(a: NormalizedRectangle, b: NormalizedRectangle): number {
@@ -514,6 +569,83 @@ function average(values: number[]): number {
 
 function clamp01(value: number): number {
   return Math.max(0, Math.min(1, value));
+}
+
+function addGuidanceBoost(
+  reason: string,
+  domain: string | undefined,
+  amount: number,
+  globalReasonBoosts: Partial<Record<GuidanceReason, number>>,
+  domainReasonBoosts: Partial<Record<CaptureDomain, Partial<Record<GuidanceReason, number>>>>
+): void {
+  if (!isGuidanceReason(reason)) return;
+
+  if (domain && isCaptureDomain(domain)) {
+    domainReasonBoosts[domain] ??= {};
+    domainReasonBoosts[domain]![reason] = (domainReasonBoosts[domain]![reason] ?? 0) + amount;
+  } else {
+    globalReasonBoosts[reason] = (globalReasonBoosts[reason] ?? 0) + amount;
+  }
+}
+
+function guidanceBoost(action: GuidanceAction, calibration: GuidanceCalibration, domain?: CaptureDomain): number {
+  const globalBoost = calibration.globalReasonBoosts[action.reason] ?? 0;
+  const domainBoost = domain ? calibration.domainReasonBoosts[domain]?.[action.reason] ?? 0 : 0;
+  return clampBoost(globalBoost + domainBoost);
+}
+
+function clampBoost(value: number): number {
+  return Math.max(0, Math.min(0.08, Number.isFinite(value) ? value : 0));
+}
+
+function clampBoosts(boosts: Partial<Record<GuidanceReason, number>>): Partial<Record<GuidanceReason, number>> {
+  return Object.fromEntries(
+    Object.entries(boosts).map(([reason, boost]) => [reason, clampBoost(boost)])
+  ) as Partial<Record<GuidanceReason, number>>;
+}
+
+function preferredReasonForWeakness(weakness: string): GuidanceReason | undefined {
+  switch (weakness) {
+    case "background":
+      return "reduce_clutter";
+    case "horizon":
+      return "level_horizon";
+    case "lighting":
+      return "improve_face_light";
+    case "exposure":
+      return "protect_highlights";
+    case "pose":
+      return "improve_pose";
+    case "sharpnessProbability":
+      return "reduce_motion_blur";
+    case "composition":
+    case "subjectPosition":
+      return "improve_subject_background_separation";
+    case "cameraAngle":
+    case "intentMatch":
+      return "match_reference";
+    default:
+      return undefined;
+  }
+}
+
+function isGuidanceReason(value: string): value is GuidanceReason {
+  return [
+    "improve_subject_background_separation",
+    "level_horizon",
+    "protect_highlights",
+    "improve_face_light",
+    "reduce_clutter",
+    "match_reference",
+    "improve_pose",
+    "increase_sky",
+    "reduce_motion_blur",
+    "ready_to_capture",
+  ].includes(value);
+}
+
+function isCaptureDomain(value: string): value is CaptureDomain {
+  return ["portrait", "landscape", "travel", "lifestyle", "night", "reference"].includes(value);
 }
 
 function validateTargetMatchCalibration(calibration: TargetMatchCalibration): void {

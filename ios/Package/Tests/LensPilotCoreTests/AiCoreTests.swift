@@ -61,6 +61,7 @@ final class AiCoreTests: XCTestCase {
         let manifest = try TargetMatchCalibrationManifest.decode(
             from: Self.calibrationManifestData(backgroundClutterPenalty: 0.25)
         )
+        let guidanceCalibration = manifest.makeGuidanceCalibration()
         let defaultResult = LensPilotAiCore().run(
             prompt: "Give me a cinematic portrait with natural skin and a clean background.",
             sceneState: Self.portraitScene(),
@@ -77,6 +78,14 @@ final class AiCoreTests: XCTestCase {
         XCTAssertEqual(manifest.targetMatchCalibration.backgroundClutterPenalty, 0.25, accuracy: 0.0001)
         XCTAssertGreaterThan(calibratedResult.targetMatch.background, defaultResult.targetMatch.background)
         XCTAssertGreaterThan(calibratedResult.targetMatch.intentMatch, defaultResult.targetMatch.intentMatch)
+
+        let clutterAction = try XCTUnwrap(
+            calibratedResult.shotPlan.photographerChanges.first { $0.reason == .reduceClutter }
+        )
+        XCTAssertGreaterThan(guidanceCalibration.scoreBoost(for: clutterAction, domain: .portrait), 0)
+        XCTAssertEqual(guidanceCalibration.scoreBoost(for: clutterAction, domain: .landscape), 0, accuracy: 0.0001)
+        XCTAssertNotEqual(defaultResult.guidanceAction?.reason, calibratedResult.guidanceAction?.reason)
+        XCTAssertEqual(calibratedResult.guidanceAction?.reason, .reduceClutter)
     }
 
     func testTargetMatchCalibrationManifestRejectsNonSinglePhonePlan() {
