@@ -43,8 +43,14 @@ final class CameraScreenViewModel: ObservableObject {
     private lazy var frameAnalysisCoordinator = CameraFrameAnalysisCoordinator(analyzer: frameAnalyzer)
     private var isFrameAnalysisConnected = false
 
-    init(calibrationData: Data? = Self.bundledCalibrationData()) {
-        self.aiCore = Self.makeAiCore(calibrationData: calibrationData)
+    init() {
+        self.aiCore = CameraScreenViewModel.makeAiCore(
+            calibrationData: CameraScreenViewModel.bundledCalibrationData()
+        )
+    }
+
+    init(calibrationData: Data?) {
+        self.aiCore = CameraScreenViewModel.makeAiCore(calibrationData: calibrationData)
     }
 
     func start() {
@@ -68,7 +74,7 @@ final class CameraScreenViewModel: ObservableObject {
         }
     }
 
-    private static func bundledCalibrationData() -> Data? {
+    nonisolated private static func bundledCalibrationData() -> Data? {
         guard let url = Bundle.main.url(forResource: "target-match-calibration", withExtension: "json") else {
             return nil
         }
@@ -76,7 +82,7 @@ final class CameraScreenViewModel: ObservableObject {
         return try? Data(contentsOf: url)
     }
 
-    private static func makeAiCore(calibrationData: Data?) -> LensPilotAiCore {
+    nonisolated private static func makeAiCore(calibrationData: Data?) -> LensPilotAiCore {
         guard let calibrationData else {
             return LensPilotAiCore()
         }
