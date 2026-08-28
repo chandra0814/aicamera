@@ -24,6 +24,61 @@ enum OnlineInspirationLoadState: Equatable {
     case failed(String)
 }
 
+enum PreviewAdjustmentCommand: String, CaseIterable, Identifiable {
+    case brighter
+    case moreSky
+    case lessBackgroundBlur
+    case naturalColor
+    case moreDrama
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .brighter:
+            return "Brighter"
+        case .moreSky:
+            return "More Sky"
+        case .lessBackgroundBlur:
+            return "Less Background Blur"
+        case .naturalColor:
+            return "Natural Color"
+        case .moreDrama:
+            return "More Drama"
+        }
+    }
+
+    var instruction: String {
+        switch self {
+        case .brighter:
+            return "Make it brighter."
+        case .moreSky:
+            return "Show more sky."
+        case .lessBackgroundBlur:
+            return "Use less background blur."
+        case .naturalColor:
+            return "Keep colors natural."
+        case .moreDrama:
+            return "Make it more dramatic."
+        }
+    }
+
+    var iconName: String {
+        switch self {
+        case .brighter:
+            return "sun.max"
+        case .moreSky:
+            return "cloud.sun"
+        case .lessBackgroundBlur:
+            return "circle.dashed"
+        case .naturalColor:
+            return "camera.filters"
+        case .moreDrama:
+            return "theatermasks"
+        }
+    }
+}
+
 @MainActor
 final class CameraScreenViewModel: ObservableObject {
     let camera = CameraSessionController()
@@ -157,6 +212,20 @@ final class CameraScreenViewModel: ObservableObject {
         }
         guidanceStabilizer.reset()
         runAi(sceneState: currentSceneState())
+    }
+
+    func applyPreviewAdjustment(_ command: PreviewAdjustmentCommand) {
+        let trimmedIntent = intentText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedIntent = trimmedIntent.lowercased()
+        let normalizedInstruction = command.instruction
+            .lowercased()
+            .trimmingCharacters(in: CharacterSet(charactersIn: "."))
+
+        if !normalizedIntent.contains(normalizedInstruction) {
+            intentText = trimmedIntent.isEmpty ? command.instruction : "\(trimmedIntent) \(command.instruction)"
+        }
+
+        makePlanFromIntent()
     }
 
     func toggleSpeechIntentInput() {

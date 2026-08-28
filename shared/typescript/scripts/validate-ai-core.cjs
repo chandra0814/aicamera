@@ -43,6 +43,7 @@ const nextAction = sceneState.background.clutterScore > 0.55 && sceneState.safet
   ? "if_safe_move_left"
   : "hold_steady";
 const guidanceStabilized = validateGuidanceStabilizer();
+const previewAdjustments = validatePreviewAdjustments();
 
 if (targetPreview.label !== "capture_realistic") {
   throw new Error("Target preview must stay capture-realistic for natural mode.");
@@ -71,6 +72,7 @@ console.log(JSON.stringify({
   },
   nextAction,
   guidanceStabilized,
+  previewAdjustments,
 }, null, 2));
 
 function average(values) {
@@ -99,6 +101,87 @@ function validateGuidanceStabilizer() {
   assert(stabilizeGuidance(stabilizer, left, 4_000)?.action === "move_left", "Expected movement after completed memory expires.");
 
   return true;
+}
+
+function validatePreviewAdjustments() {
+  const moreSky = makePreviewAdjustmentShotSpec("Give me a cinematic portrait. Show more sky.");
+  const brighter = makePreviewAdjustmentShotSpec("Take a natural lifestyle photo. Make it brighter.");
+  const lessBlur = makePreviewAdjustmentShotSpec("Give me a cinematic portrait. Use less background blur.");
+  const naturalColor = makePreviewAdjustmentShotSpec("Give me a cinematic portrait. Keep colors natural.");
+
+  assert(moreSky.composition.skyPriority === "high", "More-sky preview adjustment must raise sky priority.");
+  assert(moreSky.compositionTarget.horizonY === 0.34, "More-sky portrait preview must expose a target horizon.");
+  assert(moreSky.compositionTarget.subjectBounds.y > 0.18, "More-sky preview must lower the subject target.");
+  assert(moreSky.previewOperations.includes("sky_framing_guide"), "More-sky preview must add a sky guide.");
+
+  assert(brighter.cameraIntent.exposureStrategy === "brighten", "Brighter preview adjustment must use brighten exposure strategy.");
+  assert(brighter.targetExposureBias === 0.3, "Brighter preview adjustment must lift exposure when highlights are safe.");
+  assert(brighter.previewOperations.includes("exposure_lift"), "Brighter preview must add exposure lift operation.");
+
+  assert(lessBlur.cameraIntent.depthIntent === "natural_depth", "Less-background-blur preview must use natural depth.");
+  assert(lessBlur.depthEffect === "natural", "Less-background-blur preview must avoid portrait blur preview.");
+  assert(lessBlur.previewOperations.includes("deep_focus_preview"), "Less-background-blur preview must add deep-focus cue.");
+
+  assert(naturalColor.style.name === "cinematic", "Natural-color adjustment must preserve cinematic intent.");
+  assert(naturalColor.style.colorIntent === "natural", "Natural-color adjustment must override color treatment.");
+  assert(naturalColor.constraints.singlePhoneOnly === true, "Preview adjustments must stay single-phone.");
+  assert(naturalColor.constraints.cloudAllowed === false, "Preview adjustments must not require cloud.");
+  assert(naturalColor.constraints.generativeEditsAllowed === false, "Preview adjustments must not require generative edits.");
+
+  return ["more_sky", "brighter", "less_background_blur", "natural_color"];
+}
+
+function makePreviewAdjustmentShotSpec(prompt) {
+  const normalized = prompt.toLowerCase();
+  const isPortrait = /\b(portrait|me|person|people|selfie)\b/.test(normalized);
+  const isLandscape = /\b(landscape|sky|sunset|mountain|beach|cityscape|lake)\b/.test(normalized);
+  const wantsMoreDrama = /\b(more dramatic|more drama)\b/.test(normalized);
+  const wantsCinematic = /\b(cinematic|dramatic|movie|luxury)\b/.test(normalized) || wantsMoreDrama;
+  const wantsBrighter = /\b(brighter|brighten|make it bright)\b/.test(normalized);
+  const wantsNaturalColor = /\b(natural color|natural colour|colors natural|colours natural)\b/.test(normalized);
+  const wantsLessBackgroundBlur = /\b(less background blur|less blur|deep focus)\b/.test(normalized);
+  const wantsSky = /\b(sky|sunset|cloud|more sky|show more sky)\b/.test(normalized);
+  const domain = isPortrait ? "portrait" : isLandscape ? "landscape" : "lifestyle";
+  const cameraIntent = {
+    exposureStrategy: wantsSky ? "protect_highlights" : wantsBrighter ? "brighten" : isPortrait ? "prioritize_faces" : "balanced",
+    depthIntent: wantsLessBackgroundBlur ? "natural_depth" : isPortrait ? "strong_subject_separation" : "deep_focus",
+  };
+  const composition = {
+    skyPriority: wantsSky ? "high" : undefined,
+  };
+  const compositionTarget = {
+    subjectBounds: domain === "portrait" && composition.skyPriority === "high"
+      ? { x: 0.33, y: 0.27, width: 0.34, height: 0.56 }
+      : domain === "portrait"
+        ? { x: 0.3, y: 0.18, width: 0.4, height: 0.66 }
+        : { x: 0.05, y: 0.05, width: 0.9, height: 0.9 },
+    horizonY: composition.skyPriority === "high" ? (domain === "portrait" ? 0.34 : 0.32) : undefined,
+  };
+  const previewOperations = ["crop_simulation", "exposure_bias", "tone_preview", "composition_overlay"];
+
+  if (composition.skyPriority === "high") previewOperations.push("sky_framing_guide");
+  if (cameraIntent.exposureStrategy === "brighten") previewOperations.push("exposure_lift");
+  if (cameraIntent.depthIntent === "natural_depth" || cameraIntent.depthIntent === "deep_focus") {
+    previewOperations.push("deep_focus_preview");
+  }
+
+  return {
+    composition,
+    compositionTarget,
+    cameraIntent,
+    targetExposureBias: cameraIntent.exposureStrategy === "brighten" ? 0.3 : 0,
+    depthEffect: cameraIntent.depthIntent === "natural_depth" || cameraIntent.depthIntent === "deep_focus" ? "natural" : "portrait_if_available",
+    previewOperations,
+    style: {
+      name: wantsCinematic ? "cinematic" : "natural",
+      colorIntent: wantsNaturalColor ? "natural" : wantsCinematic ? "warm_highlights_cool_shadows" : "natural",
+    },
+    constraints: {
+      singlePhoneOnly: true,
+      cloudAllowed: false,
+      generativeEditsAllowed: false,
+    },
+  };
 }
 
 function makeGuidanceStabilizer() {

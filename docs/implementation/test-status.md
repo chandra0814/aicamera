@@ -19,6 +19,7 @@
   - Openverse-style public image request construction and response parsing
   - online-inspiration source-diverse result ranking and thumbnail cache eviction
   - deterministic Target Preview privacy, safety label, achievability, and composition-overlay validation
+  - same-phone Target Preview adjustment validation for brighter, more sky, less background blur, and natural-color commands
 - `LensPilotVisionTests` on macOS CI, covering the `SceneDebugState` to native `SceneState` bridge and on-device quality metric mapping.
 - `LensPilotCoreTests` on macOS CI, covering burst capture review ranking, empty-burst handling, calibration weight tuning, reviewed guidance-priority calibration, guidance stabilization, Personal Visual AI learning, online-reference privacy policy, Wikimedia Commons and Openverse online-inspiration parsing, source-diverse online-result ranking, thumbnail cache eviction, calibration sample export, and reviewed calibration sample promotion.
 - `AiBenchmarkTests` on macOS CI, covering the deterministic single-phone guidance benchmark suite.
@@ -27,7 +28,7 @@
 ## Latest Verification
 
 - GitHub Actions run #34 passed AI fixture validation, Swift package tests, and the iOS app build for commit `f64cf24`.
-- Local `.\scripts\test-all.ps1` passed JSON validation, TypeScript AI fixture validation, deterministic Target Preview validation, six deterministic AI guidance benchmarks, Target Match calibration validation, calibration promotion validation, reviewed import normalization, Personal Visual AI validation, and multi-provider public inspiration validation on Windows after AI Shot Preview V1 wiring.
+- Local `.\scripts\test-all.ps1` passed JSON validation, TypeScript AI fixture validation, deterministic Target Preview validation, preview adjustment validation, six deterministic AI guidance benchmarks, Target Match calibration validation, calibration promotion validation, reviewed import normalization, Personal Visual AI validation, and multi-provider public inspiration validation on Windows after same-phone preview adjustment wiring.
 - Swift package tests still need GitHub/macOS CI for this workspace because Windows does not have Swift/Xcode installed.
 
 ## Not Runnable Here

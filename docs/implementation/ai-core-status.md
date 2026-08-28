@@ -11,6 +11,7 @@ This implementation completes the MVP AI control skeleton, not the final product
 - Target Match Engine: calculates normalized sub-scores and an overall match from measured scene values.
 - Preview Safety Engine: enforces Natural, Enhanced, and Creative labels.
 - Target Preview Engine: converts the safe ShotPlan into a deterministic same-phone preview contract with achievable framing, lens, tone, depth, Target Match, and privacy flags.
+- Preview adjustment intent: same-phone commands such as brighter, show more sky, less background blur, natural colors, and more drama now update ShotSpec and ShotPlan fields without changing privacy or cloud posture.
 - Best-Shot Ranker: ranks burst candidates by sharpness, exposure, face quality, pose, composition, background, and intent match.
 - Personal Visual Learning Engine: converts consented customer usage, requirements, accepted/rejected guidance, selected results, ratings, and online-reference usage into a local preference profile with small guidance boosts.
 - Online Reference Policy: can produce a consent-gated public-inspiration request plan from prompt and ShotSpec only, while explicitly blocking raw live camera frames, private photos, identity data, and precise location without consent.
@@ -18,6 +19,7 @@ This implementation completes the MVP AI control skeleton, not the final product
 - Native Swift AI core: iOS now has on-device `SceneState`, `LensPilotAiCore`, `TargetMatchEngine`, `GuidancePolicy`, `PreviewSafetyEngine`, and `BestShotRanker` equivalents.
 - App wiring: the iOS camera screen view model calls the native AI core and displays AI guidance plus Target Match from scene inputs.
 - AI Shot Preview V1: the iOS camera overlay now renders the deterministic target frame, optional horizon guide, estimated achievability, preview label, lens, tone, and depth on the live same-phone camera.
+- The camera screen includes a compact adjustment menu that reruns the local AI preview loop for brighter, more sky, less background blur, natural color, and more drama requests.
 - Live scene bridge: `FrameAnalyzer` output now maps `SceneDebugState` into native `SceneState`, and the camera screen refreshes AI guidance from analyzed live frames.
 - Live quality metrics: `FrameAnalyzer` now derives horizon roll, face quality, pose, segmentation availability, and motion stability signals on-device.
 - Reference-photo loop: selected library images stay on-device, appear in the camera popup, and open in the same-phone full reference viewer.

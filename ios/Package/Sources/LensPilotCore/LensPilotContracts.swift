@@ -248,6 +248,7 @@ public extension ShotSpec {
         case protectHighlights = "protect_highlights"
         case prioritizeFaces = "prioritize_faces"
         case balanced
+        case brighten
         case nightStability = "night_stability"
     }
 

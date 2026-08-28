@@ -12,8 +12,12 @@ public struct ShotSpecFactory: ShotSpecCreating {
         let isPortrait = normalized.contains("portrait") || normalized.contains("me") || normalized.contains("person")
         let isLandscape = normalized.contains("landscape") || normalized.contains("sky") || normalized.contains("sunset")
         let isNight = normalized.contains("night")
-        let wantsCinematic = normalized.contains("cinematic") || normalized.contains("dramatic")
-        let wantsSky = normalized.contains("sky") || normalized.contains("sunset")
+        let wantsMoreDrama = normalized.contains("more dramatic") || normalized.contains("more drama")
+        let wantsCinematic = normalized.contains("cinematic") || normalized.contains("dramatic") || wantsMoreDrama
+        let wantsBrighter = normalized.contains("brighter") || normalized.contains("brighten") || normalized.contains("make it bright")
+        let wantsNaturalColor = normalized.contains("natural color") || normalized.contains("natural colour") || normalized.contains("colors natural") || normalized.contains("colours natural")
+        let wantsLessBackgroundBlur = normalized.contains("less background blur") || normalized.contains("less blur") || normalized.contains("deep focus")
+        let wantsSky = normalized.contains("sky") || normalized.contains("sunset") || normalized.contains("more sky") || normalized.contains("show more sky")
         let wantsCleanBackground = normalized.contains("clean") || normalized.contains("background")
 
         let domain: CaptureDomain
@@ -39,8 +43,8 @@ public struct ShotSpecFactory: ShotSpecCreating {
             ),
             style: .init(
                 name: wantsCinematic ? .cinematic : .natural,
-                mood: wantsCinematic ? .dramatic : .bright,
-                colorIntent: wantsCinematic ? .warmHighlightsCoolShadows : .natural,
+                mood: wantsCinematic && !wantsBrighter ? .dramatic : .bright,
+                colorIntent: wantsNaturalColor ? .natural : (wantsCinematic ? .warmHighlightsCoolShadows : .natural),
                 skinTreatment: isPortrait ? .natural : .none
             ),
             composition: .init(
@@ -53,9 +57,9 @@ public struct ShotSpecFactory: ShotSpecCreating {
             cameraIntent: .init(
                 targetLens: isPortrait ? .twoXIfAvailable : .wide,
                 perspective: isPortrait ? .eyeLevel : .auto,
-                exposureStrategy: wantsSky ? .protectHighlights : (isPortrait ? .prioritizeFaces : .balanced),
+                exposureStrategy: wantsSky ? .protectHighlights : (wantsBrighter ? .brighten : (isPortrait ? .prioritizeFaces : .balanced)),
                 focusStrategy: isPortrait ? .subjectEye : .auto,
-                depthIntent: isPortrait ? .strongSubjectSeparation : .deepFocus
+                depthIntent: wantsLessBackgroundBlur ? .naturalDepth : (isPortrait ? .strongSubjectSeparation : .deepFocus)
             ),
             constraints: .init(
                 realityMode: .natural,

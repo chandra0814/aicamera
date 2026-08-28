@@ -51,7 +51,7 @@
       "properties": {
         "targetLens": { "enum": ["ultra_wide", "wide", "two_x_if_available", "telephoto_if_available", "auto"] },
         "perspective": { "enum": ["eye_level", "low_angle", "high_angle", "straight_on", "auto"] },
-        "exposureStrategy": { "enum": ["protect_highlights", "prioritize_faces", "balanced", "night_stability"] },
+        "exposureStrategy": { "enum": ["protect_highlights", "prioritize_faces", "balanced", "brighten", "night_stability"] },
         "focusStrategy": { "enum": ["subject_eye", "subject_center", "hyperfocal", "auto"] },
         "depthIntent": { "enum": ["natural_depth", "strong_subject_separation", "deep_focus", "auto"] }
       }

@@ -29,7 +29,7 @@ export interface ShotSpec {
   cameraIntent: {
     targetLens?: "ultra_wide" | "wide" | "two_x_if_available" | "telephoto_if_available" | "auto";
     perspective?: "eye_level" | "low_angle" | "high_angle" | "straight_on" | "auto";
-    exposureStrategy?: "protect_highlights" | "prioritize_faces" | "balanced" | "night_stability";
+    exposureStrategy?: "protect_highlights" | "prioritize_faces" | "balanced" | "brighten" | "night_stability";
     focusStrategy?: "subject_eye" | "subject_center" | "hyperfocal" | "auto";
     depthIntent?: "natural_depth" | "strong_subject_separation" | "deep_focus" | "auto";
   };

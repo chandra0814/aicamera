@@ -206,8 +206,12 @@ export class IntentEngine {
     const isPortrait = /\b(portrait|me|person|people|selfie)\b/.test(normalized);
     const isLandscape = /\b(landscape|sky|sunset|mountain|beach|cityscape|lake)\b/.test(normalized);
     const isNight = /\b(night|low light|dark)\b/.test(normalized);
-    const cinematic = /\b(cinematic|dramatic|movie|luxury)\b/.test(normalized);
-    const moreSky = /\b(sky|sunset|cloud)\b/.test(normalized);
+    const moreDrama = /\b(more dramatic|more drama)\b/.test(normalized);
+    const cinematic = /\b(cinematic|dramatic|movie|luxury)\b/.test(normalized) || moreDrama;
+    const brighter = /\b(brighter|brighten|make it bright)\b/.test(normalized);
+    const naturalColor = /\b(natural color|natural colour|colors natural|colours natural)\b/.test(normalized);
+    const lessBackgroundBlur = /\b(less background blur|less blur|deep focus)\b/.test(normalized);
+    const moreSky = /\b(sky|sunset|cloud|more sky|show more sky)\b/.test(normalized);
     const cleanBackground = /\b(clean|background|clutter)\b/.test(normalized);
 
     return {
@@ -224,8 +228,8 @@ export class IntentEngine {
       },
       style: {
         name: cinematic ? "cinematic" : "natural",
-        mood: cinematic ? "dramatic" : "bright",
-        colorIntent: cinematic ? "warm_highlights_cool_shadows" : "natural",
+        mood: cinematic && !brighter ? "dramatic" : "bright",
+        colorIntent: naturalColor ? "natural" : cinematic ? "warm_highlights_cool_shadows" : "natural",
         skinTreatment: isPortrait ? "natural" : "none",
       },
       composition: {
@@ -238,9 +242,9 @@ export class IntentEngine {
       cameraIntent: {
         targetLens: isPortrait ? "two_x_if_available" : "wide",
         perspective: isPortrait ? "eye_level" : "auto",
-        exposureStrategy: moreSky ? "protect_highlights" : isPortrait ? "prioritize_faces" : "balanced",
+        exposureStrategy: moreSky ? "protect_highlights" : brighter ? "brighten" : isPortrait ? "prioritize_faces" : "balanced",
         focusStrategy: isPortrait ? "subject_eye" : "auto",
-        depthIntent: isPortrait ? "strong_subject_separation" : "deep_focus",
+        depthIntent: lessBackgroundBlur ? "natural_depth" : isPortrait ? "strong_subject_separation" : "deep_focus",
       },
       constraints: {
         realityMode: "natural",
@@ -321,6 +325,22 @@ export class ShotPlanner {
       }));
     }
 
+    if (shotSpec.composition.skyPriority === "high" && (sceneState.scene.sky?.visibleFraction ?? 0) < 0.35) {
+      photographerChanges.push(makeAction({
+        id: "increase_sky",
+        actor: "photographer",
+        action: "lower_camera",
+        magnitude: 6,
+        unit: "degree",
+        direction: "down",
+        confidence: 0.72,
+        reason: "increase_sky",
+        expectedGain: 0.13,
+        safetyQualifier: "if_safe",
+        priority: 86,
+      }));
+    }
+
     const subjectDirections = subjectGuidance(shotSpec, primarySubject, sceneState);
 
     return {
@@ -335,7 +355,7 @@ export class ShotPlanner {
       cameraControls: {
         recommendedLens,
         targetZoom: recommendedLens === "telephoto" ? 2 : 1,
-        targetExposureBias: sceneState.scene.lighting.highlightClipping > 0.22 ? -0.3 : 0,
+        targetExposureBias: targetExposureBias(shotSpec, sceneState),
         targetFocusMode: deviceCapability.manualFocusSupported ? "locked" : "auto",
         targetWhiteBalance: "auto",
         stabilizationMode: deviceCapability.stabilizationModes.includes("cinematic") ? "cinematic" : deviceCapability.stabilizationModes[0],
@@ -345,14 +365,14 @@ export class ShotPlanner {
       subjectDirections,
       compositionTarget: {
         subjectBounds: targetSubjectBounds(shotSpec, primarySubject),
-        horizonY: shotSpec.domain === "landscape" ? 0.38 : undefined,
+        horizonY: targetHorizonY(shotSpec),
         crop: { x: 0, y: 0, width: 1, height: 1 },
       },
       processingIntent: {
         realityMode: shotSpec.constraints.realityMode,
         toneCurve: shotSpec.style.name === "cinematic" ? "cinematic_soft_contrast" : "natural",
         colorTreatment: shotSpec.style.colorIntent ?? "natural",
-        depthEffect: shotSpec.domain === "portrait" ? "portrait_if_available" : "natural",
+        depthEffect: targetDepthEffect(shotSpec),
       },
       previewConfiguration: previewConfiguration(shotSpec),
       capturePolicy: {
@@ -714,8 +734,35 @@ function subjectGuidance(shotSpec: ShotSpec, subject: SubjectObservation | undef
 }
 
 function targetSubjectBounds(shotSpec: ShotSpec, subject?: SubjectObservation): NormalizedRectangle {
+  if (shotSpec.domain === "portrait" && shotSpec.composition.skyPriority === "high") {
+    return { x: 0.33, y: 0.27, width: 0.34, height: 0.56 };
+  }
+
   if (shotSpec.domain === "portrait") return { x: 0.3, y: 0.18, width: 0.4, height: 0.66 };
   return subject?.bounds ?? { x: 0.05, y: 0.05, width: 0.9, height: 0.9 };
+}
+
+function targetHorizonY(shotSpec: ShotSpec): number | undefined {
+  if (shotSpec.composition.skyPriority === "high") {
+    return shotSpec.domain === "portrait" ? 0.34 : 0.32;
+  }
+
+  return shotSpec.domain === "landscape" ? 0.38 : undefined;
+}
+
+function targetExposureBias(shotSpec: ShotSpec, sceneState: SceneState): number {
+  if (sceneState.scene.lighting.highlightClipping > 0.22) return -0.3;
+  if (shotSpec.cameraIntent.exposureStrategy === "protect_highlights") return -0.3;
+  if (shotSpec.cameraIntent.exposureStrategy === "brighten") return 0.3;
+  return 0;
+}
+
+function targetDepthEffect(shotSpec: ShotSpec): ShotPlan["processingIntent"]["depthEffect"] {
+  if (shotSpec.cameraIntent.depthIntent === "natural_depth" || shotSpec.cameraIntent.depthIntent === "deep_focus") {
+    return "natural";
+  }
+
+  return shotSpec.domain === "portrait" ? "portrait_if_available" : "natural";
 }
 
 function previewConfiguration(shotSpec: ShotSpec): ShotPlan["previewConfiguration"] {
@@ -723,9 +770,16 @@ function previewConfiguration(shotSpec: ShotSpec): ShotPlan["previewConfiguratio
     return { label: "ai_enhancement_required", operations: ["creative_preview", "explicit_disclosure"] };
   }
 
+  const operations = ["crop_simulation", "exposure_bias", "tone_preview", "composition_overlay"];
+  if (shotSpec.composition.skyPriority === "high") operations.push("sky_framing_guide");
+  if (shotSpec.cameraIntent.exposureStrategy === "brighten") operations.push("exposure_lift");
+  if (shotSpec.cameraIntent.depthIntent === "natural_depth" || shotSpec.cameraIntent.depthIntent === "deep_focus") {
+    operations.push("deep_focus_preview");
+  }
+
   return {
     label: shotSpec.constraints.realityMode === "enhanced" ? "enhanced_realistic" : "capture_realistic",
-    operations: ["crop_simulation", "exposure_bias", "tone_preview", "composition_overlay"],
+    operations,
   };
 }
 

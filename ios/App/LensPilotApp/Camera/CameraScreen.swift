@@ -160,6 +160,23 @@ struct CameraScreen: View {
                 .accessibilityLabel(viewModel.speechIntentState.accessibilityLabel)
                 .disabled(!viewModel.speechIntentState.allowsToggle)
 
+                Menu {
+                    ForEach(PreviewAdjustmentCommand.allCases) { command in
+                        Button {
+                            viewModel.applyPreviewAdjustment(command)
+                        } label: {
+                            Label(command.title, systemImage: command.iconName)
+                        }
+                    }
+                } label: {
+                    Image(systemName: "slider.horizontal.3")
+                        .font(.headline)
+                        .frame(width: 44, height: 44)
+                        .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 8))
+                }
+                .foregroundStyle(.white)
+                .accessibilityLabel("Adjust target preview")
+
                 Button {
                     viewModel.makePlanFromIntent()
                 } label: {

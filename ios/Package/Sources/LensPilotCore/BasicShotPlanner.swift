@@ -14,7 +14,6 @@ public struct BasicShotPlanner: ShotPlanning {
     public func makeInitialPlan(for shotSpec: ShotSpec, sceneState: SceneState?, deviceCapability: DeviceCapability) -> ShotPlan {
         let recommendedLens = recommendedLens(for: shotSpec, deviceCapability: deviceCapability)
         let targetZoom = recommendedLens == "telephoto" ? 2.0 : 1.0
-        let isPortrait = shotSpec.domain == .portrait
         let realityMode = shotSpec.constraints.realityMode
         let photographerChanges = photographerGuidance(for: shotSpec, sceneState: sceneState)
 
@@ -30,7 +29,7 @@ public struct BasicShotPlanner: ShotPlanning {
             cameraControls: .init(
                 recommendedLens: recommendedLens,
                 targetZoom: targetZoom,
-                targetExposureBias: shotSpec.cameraIntent.exposureStrategy == .protectHighlights ? -0.3 : 0,
+                targetExposureBias: targetExposureBias(for: shotSpec, sceneState: sceneState),
                 targetFocusMode: deviceCapability.manualFocusSupported ? .locked : .auto,
                 targetWhiteBalance: .auto,
                 stabilizationMode: deviceCapability.stabilizationModes.contains("cinematic") ? "cinematic" : deviceCapability.stabilizationModes.first,
@@ -39,21 +38,19 @@ public struct BasicShotPlanner: ShotPlanning {
             photographerChanges: photographerChanges,
             subjectDirections: subjectGuidance(for: shotSpec, sceneState: sceneState),
             compositionTarget: .init(
-                subjectBounds: isPortrait
-                    ? .init(x: 0.3, y: 0.18, width: 0.4, height: 0.66)
-                    : .init(x: 0.05, y: 0.05, width: 0.9, height: 0.9),
-                horizonY: shotSpec.domain == .landscape ? 0.38 : nil,
+                subjectBounds: targetSubjectBounds(for: shotSpec),
+                horizonY: targetHorizonY(for: shotSpec),
                 crop: .init(x: 0, y: 0, width: 1, height: 1)
             ),
             processingIntent: .init(
                 realityMode: realityMode,
                 toneCurve: shotSpec.style.name == .cinematic ? .cinematicSoftContrast : .natural,
                 colorTreatment: shotSpec.style.colorIntent?.rawValue ?? "natural",
-                depthEffect: isPortrait ? .portraitIfAvailable : .natural
+                depthEffect: targetDepthEffect(for: shotSpec)
             ),
             previewConfiguration: .init(
                 label: realityMode == .creative ? .aiEnhancementRequired : .captureRealistic,
-                operations: ["crop_simulation", "exposure_bias", "tone_preview", "composition_overlay"]
+                operations: previewOperations(for: shotSpec)
             ),
             capturePolicy: .init(
                 mode: .burst,
@@ -162,6 +159,25 @@ public struct BasicShotPlanner: ShotPlanning {
             ))
         }
 
+        if shotSpec.composition.skyPriority == .high,
+           (sceneState.scene.sky?.visibleFraction ?? 0) < 0.35 {
+            actions.append(GuidanceAction(
+                id: "increase_sky",
+                actor: .photographer,
+                action: .lowerCamera,
+                magnitude: 6,
+                unit: .degree,
+                direction: .down,
+                confidence: 0.72,
+                reason: .increaseSky,
+                expectedGain: 0.13,
+                safetyQualifier: .ifSafe,
+                priority: 86,
+                ttlMs: 3500,
+                suppressOppositeUntilMs: 5000
+            ))
+        }
+
         return actions.isEmpty ? [
             GuidanceAction(
                 id: "hold_steady_ready",
@@ -232,6 +248,67 @@ public struct BasicShotPlanner: ShotPlanning {
         }
 
         return "wide"
+    }
+
+    private func targetSubjectBounds(for shotSpec: ShotSpec) -> NormalizedRectangle {
+        if shotSpec.domain == .portrait {
+            if shotSpec.composition.skyPriority == .high {
+                return .init(x: 0.33, y: 0.27, width: 0.34, height: 0.56)
+            }
+
+            return .init(x: 0.3, y: 0.18, width: 0.4, height: 0.66)
+        }
+
+        return .init(x: 0.05, y: 0.05, width: 0.9, height: 0.9)
+    }
+
+    private func targetHorizonY(for shotSpec: ShotSpec) -> Double? {
+        if shotSpec.composition.skyPriority == .high {
+            return shotSpec.domain == .portrait ? 0.34 : 0.32
+        }
+
+        return shotSpec.domain == .landscape ? 0.38 : nil
+    }
+
+    private func targetExposureBias(for shotSpec: ShotSpec, sceneState: SceneState?) -> Double {
+        if (sceneState?.scene.lighting.highlightClipping ?? 0) > 0.22 {
+            return -0.3
+        }
+
+        switch shotSpec.cameraIntent.exposureStrategy {
+        case .some(.protectHighlights):
+            return -0.3
+        case .some(.brighten):
+            return 0.3
+        default:
+            return 0
+        }
+    }
+
+    private func targetDepthEffect(for shotSpec: ShotSpec) -> ShotPlan.DepthEffect {
+        if shotSpec.cameraIntent.depthIntent == .naturalDepth || shotSpec.cameraIntent.depthIntent == .deepFocus {
+            return .natural
+        }
+
+        return shotSpec.domain == .portrait ? .portraitIfAvailable : .natural
+    }
+
+    private func previewOperations(for shotSpec: ShotSpec) -> [String] {
+        var operations = ["crop_simulation", "exposure_bias", "tone_preview", "composition_overlay"]
+
+        if shotSpec.composition.skyPriority == .high {
+            operations.append("sky_framing_guide")
+        }
+
+        if shotSpec.cameraIntent.exposureStrategy == .brighten {
+            operations.append("exposure_lift")
+        }
+
+        if shotSpec.cameraIntent.depthIntent == .naturalDepth || shotSpec.cameraIntent.depthIntent == .deepFocus {
+            operations.append("deep_focus_preview")
+        }
+
+        return operations
     }
 
     private func naturalAchievability(for shotSpec: ShotSpec, deviceCapability: DeviceCapability) -> Double {

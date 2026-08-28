@@ -24,6 +24,41 @@ final class AiCoreTests: XCTestCase {
         XCTAssertNotNil(result.guidanceAction)
     }
 
+    func testPreviewAdjustmentPromptsTuneTheSamePhoneShotPlan() {
+        let factory = ShotSpecFactory()
+        let planner = BasicShotPlanner()
+        let deviceCapability = Self.deviceCapability()
+        let baseSpec = factory.makeShotSpec(from: "Give me a cinematic portrait.", source: .text)
+        let basePlan = planner.makeInitialPlan(for: baseSpec, sceneState: nil, deviceCapability: deviceCapability)
+        let moreSkySpec = factory.makeShotSpec(from: "Give me a cinematic portrait. Show more sky.", source: .text)
+        let moreSkyPlan = planner.makeInitialPlan(for: moreSkySpec, sceneState: nil, deviceCapability: deviceCapability)
+        let brighterSpec = factory.makeShotSpec(from: "Take a natural lifestyle photo. Make it brighter.", source: .text)
+        let brighterPlan = planner.makeInitialPlan(for: brighterSpec, sceneState: nil, deviceCapability: deviceCapability)
+        let lessBlurSpec = factory.makeShotSpec(from: "Give me a cinematic portrait. Use less background blur.", source: .text)
+        let lessBlurPlan = planner.makeInitialPlan(for: lessBlurSpec, sceneState: nil, deviceCapability: deviceCapability)
+        let naturalColorSpec = factory.makeShotSpec(from: "Give me a cinematic portrait. Keep colors natural.", source: .text)
+
+        XCTAssertEqual(moreSkySpec.composition.skyPriority, .some(.high))
+        XCTAssertNotNil(moreSkyPlan.compositionTarget.horizonY)
+        XCTAssertGreaterThan(moreSkyPlan.compositionTarget.subjectBounds.y, basePlan.compositionTarget.subjectBounds.y)
+        XCTAssertLessThan(moreSkyPlan.compositionTarget.subjectBounds.height, basePlan.compositionTarget.subjectBounds.height)
+        XCTAssertTrue(moreSkyPlan.previewConfiguration.operations.contains("sky_framing_guide"))
+
+        XCTAssertEqual(brighterSpec.cameraIntent.exposureStrategy, .some(.brighten))
+        XCTAssertEqual(brighterPlan.cameraControls.targetExposureBias ?? 0, 0.3, accuracy: 0.0001)
+        XCTAssertTrue(brighterPlan.previewConfiguration.operations.contains("exposure_lift"))
+
+        XCTAssertEqual(lessBlurSpec.cameraIntent.depthIntent, .some(.naturalDepth))
+        XCTAssertEqual(lessBlurPlan.processingIntent.depthEffect, .natural)
+        XCTAssertTrue(lessBlurPlan.previewConfiguration.operations.contains("deep_focus_preview"))
+
+        XCTAssertEqual(naturalColorSpec.style.name, .cinematic)
+        XCTAssertEqual(naturalColorSpec.style.colorIntent, .some(.natural))
+        XCTAssertTrue(naturalColorSpec.constraints.singlePhoneOnly)
+        XCTAssertFalse(naturalColorSpec.constraints.cloudAllowed)
+        XCTAssertFalse(naturalColorSpec.constraints.generativeEditsAllowed)
+    }
+
     func testBestShotRankerReturnsBestAndAlternatives() {
         let ranked = BestShotRanker().rank([
             BestShotCandidate(id: "frame_1", sharpness: 0.7, exposure: 0.8, faceQuality: 0.72, poseScore: 0.7, composition: 0.76, background: 0.7, intentMatch: 0.75),
