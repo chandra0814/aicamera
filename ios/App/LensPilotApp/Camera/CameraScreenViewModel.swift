@@ -128,8 +128,6 @@ final class CameraScreenViewModel: ObservableObject {
     private var hasLoadedOnlineInspiration = false
     private var cancellables: Set<AnyCancellable> = []
 
-    private static let personalProfileStorageKey = "com.lenspilot.personalVisualProfile.v1"
-
     convenience init() {
         self.init(calibrationData: CameraScreenViewModel.bundledCalibrationData())
     }
@@ -700,16 +698,18 @@ final class CameraScreenViewModel: ObservableObject {
     }
 
     private static func loadPersonalProfile() -> PersonalVisualPreferenceProfile? {
-        guard let data = UserDefaults.standard.data(forKey: personalProfileStorageKey) else {
-            return nil
-        }
-
-        return try? JSONDecoder().decode(PersonalVisualPreferenceProfile.self, from: data)
+        try? PersonalVisualProfileStore().loadProfile()
     }
 
     private func persistPersonalProfile() {
-        guard let data = try? JSONEncoder().encode(personalProfile) else { return }
-        UserDefaults.standard.set(data, forKey: Self.personalProfileStorageKey)
+        let sanitizedProfile = personalProfile.sanitizedForLocalStorage()
+        personalProfile = sanitizedProfile
+
+        do {
+            try PersonalVisualProfileStore().saveProfile(sanitizedProfile)
+        } catch {
+            errorMessage = "Personal learning profile could not be saved."
+        }
     }
 
     private func connectFrameAnalysisIfNeeded() {

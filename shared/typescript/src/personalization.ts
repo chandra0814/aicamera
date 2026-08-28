@@ -139,6 +139,78 @@ export function emptyPersonalVisualPreferenceProfile(
   };
 }
 
+export const personalVisualProfileStoragePolicy = {
+  storageKey: "com.lenspilot.personalVisualProfile.v1",
+  maxStoredProfileBytes: 64 * 1024,
+  privacy: {
+    localOnly: true,
+    storesRawPhoto: false,
+    uploadsLiveCameraFrame: false,
+    storesIdentityData: false,
+    cloudPersonalizationSyncAllowed: false,
+  },
+} as const;
+
+export interface PersonalVisualProfileStorageSnapshot {
+  storageKey: string;
+  profile: PersonalVisualPreferenceProfile;
+  estimatedJsonBytes: number;
+  privacy: typeof personalVisualProfileStoragePolicy.privacy;
+}
+
+export function sanitizePersonalVisualPreferenceProfile(
+  profile: PersonalVisualPreferenceProfile
+): PersonalVisualPreferenceProfile {
+  return {
+    version: "1.0",
+    consent: {
+      learningEnabled: profile.consent.learningEnabled,
+      onlineReferencesAllowed: profile.consent.onlineReferencesAllowed,
+      cloudPersonalizationSyncAllowed: false,
+    },
+    totalEvents: clampCount(profile.totalEvents),
+    domainCounts: sanitizeCountMap(profile.domainCounts, profileDomainKeys, profileDomainKeys.length) as Partial<Record<CaptureDomain, number>>,
+    styleAffinities: sanitizeAffinityMap(profile.styleAffinities, profileStyleKeys, profileStyleKeys.length) as Partial<Record<ShotSpec["style"]["name"], number>>,
+    colorAffinities: sanitizeAffinityMap(profile.colorAffinities, profileColorKeys, profileColorKeys.length) as Partial<Record<NonNullable<ShotSpec["style"]["colorIntent"]>, number>>,
+    framingAffinities: sanitizeAffinityMap(profile.framingAffinities, profileFramingKeys, profileFramingKeys.length) as Partial<Record<ShotSpec["composition"]["framing"], number>>,
+    guidanceReasonAffinities: sanitizeAffinityMap(profile.guidanceReasonAffinities, profileGuidanceReasonKeys, profileGuidanceReasonKeys.length) as Partial<Record<GuidanceAction["reason"], number>>,
+    requirementAffinities: sanitizeAffinityMap(profile.requirementAffinities, undefined, 48),
+    onlineReferenceUsageCount: clampCount(profile.onlineReferenceUsageCount),
+  };
+}
+
+export function encodePersonalVisualPreferenceProfileForLocalStorage(
+  profile: PersonalVisualPreferenceProfile
+): string {
+  const json = JSON.stringify(sanitizePersonalVisualPreferenceProfile(profile));
+  if (json.length > personalVisualProfileStoragePolicy.maxStoredProfileBytes) {
+    throw new Error("personal_visual_profile_too_large");
+  }
+  return json;
+}
+
+export function decodePersonalVisualPreferenceProfileFromLocalStorage(
+  json: string
+): PersonalVisualPreferenceProfile {
+  if (json.length > personalVisualProfileStoragePolicy.maxStoredProfileBytes) {
+    throw new Error("personal_visual_profile_too_large");
+  }
+  return sanitizePersonalVisualPreferenceProfile(JSON.parse(json) as PersonalVisualPreferenceProfile);
+}
+
+export function makePersonalVisualProfileStorageSnapshot(
+  profile: PersonalVisualPreferenceProfile,
+  storageKey = personalVisualProfileStoragePolicy.storageKey
+): PersonalVisualProfileStorageSnapshot {
+  const storedProfile = sanitizePersonalVisualPreferenceProfile(profile);
+  return {
+    storageKey,
+    profile: storedProfile,
+    estimatedJsonBytes: JSON.stringify(storedProfile).length,
+    privacy: personalVisualProfileStoragePolicy.privacy,
+  };
+}
+
 export class PersonalVisualLearningEngine {
   updatedProfile(
     profile: PersonalVisualPreferenceProfile,
@@ -236,6 +308,81 @@ export class PersonalVisualLearningEngine {
       },
     };
   }
+}
+
+const profileDomainKeys = ["portrait", "landscape", "travel", "lifestyle", "night", "reference"] as const;
+const profileStyleKeys = ["natural", "cinematic", "professional", "travel", "portrait", "night", "sky", "lifestyle", "custom"] as const;
+const profileColorKeys = ["natural", "warm_highlights", "cool_shadows", "warm_highlights_cool_shadows", "high_contrast", "low_contrast"] as const;
+const profileFramingKeys = ["close", "medium", "wide", "environmental", "three_quarter", "symmetrical", "rule_of_thirds"] as const;
+const profileGuidanceReasonKeys = [
+  "improve_subject_background_separation",
+  "level_horizon",
+  "protect_highlights",
+  "improve_face_light",
+  "reduce_clutter",
+  "match_reference",
+  "improve_pose",
+  "increase_sky",
+  "reduce_motion_blur",
+  "ready_to_capture",
+] as const;
+
+function sanitizeCountMap(
+  values: Partial<Record<string, number>>,
+  allowedKeys: readonly string[],
+  maxEntries: number
+): Record<string, number> {
+  const allowed = new Set(allowedKeys);
+  return Object.fromEntries(
+    Object.entries(values ?? {})
+      .map(([key, value]) => [sanitizeStorageKey(key), clampCount(value)] as const)
+      .filter(([key, value]) => allowed.has(key) && value > 0)
+      .sort(([leftKey, leftValue], [rightKey, rightValue]) => rightValue - leftValue || leftKey.localeCompare(rightKey))
+      .slice(0, Math.max(0, maxEntries))
+  );
+}
+
+function sanitizeAffinityMap(
+  values: Partial<Record<string, number>>,
+  allowedKeys: readonly string[] | undefined,
+  maxEntries: number
+): Record<string, number> {
+  const allowed = allowedKeys ? new Set(allowedKeys) : undefined;
+  return Object.fromEntries(
+    Object.entries(values ?? {})
+      .map(([key, value]) => [sanitizeStorageKey(key), clampAffinity(value)] as const)
+      .filter(([key, value]) => key.length > 0 && value !== 0 && (!allowed || allowed.has(key)) && (allowed || !isBlockedFreeformStorageKey(key)))
+      .sort(([leftKey, leftValue], [rightKey, rightValue]) => Math.abs(rightValue) - Math.abs(leftValue) || leftKey.localeCompare(rightKey))
+      .slice(0, Math.max(0, maxEntries))
+  );
+}
+
+function clampCount(value: number | undefined): number {
+  if (!Number.isFinite(value ?? 0)) return 0;
+  return Math.min(1_000_000, Math.max(0, Math.trunc(value ?? 0)));
+}
+
+function sanitizeStorageKey(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "_")
+    .replace(/^[_-]+|[_-]+$/g, "")
+    .slice(0, 64)
+    .replace(/^[_-]+|[_-]+$/g, "");
+}
+
+function isBlockedFreeformStorageKey(value: string): boolean {
+  return [
+    "raw_live_camera",
+    "raw_frame",
+    "private_photo",
+    "face_identity",
+    "identity_recognition",
+    "upload_live_camera",
+    "upload_private",
+    "external_cloud",
+  ].some((term) => value.includes(term));
 }
 
 export function makeOnlineInspirationRequest(

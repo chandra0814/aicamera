@@ -38,6 +38,7 @@
 - Voice intent is wired into the single-phone camera screen with native microphone and speech permissions, on-device speech recognition when available, and typed intent as the fallback path.
 - AI Shot Preview V1 now produces a deterministic same-phone `TargetPreview` contract and renders target framing, horizon, achievability, lens, tone, and depth cues over the live camera without generative or cloud claims.
 - Same-phone preview adjustments now let the user refine the target with brighter, more sky, less background blur, natural color, and more drama commands from the camera screen; the updated ShotSpec/ShotPlan remains capture-realistic by default.
+- Personal Visual AI now persists the learned aggregate profile locally through a sanitized profile store that strips cloud-sync state, caps stored JSON size, drops unknown keys, and never stores raw photos, live frames, or identity data.
 
 ## Single-Phone Verification Checklist
 
@@ -52,6 +53,7 @@
 - Voice input is tap-triggered on the same phone and uses the same ShotSpec path as typed intent.
 - AI Shot Preview V1 is capture-realistic by default, uses the ShotPlan composition target, and explicitly marks previews that would require AI enhancement after capture.
 - Preview adjustment controls run locally, preserve the single-phone privacy invariant, and do not upload raw camera frames or private reference photos.
+- Learned profile persistence stores only sanitized aggregate preference signals on the same phone and strips cloud personalization sync.
 
 ## MVP Boundary
 

@@ -16,6 +16,18 @@ const onlineReferenceConsent = {
   cloudPersonalizationSyncAllowed: false,
 };
 
+const personalVisualProfileStoragePolicy = {
+  storageKey: "com.lenspilot.personalVisualProfile.v1",
+  maxStoredProfileBytes: 64 * 1024,
+  privacy: {
+    localOnly: true,
+    storesRawPhoto: false,
+    uploadsLiveCameraFrame: false,
+    storesIdentityData: false,
+    cloudPersonalizationSyncAllowed: false,
+  },
+};
+
 const shotSpec = {
   id: "shot_personalization_fixture",
   domain: "portrait",
@@ -58,6 +70,39 @@ assert(profile.onlineReferenceUsageCount === 1, "Online reference usage should b
 const calibration = guidanceCalibration(profile);
 assert((calibration.globalReasonBoosts.reduce_clutter ?? 0) > 0, "Positive guidance affinity should become a small boost.");
 assert((calibration.globalReasonBoosts.reduce_clutter ?? 0) <= 0.04, "Personal boosts must stay secondary.");
+
+const unsafeStoredProfile = {
+  ...profile,
+  version: "legacy",
+  consent: { ...onlineReferenceConsent, cloudPersonalizationSyncAllowed: true },
+  totalEvents: 2_000_000,
+  domainCounts: { ...profile.domainCounts, external_cloud_album: 7, night: -2 },
+  styleAffinities: { ...profile.styleAffinities, unknown_cloud_style: 0.9 },
+  colorAffinities: { ...profile.colorAffinities, generated_identity_palette: 0.7 },
+  guidanceReasonAffinities: { ...profile.guidanceReasonAffinities, upload_private_photo: 1 },
+  requirementAffinities: { ...profile.requirementAffinities, "Clean Background!!": 0.6 },
+};
+const storageSnapshot = makePersonalVisualProfileStorageSnapshot(unsafeStoredProfile);
+assert(storageSnapshot.storageKey === personalVisualProfileStoragePolicy.storageKey, "Profile storage key should be stable.");
+assert(storageSnapshot.privacy.localOnly === true, "Profile storage must stay local-only.");
+assert(storageSnapshot.privacy.storesRawPhoto === false, "Profile storage must not store raw photos.");
+assert(storageSnapshot.privacy.uploadsLiveCameraFrame === false, "Profile storage must not upload live frames.");
+assert(storageSnapshot.privacy.storesIdentityData === false, "Profile storage must not store identity data.");
+assert(storageSnapshot.profile.version === "1.0", "Stored profile should use the current schema version.");
+assert(storageSnapshot.profile.consent.cloudPersonalizationSyncAllowed === false, "Stored profile must strip cloud sync.");
+assert(storageSnapshot.profile.totalEvents === 1_000_000, "Stored profile event counts should be capped.");
+assert(!storageSnapshot.profile.domainCounts.external_cloud_album, "Stored profile should drop unknown domains.");
+assert(!storageSnapshot.profile.styleAffinities.unknown_cloud_style, "Stored profile should drop unknown styles.");
+assert(!storageSnapshot.profile.guidanceReasonAffinities.upload_private_photo, "Stored profile should drop unsafe guidance reasons.");
+assert(storageSnapshot.profile.requirementAffinities.clean_background > 0, "Stored profile should sanitize learned requirement keys.");
+assert(!storageSnapshot.profile.requirementAffinities.raw_live_camera_feed, "Stored profile should drop reserved raw-frame requirement keys.");
+const encodedProfile = encodePersonalVisualPreferenceProfileForLocalStorage(unsafeStoredProfile);
+const decodedProfile = decodePersonalVisualPreferenceProfileFromLocalStorage(encodedProfile);
+assert(decodedProfile.consent.cloudPersonalizationSyncAllowed === false, "Decoded profile should remain local-only.");
+assertThrows(
+  () => decodePersonalVisualPreferenceProfileFromLocalStorage("x".repeat(personalVisualProfileStoragePolicy.maxStoredProfileBytes + 1)),
+  "Oversized stored profiles should be rejected."
+);
 
 const blockedPlan = makeOnlineReferencePlan(shotSpec, "Give me a cinematic portrait", profile, localLearningConsent);
 assert(blockedPlan === undefined, "Online references require explicit online consent.");
@@ -184,6 +229,7 @@ assert(thumbnailCache.get("https://example.test/second.jpg")[0] === 2, "Thumbnai
 
 console.log(JSON.stringify({
   personalLearning: true,
+  localProfileStorage: storageSnapshot.privacy,
   onlineReferencePlan: plan.reason,
   onlineSourceAdapter: [...new Set(rankedReferences.map((result) => result.source))].join("+"),
   onlineRanking: rankedReferences[0].id,
@@ -203,6 +249,61 @@ function emptyProfile(consent) {
     guidanceReasonAffinities: {},
     requirementAffinities: {},
     onlineReferenceUsageCount: 0,
+  };
+}
+
+function sanitizeProfileForLocalStorage(profile) {
+  return {
+    version: "1.0",
+    consent: {
+      learningEnabled: profile.consent.learningEnabled,
+      onlineReferencesAllowed: profile.consent.onlineReferencesAllowed,
+      cloudPersonalizationSyncAllowed: false,
+    },
+    totalEvents: clampCount(profile.totalEvents),
+    domainCounts: sanitizeCountMap(profile.domainCounts, ["portrait", "landscape", "travel", "lifestyle", "night", "reference"], 6),
+    styleAffinities: sanitizeAffinityMap(profile.styleAffinities, ["natural", "cinematic", "professional", "travel", "portrait", "night", "sky", "lifestyle", "custom"], 9),
+    colorAffinities: sanitizeAffinityMap(profile.colorAffinities, ["natural", "warm_highlights", "cool_shadows", "warm_highlights_cool_shadows", "high_contrast", "low_contrast"], 6),
+    framingAffinities: sanitizeAffinityMap(profile.framingAffinities, ["close", "medium", "wide", "environmental", "three_quarter", "symmetrical", "rule_of_thirds"], 7),
+    guidanceReasonAffinities: sanitizeAffinityMap(profile.guidanceReasonAffinities, [
+      "improve_subject_background_separation",
+      "level_horizon",
+      "protect_highlights",
+      "improve_face_light",
+      "reduce_clutter",
+      "match_reference",
+      "improve_pose",
+      "increase_sky",
+      "reduce_motion_blur",
+      "ready_to_capture",
+    ], 10),
+    requirementAffinities: sanitizeAffinityMap(profile.requirementAffinities, undefined, 48),
+    onlineReferenceUsageCount: clampCount(profile.onlineReferenceUsageCount),
+  };
+}
+
+function encodePersonalVisualPreferenceProfileForLocalStorage(profile) {
+  const json = JSON.stringify(sanitizeProfileForLocalStorage(profile));
+  if (json.length > personalVisualProfileStoragePolicy.maxStoredProfileBytes) {
+    throw new Error("personal_visual_profile_too_large");
+  }
+  return json;
+}
+
+function decodePersonalVisualPreferenceProfileFromLocalStorage(json) {
+  if (json.length > personalVisualProfileStoragePolicy.maxStoredProfileBytes) {
+    throw new Error("personal_visual_profile_too_large");
+  }
+  return sanitizeProfileForLocalStorage(JSON.parse(json));
+}
+
+function makePersonalVisualProfileStorageSnapshot(profile) {
+  const storedProfile = sanitizeProfileForLocalStorage(profile);
+  return {
+    storageKey: personalVisualProfileStoragePolicy.storageKey,
+    profile: storedProfile,
+    estimatedJsonBytes: JSON.stringify(storedProfile).length,
+    privacy: personalVisualProfileStoragePolicy.privacy,
   };
 }
 
@@ -497,6 +598,61 @@ function bump(values, key, amount) {
   values[key] = Number.isFinite(values[key] ?? 0) ? Math.min(1, Math.max(-1, (values[key] ?? 0) + amount)) : 0;
 }
 
+function sanitizeCountMap(values, allowedKeys, maxEntries) {
+  const allowed = new Set(allowedKeys);
+  return Object.fromEntries(
+    Object.entries(values ?? {})
+      .map(([key, value]) => [sanitizeStorageKey(key), clampCount(value)])
+      .filter(([key, value]) => allowed.has(key) && value > 0)
+      .sort(([leftKey, leftValue], [rightKey, rightValue]) => rightValue - leftValue || leftKey.localeCompare(rightKey))
+      .slice(0, Math.max(0, maxEntries))
+  );
+}
+
+function sanitizeAffinityMap(values, allowedKeys, maxEntries) {
+  const allowed = allowedKeys ? new Set(allowedKeys) : undefined;
+  return Object.fromEntries(
+    Object.entries(values ?? {})
+      .map(([key, value]) => [sanitizeStorageKey(key), clampAffinity(value)])
+      .filter(([key, value]) => key.length > 0 && value !== 0 && (!allowed || allowed.has(key)) && (allowed || !isBlockedFreeformStorageKey(key)))
+      .sort(([leftKey, leftValue], [rightKey, rightValue]) => Math.abs(rightValue) - Math.abs(leftValue) || leftKey.localeCompare(rightKey))
+      .slice(0, Math.max(0, maxEntries))
+  );
+}
+
+function clampCount(value) {
+  if (!Number.isFinite(value ?? 0)) return 0;
+  return Math.min(1_000_000, Math.max(0, Math.trunc(value ?? 0)));
+}
+
+function clampAffinity(value) {
+  if (!Number.isFinite(value ?? 0)) return 0;
+  return Math.min(1, Math.max(-1, value ?? 0));
+}
+
+function sanitizeStorageKey(value) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "_")
+    .replace(/^[_-]+|[_-]+$/g, "")
+    .slice(0, 64)
+    .replace(/^[_-]+|[_-]+$/g, "");
+}
+
+function isBlockedFreeformStorageKey(value) {
+  return [
+    "raw_live_camera",
+    "raw_frame",
+    "private_photo",
+    "face_identity",
+    "identity_recognition",
+    "upload_live_camera",
+    "upload_private",
+    "external_cloud",
+  ].some((term) => value.includes(term));
+}
+
 function containsAny(text, terms) {
   return terms.some((term) => text.includes(term));
 }
@@ -613,4 +769,15 @@ function assert(condition, message) {
     console.error(message);
     process.exit(1);
   }
+}
+
+function assertThrows(callback, message) {
+  let didThrow = false;
+  try {
+    callback();
+  } catch {
+    didThrow = true;
+  }
+
+  assert(didThrow, message);
 }

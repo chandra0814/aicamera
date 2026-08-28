@@ -15,6 +15,7 @@
   - reviewed app export normalization before manifest import
   - guidance stabilizer checks for immediate opposite-action suppression and completed-action memory
   - Personal Visual AI validation for consent-gated learning, small personalization boosts, and online-reference privacy boundaries
+  - Personal Visual AI local profile storage sanitization, cloud-sync stripping, and oversized-profile rejection
   - Wikimedia Commons online-inspiration request construction and public image response parsing
   - Openverse-style public image request construction and response parsing
   - online-inspiration source-diverse result ranking and thumbnail cache eviction
@@ -27,8 +28,8 @@
 
 ## Latest Verification
 
-- GitHub Actions run #34 passed AI fixture validation, Swift package tests, and the iOS app build for commit `f64cf24`.
-- Local `.\scripts\test-all.ps1` passed JSON validation, TypeScript AI fixture validation, deterministic Target Preview validation, preview adjustment validation, six deterministic AI guidance benchmarks, Target Match calibration validation, calibration promotion validation, reviewed import normalization, Personal Visual AI validation, and multi-provider public inspiration validation on Windows after same-phone preview adjustment wiring.
+- GitHub Actions run #37 passed AI fixture validation, Swift package tests, and the iOS app build for commit `ee7dd1b`.
+- Local `.\scripts\test-all.ps1` passed JSON validation, TypeScript AI fixture validation, deterministic Target Preview validation, preview adjustment validation, six deterministic AI guidance benchmarks, Target Match calibration validation, calibration promotion validation, reviewed import normalization, Personal Visual AI validation, local profile storage validation, and multi-provider public inspiration validation on Windows after local profile-store wiring.
 - Swift package tests still need GitHub/macOS CI for this workspace because Windows does not have Swift/Xcode installed.
 
 ## Not Runnable Here

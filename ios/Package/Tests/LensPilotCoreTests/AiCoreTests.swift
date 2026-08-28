@@ -343,6 +343,91 @@ final class AiCoreTests: XCTestCase {
         XCTAssertLessThanOrEqual(boost, 0.04)
     }
 
+    func testPersonalVisualProfileStorePersistsSanitizedLocalProfile() throws {
+        var storedData: Data?
+        let store = PersonalVisualProfileStore(
+            readData: { storedData },
+            writeData: { storedData = $0 }
+        )
+        let rawProfile = PersonalVisualPreferenceProfile(
+            version: "legacy",
+            consent: PersonalizationConsent(
+                learningEnabled: true,
+                onlineReferencesAllowed: true,
+                cloudPersonalizationSyncAllowed: true
+            ),
+            totalEvents: 2_000_000,
+            domainCounts: [
+                "portrait": 4,
+                "night": -2,
+                "external_cloud_album": 12
+            ],
+            styleAffinities: [
+                "cinematic": 0.7,
+                "unknown_cloud_style": 0.8
+            ],
+            colorAffinities: [
+                "warm_highlights_cool_shadows": 0.6,
+                "generated_identity_palette": 0.5
+            ],
+            framingAffinities: [
+                "environmental": 0.5
+            ],
+            guidanceReasonAffinities: [
+                "reduce_clutter": 0.9,
+                "upload_private_photo": 1
+            ],
+            requirementAffinities: [
+                "Clean Background!!": 0.6,
+                "raw_live_camera_feed": 1
+            ],
+            onlineReferenceUsageCount: 3
+        )
+
+        try store.saveProfile(rawProfile)
+        let profile = try XCTUnwrap(try store.loadProfile())
+
+        XCTAssertEqual(profile.version, "1.0")
+        XCTAssertTrue(profile.consent.learningEnabled)
+        XCTAssertTrue(profile.consent.onlineReferencesAllowed)
+        XCTAssertFalse(profile.consent.cloudPersonalizationSyncAllowed)
+        XCTAssertEqual(profile.totalEvents, 1_000_000)
+        XCTAssertEqual(profile.domainCounts["portrait"], 4)
+        XCTAssertNil(profile.domainCounts["night"])
+        XCTAssertNil(profile.domainCounts["external_cloud_album"])
+        XCTAssertEqual(profile.styleAffinities["cinematic"] ?? 0, 0.7, accuracy: 0.0001)
+        XCTAssertNil(profile.styleAffinities["unknown_cloud_style"])
+        XCTAssertEqual(profile.colorAffinities["warm_highlights_cool_shadows"] ?? 0, 0.6, accuracy: 0.0001)
+        XCTAssertNil(profile.colorAffinities["generated_identity_palette"])
+        XCTAssertEqual(profile.guidanceReasonAffinities["reduce_clutter"] ?? 0, 0.9, accuracy: 0.0001)
+        XCTAssertNil(profile.guidanceReasonAffinities["upload_private_photo"])
+        XCTAssertEqual(profile.requirementAffinities["clean_background"] ?? 0, 0.6, accuracy: 0.0001)
+        XCTAssertNil(profile.requirementAffinities["raw_live_camera_feed"])
+        XCTAssertEqual(profile.onlineReferenceUsageCount, 3)
+
+        store.deleteProfile()
+        XCTAssertNil(storedData)
+    }
+
+    func testPersonalVisualProfileStoreRejectsOversizedProfiles() {
+        let store = PersonalVisualProfileStore(
+            maxStoredProfileBytes: 8,
+            readData: { nil },
+            writeData: { _ in }
+        )
+        let profile = PersonalVisualPreferenceProfile.empty(consent: .localLearningEnabled)
+
+        XCTAssertThrowsError(try store.saveProfile(profile)) { error in
+            guard case let .profileTooLarge(maxBytes, actualBytes) = error as? PersonalVisualProfileStoreError else {
+                XCTFail("Expected oversized profile error.")
+                return
+            }
+
+            XCTAssertEqual(maxBytes, 8)
+            XCTAssertGreaterThan(actualBytes, maxBytes)
+        }
+    }
+
     func testOnlineReferencePlanRequiresConsentAndNeverUploadsPrivateCameraData() throws {
         let engine = PersonalVisualLearningEngine()
         let shotSpec = ShotSpecFactory().makeShotSpec(

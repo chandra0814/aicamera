@@ -33,6 +33,7 @@ This implementation completes the MVP AI control skeleton, not the final product
 - Runtime calibration loading: the iOS app bundles the Target Match calibration manifest, validates that it remains single-phone only, and initializes the on-device AI core with reviewed scoring weights and domain-aware guidance-priority boosts when available.
 - Live director stabilization: the iOS camera screen now applies guidance TTL, opposite-action suppression, and completed-action memory before updating the single on-screen instruction.
 - Personal Visual AI contracts now support local-only learning from structured user behavior and optional online inspiration plans without making cloud or online access required for the camera loop.
+- Personal Visual Profile Store now persists the learned aggregate profile locally with size caps, schema sanitization, cloud-sync stripping, and no raw photo, live-frame, or identity storage.
 - Personal Visual AI app controls now let the user enable local learning, enable optional online inspiration, see the current online-reference plan, and delete the local learned profile from the same phone.
 - Online inspiration can now fetch public image references from Wikimedia Commons from prompt-derived queries only, display them in the same-phone settings sheet, and load a selected public result into the existing reference popup.
 - Online inspiration results are now ranked for photographic relevance and warmed into a bounded local thumbnail cache before display.
@@ -45,7 +46,7 @@ This implementation completes the MVP AI control skeleton, not the final product
 - No Core ML/TFLite production model bundle yet.
 - No cloud VLM/LLM adapter yet.
 - No generative preview engine yet.
-- No encrypted preference store, embedding sync, or cloud personalization sync yet.
+- No Keychain-backed encrypted preference store, embedding sync, or cloud personalization sync yet.
 - No live production monitoring, endpoint health checks, or provider-specific quality analytics for public inspiration yet.
 - No blind-rater evaluation data yet.
 
