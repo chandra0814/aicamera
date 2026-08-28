@@ -53,6 +53,12 @@ struct CameraScreen: View {
             CaptureResultReviewView(
                 rankedShots: review.rankedShots,
                 bestImage: image(from: review.bestPhotoData),
+                onKeepResult: {
+                    viewModel.keepLatestCaptureResult()
+                },
+                onRejectResult: {
+                    viewModel.rejectLatestCaptureResult()
+                },
                 onLabelCalibration: {
                     viewModel.dismissCaptureReview()
                     DispatchQueue.main.async {

@@ -71,6 +71,22 @@ const calibration = guidanceCalibration(profile);
 assert((calibration.globalReasonBoosts.reduce_clutter ?? 0) > 0, "Positive guidance affinity should become a small boost.");
 assert((calibration.globalReasonBoosts.reduce_clutter ?? 0) <= 0.04, "Personal boosts must stay secondary.");
 
+const rejectedProfile = updatedProfile(emptyProfile(localLearningConsent), {
+  ...event,
+  id: "learn_rejected_result",
+  outcome: "rejected_guidance",
+  rejectedGuidanceReason: "reduce_clutter",
+  acceptedGuidanceReason: undefined,
+  selectedTargetMatch: 0.42,
+  userRating: 1,
+  onlineReferenceUsed: false,
+}, localLearningConsent);
+assert(rejectedProfile.totalEvents === 1, "Rejected feedback should still count as a local structured event.");
+assert((rejectedProfile.styleAffinities.cinematic ?? 0) < 0, "Rejected results should reduce style affinity.");
+assert((rejectedProfile.requirementAffinities.clean_background ?? 0) < 0, "Rejected results should reduce requirement affinity.");
+assert((rejectedProfile.guidanceReasonAffinities.reduce_clutter ?? 0) < 0, "Rejected guidance should reduce reason affinity.");
+assert(!guidanceCalibration(rejectedProfile).globalReasonBoosts.reduce_clutter, "Negative feedback should not become a positive guidance boost.");
+
 const unsafeStoredProfile = {
   ...profile,
   version: "legacy",

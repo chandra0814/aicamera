@@ -459,6 +459,26 @@ final class CameraScreenViewModel: ObservableObject {
         captureReview = nil
     }
 
+    func keepLatestCaptureResult() {
+        recordPersonalLearningEvent(
+            outcome: .savedResult,
+            acceptedGuidanceReason: latestGuidanceAction?.reason,
+            userRating: 5,
+            onlineReferenceUsed: hasLoadedOnlineInspiration
+        )
+        captureReview = nil
+    }
+
+    func rejectLatestCaptureResult() {
+        recordPersonalLearningEvent(
+            outcome: .rejectedGuidance,
+            rejectedGuidanceReason: latestGuidanceAction?.reason,
+            userRating: 1,
+            onlineReferenceUsed: hasLoadedOnlineInspiration
+        )
+        captureReview = nil
+    }
+
     func makeCalibrationSampleExport() -> String {
         let sample = makeCalibrationCandidate()
 

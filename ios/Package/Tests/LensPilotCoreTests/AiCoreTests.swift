@@ -343,6 +343,38 @@ final class AiCoreTests: XCTestCase {
         XCTAssertLessThanOrEqual(boost, 0.04)
     }
 
+    func testPersonalVisualLearningUsesRejectedCustomerFeedbackAsNegativeSignal() {
+        let engine = PersonalVisualLearningEngine()
+        let event = PersonalLearningEvent(
+            id: "learn_rejected_result",
+            timestamp: Date(timeIntervalSince1970: 0),
+            domain: .portrait,
+            outcome: .rejectedGuidance,
+            promptRequirements: ["cinematic", "clean_background"],
+            rejectedGuidanceReason: .reduceClutter,
+            selectedStyle: .cinematic,
+            selectedColorIntent: .warmHighlightsCoolShadows,
+            selectedFraming: .environmental,
+            selectedTargetMatch: 0.42,
+            userRating: 1,
+            onlineReferenceUsed: false
+        )
+
+        let profile = engine.updatedProfile(
+            from: .empty(consent: .localLearningEnabled),
+            with: event,
+            consent: .localLearningEnabled
+        )
+        let action = Self.guidanceAction(id: "reduce_background_clutter", action: .moveLeft, direction: .left)
+
+        XCTAssertEqual(profile.totalEvents, 1)
+        XCTAssertEqual(profile.domainCounts["portrait"], 1)
+        XCTAssertLessThan(profile.styleAffinities["cinematic"] ?? 0, 0)
+        XCTAssertLessThan(profile.requirementAffinities["clean_background"] ?? 0, 0)
+        XCTAssertLessThan(profile.guidanceReasonAffinities["reduce_clutter"] ?? 0, 0)
+        XCTAssertEqual(profile.guidanceCalibration().scoreBoost(for: action, domain: .portrait), 0, accuracy: 0.0001)
+    }
+
     func testPersonalVisualProfileStorePersistsSanitizedLocalProfile() throws {
         var storedData: Data?
         let store = PersonalVisualProfileStore(

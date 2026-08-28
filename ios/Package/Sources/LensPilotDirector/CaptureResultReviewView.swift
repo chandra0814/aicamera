@@ -4,17 +4,23 @@ import SwiftUI
 public struct CaptureResultReviewView: View {
     private let rankedShots: [RankedShot]
     private let bestImage: Image?
+    private let onKeepResult: (() -> Void)?
+    private let onRejectResult: (() -> Void)?
     private let onLabelCalibration: (() -> Void)?
     private let onDone: () -> Void
 
     public init(
         rankedShots: [RankedShot],
         bestImage: Image? = nil,
+        onKeepResult: (() -> Void)? = nil,
+        onRejectResult: (() -> Void)? = nil,
         onLabelCalibration: (() -> Void)? = nil,
         onDone: @escaping () -> Void
     ) {
         self.rankedShots = rankedShots
         self.bestImage = bestImage
+        self.onKeepResult = onKeepResult
+        self.onRejectResult = onRejectResult
         self.onLabelCalibration = onLabelCalibration
         self.onDone = onDone
     }
@@ -74,6 +80,26 @@ public struct CaptureResultReviewView: View {
                     .padding(.horizontal, 12)
                     .frame(height: 42)
                     .background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+                }
+            }
+
+            HStack(spacing: 10) {
+                if let onRejectResult {
+                    Button(action: onRejectResult) {
+                        Label("Needs Work", systemImage: "hand.thumbsdown")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .accessibilityLabel("Teach LensPilot this result needs work")
+                }
+
+                if let onKeepResult {
+                    Button(action: onKeepResult) {
+                        Label("Keep", systemImage: "hand.thumbsup.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityLabel("Teach LensPilot this result is good")
                 }
             }
         }
