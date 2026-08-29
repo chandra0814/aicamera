@@ -14,6 +14,7 @@ Add calibration entries to `tests/calibration/target-match-calibration.json`.
 - Use `npm run calibration:promote -- --candidate <candidate.json> --sample-id <stable_id> --review-count 2 --preferred-guidance-reason <reason> --weaknesses background,lighting --write` from `shared/typescript` after review labels are ready.
 - Include either inline `sceneState` and `deviceCapability`, or paths to JSON files.
 - Include `captureMetadata.capturedAt` and `captureMetadata.deviceModel`.
+- Preserve `captureMetadata.calibrationScenarioId` from the active queue scenario when present; it must match the sample's broad calibration domain.
 - Include at least two blind preference reviews before using a sample to tune weights.
 - Include a broad calibration `domain`: `portrait`, `landscape`, `lifestyle`, or `night`.
 - Keep face/person data anonymous; do not add names, contacts, or identity labels.
@@ -43,8 +44,8 @@ The queue maps these scenarios into the supported calibration domains:
 
 Only change `targetMatchCalibration` weights when the sample set shows a repeated blind preference mismatch. Reviewed `preferredGuidanceReason` and `rankedWeaknesses` labels can also add small domain-aware guidance priority boosts, but those boosts must remain secondary to safety, confidence, and expected-gain gates. Keep the benchmark suite green after each tuning change so deterministic regressions stay visible.
 
-Reviewed exports created in the app already include the captured scene snapshot, anonymous device capability, blind preference labels, and expected Target Match ranges. Use the reviewed-sample importer to normalize and append them to `tests/calibration/target-match-calibration.json` before tuning.
+Reviewed exports created in the app already include the captured scene snapshot, anonymous device capability, queue scenario id, blind preference labels, and expected Target Match ranges. Use the reviewed-sample importer to normalize and append them to `tests/calibration/target-match-calibration.json` before tuning.
 
 The iOS app bundles this manifest as `target-match-calibration.json` and initializes the live `LensPilotAiCore` from its `targetMatchCalibration` weights and reviewed guidance labels. If the manifest is missing or violates single-phone validation rules, the app falls back to the standard deterministic weights and unboosted guidance policy rather than blocking camera use.
 
-Calibration queue progress is local-only app state. It stores the active scenario ID and completed counts, but it does not store captured photos, live camera frames, identity labels, cloud sync flags, or online-source data.
+Calibration queue progress is local-only app state. It stores the active scenario ID and completed counts, but it does not store captured photos, live camera frames, identity labels, cloud sync flags, or online-source data. Manifest validation also reports imported real-capture coverage by scenario so the 24-shot dataset can be checked before tuning.

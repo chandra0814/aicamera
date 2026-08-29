@@ -537,7 +537,8 @@ final class CameraScreenViewModel: ObservableObject {
             deviceCapability: capability,
             aiResult: result,
             usesFrontCameraForSelfShot: usesFrontCameraForSelfShot,
-            referencePhotoActive: referenceImageData != nil
+            referencePhotoActive: referenceImageData != nil,
+            calibrationScenario: lastCalibrationScenario ?? activeCalibrationScenario
         )
         return sample
     }

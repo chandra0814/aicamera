@@ -24,6 +24,7 @@
 - Target Match calibration weights are explicit in Swift and TypeScript, with a CI-validated calibration manifest and protocol.
 - The single-phone camera UI can share anonymous calibration candidate JSON for real-capture scoring.
 - The single-phone camera UI now has a guided 24-shot calibration queue with local-only progress counts and scenario-specific prompts.
+- Calibration exports now tag the active queue scenario in anonymous metadata, and validation checks manifest scenario coverage alignment.
 - Reviewed candidate promotion is now scripted and validated before samples can gate Target Match calibration.
 - The single-phone app can label the latest captured sample in a score-free blind review sheet and export reviewed calibration JSON.
 - Reviewed app exports can now be normalized and appended to the calibration manifest with a validated import command.
@@ -59,6 +60,7 @@
 - Learned profile persistence stores only sanitized aggregate preference signals on the same phone and strips cloud personalization sync.
 - Capture feedback records structured ratings, guidance outcomes, and selected correction reasons only; it does not store the captured photo as a learning event.
 - Calibration queue progress stores selected scenario IDs and counts only; photos remain outside the queue state and exports stay user-triggered.
+- Calibration export metadata may include the selected queue scenario id, but it still excludes raw photos, live frames, identity labels, and online-source data.
 
 ## MVP Boundary
 

@@ -155,6 +155,7 @@ final class AiCoreTests: XCTestCase {
             aiResult: result,
             usesFrontCameraForSelfShot: false,
             referencePhotoActive: true,
+            calibrationScenario: .clutter,
             capturedAt: Date(timeIntervalSince1970: 1_786_000_000)
         )
         let data = try exporter.encode(sample)
@@ -170,6 +171,7 @@ final class AiCoreTests: XCTestCase {
         XCTAssertFalse(decoded.privacy.identityRecognitionAllowed)
         XCTAssertEqual(decoded.captureMetadata.deviceModel, "iPhone MVP Test Device")
         XCTAssertTrue(decoded.captureMetadata.referencePhotoActive)
+        XCTAssertEqual(decoded.captureMetadata.calibrationScenarioId, "clutter")
         XCTAssertEqual(decoded.targetMatch.overall, result.targetMatch.overall, accuracy: 0.0001)
     }
 

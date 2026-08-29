@@ -12,7 +12,7 @@
   - deterministic AI guidance benchmarks with manifest-derived guidance calibration
   - Target Match calibration manifest validation, including candidate-sample privacy checks
   - reviewed candidate promotion into labeled `iphone_capture` calibration samples
-  - guided calibration queue validation for eight real-capture scenarios, 24 target captures, supported domains, and sanitized local progress
+  - guided calibration queue validation for eight real-capture scenarios, 24 target captures, supported domains, manifest `requiredScenarios` alignment, and sanitized local progress
   - reviewed app export normalization before manifest import
   - guidance stabilizer checks for immediate opposite-action suppression and completed-action memory
   - Personal Visual AI validation for consent-gated learning, positive/negative capture feedback, correction-reason learning boosts, small personalization boosts, and online-reference privacy boundaries
@@ -30,7 +30,7 @@
 ## Latest Verification
 
 - GitHub Actions run #39 passed AI fixture validation, Swift package tests, and the iOS app build for commit `c594694`.
-- Local `.\scripts\test-all.ps1` passed JSON validation, TypeScript AI fixture validation, deterministic Target Preview validation, preview adjustment validation, six deterministic AI guidance benchmarks, Target Match calibration validation, calibration promotion validation, guided calibration queue validation, reviewed import normalization, Personal Visual AI validation, local profile storage validation, capture-feedback correction learning validation, and multi-provider public inspiration validation on Windows after guided queue wiring.
+- Local `.\scripts\test-all.ps1` passed JSON validation, TypeScript AI fixture validation, deterministic Target Preview validation, preview adjustment validation, six deterministic AI guidance benchmarks, Target Match calibration validation, calibration promotion validation, guided calibration queue validation, reviewed import normalization, Personal Visual AI validation, local profile storage validation, capture-feedback correction learning validation, and multi-provider public inspiration validation on Windows after scenario metadata wiring.
 - Swift package tests still need GitHub/macOS CI for this workspace because Windows does not have Swift/Xcode installed.
 
 ## Not Runnable Here

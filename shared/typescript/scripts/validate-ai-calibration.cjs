@@ -7,6 +7,7 @@ const calibrationRoot = path.dirname(calibrationPath);
 const manifest = readJson(calibrationPath);
 const weights = manifest.targetMatchCalibration;
 const requiredDomains = manifest.collectionPlan?.requiredDomains ?? [];
+const requiredScenarios = manifest.collectionPlan?.requiredScenarios ?? [];
 
 const requiredWeights = [
   "horizonRollFullPenaltyDegrees",
@@ -23,9 +24,25 @@ const requiredWeights = [
   "nonPortraitCameraAngleScore",
 ];
 
+const calibrationScenarios = {
+  portrait: { domain: "portrait" },
+  landscape: { domain: "landscape" },
+  sky: { domain: "landscape" },
+  clutter: { domain: "portrait" },
+  backlight: { domain: "portrait" },
+  horizon: { domain: "landscape" },
+  motion: { domain: "lifestyle" },
+  night: { domain: "night" },
+};
+
 assert(manifest.collectionPlan?.singlePhoneOnly === true, "Calibration plan must stay single-phone only.");
 assert(Array.isArray(requiredDomains) && requiredDomains.length > 0, "Calibration plan must list required domains.");
+assert(Array.isArray(requiredScenarios), "Calibration plan requiredScenarios must be an array when present.");
 assert(Array.isArray(manifest.samples) && manifest.samples.length > 0, "Calibration manifest needs at least one seed or capture sample.");
+
+for (const scenarioId of requiredScenarios) {
+  assert(Object.hasOwn(calibrationScenarios, scenarioId), `Calibration plan includes unsupported scenario ${scenarioId}.`);
+}
 
 for (const key of requiredWeights) {
   assert(typeof weights?.[key] === "number", `Missing numeric calibration weight: ${key}.`);
@@ -46,6 +63,7 @@ assertRange(weights.nonPortraitCameraAngleScore, "nonPortraitCameraAngleScore", 
 
 let realCaptureSamples = 0;
 const realCaptureDomains = new Set();
+const realCaptureScenarioCounts = Object.fromEntries(requiredScenarios.map((scenarioId) => [scenarioId, 0]));
 
 for (const sample of manifest.samples) {
   assert(typeof sample.id === "string" && sample.id.length > 0, "Calibration sample needs an id.");
@@ -64,6 +82,7 @@ for (const sample of manifest.samples) {
   if (sample.sampleKind === "iphone_capture_candidate" || sample.sampleKind === "iphone_capture") {
     assert(sample.captureMetadata?.capturedAt, `${sample.id}: real captures need captureMetadata.capturedAt.`);
     assert(sample.captureMetadata?.deviceModel, `${sample.id}: real captures need captureMetadata.deviceModel.`);
+    validateCalibrationScenarioId(sample.captureMetadata?.calibrationScenarioId, sample.id);
   }
 
   if (sample.sampleKind === "iphone_capture") {
@@ -71,6 +90,11 @@ for (const sample of manifest.samples) {
     assert(typeof sample.domain === "string" && sample.domain.length > 0, `${sample.id}: real captures need a calibration domain.`);
     assert(requiredDomains.includes(sample.domain), `${sample.id}: unsupported calibration domain ${sample.domain}.`);
     realCaptureDomains.add(sample.domain);
+    const scenarioId = sample.captureMetadata?.calibrationScenarioId;
+    if (scenarioId) {
+      assert(sample.domain === calibrationScenarios[scenarioId].domain, `${sample.id}: domain ${sample.domain} does not match calibration scenario ${scenarioId}.`);
+      realCaptureScenarioCounts[scenarioId] = (realCaptureScenarioCounts[scenarioId] ?? 0) + 1;
+    }
     assert((sample.blindPreference?.reviewCount ?? 0) >= manifest.collectionPlan.minimumBlindReviewers, `${sample.id}: real captures need blind preference reviews.`);
     assert(typeof sample.blindPreference?.preferredGuidanceReason === "string" && sample.blindPreference.preferredGuidanceReason.length > 0, `${sample.id}: real captures need preferredGuidanceReason.`);
     assert(Array.isArray(sample.blindPreference?.rankedWeaknesses) && sample.blindPreference.rankedWeaknesses.length > 0, `${sample.id}: real captures need rankedWeaknesses.`);
@@ -97,6 +121,7 @@ console.log(JSON.stringify({
   samples: manifest.samples.length,
   realCaptureSamples,
   realCaptureDomains: [...realCaptureDomains].sort(),
+  realCaptureScenarios: Object.fromEntries(Object.entries(realCaptureScenarioCounts).filter(([, count]) => count > 0)),
   targetRealCaptureSamples: manifest.collectionPlan.realCaptureTargetCount,
   status: "passed",
 }, null, 2));
@@ -129,6 +154,11 @@ function readSampleJson(relativePath, inlineValue, sampleId, label) {
   if (inlineValue) return inlineValue;
   assert(typeof relativePath === "string" && relativePath.length > 0, `${sampleId}: ${label} path or inline value is required.`);
   return readJson(path.resolve(calibrationRoot, relativePath));
+}
+
+function validateCalibrationScenarioId(scenarioId, sampleId) {
+  if (scenarioId === undefined) return;
+  assert(Object.hasOwn(calibrationScenarios, scenarioId), `${sampleId}: unsupported calibrationScenarioId ${scenarioId}.`);
 }
 
 function parseIntent(intent) {

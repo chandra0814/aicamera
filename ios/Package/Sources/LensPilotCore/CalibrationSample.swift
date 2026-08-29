@@ -85,17 +85,20 @@ public struct CalibrationSample: Codable, Equatable, Sendable, Identifiable {
         public let deviceModel: String
         public let usesFrontCameraForSelfShot: Bool
         public let referencePhotoActive: Bool
+        public let calibrationScenarioId: String?
 
         public init(
             capturedAt: Date,
             deviceModel: String,
             usesFrontCameraForSelfShot: Bool,
-            referencePhotoActive: Bool
+            referencePhotoActive: Bool,
+            calibrationScenarioId: String? = nil
         ) {
             self.capturedAt = capturedAt
             self.deviceModel = deviceModel
             self.usesFrontCameraForSelfShot = usesFrontCameraForSelfShot
             self.referencePhotoActive = referencePhotoActive
+            self.calibrationScenarioId = calibrationScenarioId.flatMap { CalibrationCaptureScenario(rawValue: $0)?.rawValue }
         }
     }
 
@@ -267,6 +270,7 @@ public struct CalibrationSampleExporter: Sendable {
         aiResult: AiPipelineResult,
         usesFrontCameraForSelfShot: Bool,
         referencePhotoActive: Bool,
+        calibrationScenario: CalibrationCaptureScenario? = nil,
         capturedAt: Date = Date()
     ) -> CalibrationSample {
         CalibrationSample(
@@ -278,7 +282,8 @@ public struct CalibrationSampleExporter: Sendable {
                 capturedAt: capturedAt,
                 deviceModel: deviceCapability.model,
                 usesFrontCameraForSelfShot: usesFrontCameraForSelfShot,
-                referencePhotoActive: referencePhotoActive
+                referencePhotoActive: referencePhotoActive,
+                calibrationScenarioId: calibrationScenario?.rawValue
             ),
             privacy: .init(
                 singlePhoneOnly: aiResult.shotSpec.constraints.singlePhoneOnly,

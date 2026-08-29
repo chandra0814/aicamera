@@ -10,6 +10,16 @@
       "landscape",
       "lifestyle",
       "night"
+    ],
+    "requiredScenarios": [
+      "portrait",
+      "landscape",
+      "sky",
+      "clutter",
+      "backlight",
+      "horizon",
+      "motion",
+      "night"
     ]
   },
   "targetMatchCalibration": {

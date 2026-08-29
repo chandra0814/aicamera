@@ -22,6 +22,7 @@ try {
 
   assert(promotedSample.sampleKind === "iphone_capture", "Promotion must produce an iphone_capture sample.");
   assert(promotedSample.domain === "portrait", "Promotion should preserve the portrait domain.");
+  assert(promotedSample.captureMetadata.calibrationScenarioId === "clutter", "Promotion should preserve calibration scenario metadata.");
   assert(promotedSample.privacy.singlePhoneOnly === true, "Promotion must keep the sample single-phone only.");
   assert(promotedSample.privacy.cloudAnalysisUsed === false, "Promotion must keep cloud analysis disabled.");
   assert(promotedSample.privacy.identityRecognitionAllowed === false, "Promotion must keep identity recognition disabled.");
@@ -40,6 +41,7 @@ try {
   const importedSample = normalizeReviewedSample(reviewedExport);
   assert(importedSample.id === promotedSample.id, "Imported sample should preserve the reviewed id.");
   assert(importedSample.sourceCandidateId === candidate.id, "Imported sample should preserve the source candidate id.");
+  assert(importedSample.captureMetadata.calibrationScenarioId === "clutter", "Imported sample should preserve calibration scenario metadata.");
   assert(!("shotSpec" in importedSample), "Imported sample should omit app runtime ShotSpec.");
   assert(!("targetMatch" in importedSample), "Imported sample should omit app runtime Target Match snapshot.");
   const importedManifest = appendReviewedSample({ ...manifest, samples: [] }, reviewedExport);
@@ -73,6 +75,7 @@ function makeCandidateFixture() {
       deviceModel: "iPhone MVP Test Device",
       usesFrontCameraForSelfShot: false,
       referencePhotoActive: true,
+      calibrationScenarioId: "clutter",
     },
     privacy: {
       singlePhoneOnly: true,

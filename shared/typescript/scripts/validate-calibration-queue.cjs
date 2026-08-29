@@ -1,3 +1,9 @@
+const fs = require("node:fs");
+const path = require("node:path");
+
+const calibrationPath = path.resolve(process.cwd(), "../../tests/calibration/target-match-calibration.json");
+const manifest = JSON.parse(fs.readFileSync(calibrationPath, "utf8"));
+
 const scenarios = [
   {
     id: "portrait",
@@ -59,6 +65,7 @@ const scenarios = [
 
 const allowedDomains = new Set(["portrait", "landscape", "lifestyle", "night"]);
 const requiredScenarioIds = ["portrait", "landscape", "sky", "clutter", "backlight", "horizon", "motion", "night"];
+const manifestScenarioIds = manifest.collectionPlan?.requiredScenarios ?? [];
 
 assert(scenarios.length === 8, "Calibration queue should cover eight guided scenarios.");
 assert(requiredScenarioIds.every((id) => scenarios.some((scenario) => scenario.id === id)), "Calibration queue is missing a required scenario.");
@@ -66,6 +73,9 @@ assert(scenarios.reduce((sum, scenario) => sum + scenario.targetSampleCount, 0) 
 assert(new Set(scenarios.map((scenario) => scenario.id)).size === scenarios.length, "Calibration scenario IDs should be unique.");
 assert(scenarios.every((scenario) => allowedDomains.has(scenario.domain)), "Calibration scenarios should map to supported manifest domains.");
 assert(["portrait", "landscape", "lifestyle", "night"].every((domain) => scenarios.some((scenario) => scenario.domain === domain)), "Calibration queue should cover every supported domain.");
+assert(Array.isArray(manifestScenarioIds), "Calibration manifest should list requiredScenarios.");
+assert(JSON.stringify(manifestScenarioIds) === JSON.stringify(scenarios.map((scenario) => scenario.id)), "Calibration manifest requiredScenarios should match the guided capture queue.");
+assert(manifest.collectionPlan?.realCaptureTargetCount === requiredSampleCount(), "Calibration manifest target count should match the guided capture queue.");
 assert(scenarios.find((scenario) => scenario.id === "sky")?.preferredGuidanceReason === "increase_sky", "Sky calibration should target sky guidance.");
 assert(scenarios.find((scenario) => scenario.id === "motion")?.rankedWeaknesses.includes("sharpnessProbability"), "Motion calibration should include sharpness weakness.");
 

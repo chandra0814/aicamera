@@ -18,6 +18,17 @@ const targetMatchMetrics = [
   "overall",
 ];
 
+const calibrationScenarios = {
+  portrait: { domain: "portrait" },
+  landscape: { domain: "landscape" },
+  sky: { domain: "landscape" },
+  clutter: { domain: "portrait" },
+  backlight: { domain: "portrait" },
+  horizon: { domain: "landscape" },
+  motion: { domain: "lifestyle" },
+  night: { domain: "night" },
+};
+
 if (require.main === module || globalThis.__LENSPILOT_RUN_PROMOTION_CLI__) {
   runCli(getCliArgs());
 }
@@ -56,6 +67,7 @@ function promoteCandidate(candidate, options = {}) {
   assert(typeof candidate.prompt === "string" && candidate.prompt.length > 0, `${candidate.id}: prompt is required.`);
   assert(candidate.captureMetadata?.capturedAt, `${candidate.id}: captureMetadata.capturedAt is required.`);
   assert(candidate.captureMetadata?.deviceModel, `${candidate.id}: captureMetadata.deviceModel is required.`);
+  validateCalibrationScenarioId(candidate.captureMetadata?.calibrationScenarioId, candidate.id);
   assert(candidate.deviceCapability?.physicalCameras?.length > 0, `${candidate.id}: deviceCapability.physicalCameras is required.`);
   assert(candidate.sceneState?.safety?.movementGuidanceAllowed !== undefined, `${candidate.id}: sceneState.safety is required.`);
   assert(candidate.targetMatch, `${candidate.id}: targetMatch snapshot is required.`);
@@ -75,8 +87,14 @@ function promoteCandidate(candidate, options = {}) {
   const sampleId = options.sampleId ?? candidate.id.replace(/^candidate_/, "iphone_capture_");
   assert(/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(sampleId), "Sample id must use only letters, numbers, underscores, or hyphens.");
 
-  const domain = options.domain ?? candidate.shotSpec?.domain ?? inferDomain(candidate.prompt);
+  const scenarioDomain = candidate.captureMetadata?.calibrationScenarioId
+    ? calibrationScenarios[candidate.captureMetadata.calibrationScenarioId]?.domain
+    : undefined;
+  const domain = options.domain ?? scenarioDomain ?? candidate.shotSpec?.domain ?? inferDomain(candidate.prompt);
   assert(["portrait", "landscape", "lifestyle", "night"].includes(domain), `Unsupported calibration domain: ${domain}.`);
+  if (scenarioDomain) {
+    assert(domain === scenarioDomain, `${candidate.id}: domain ${domain} does not match calibration scenario ${candidate.captureMetadata.calibrationScenarioId}.`);
+  }
 
   return {
     id: sampleId,
@@ -170,6 +188,11 @@ function inferDomain(prompt) {
   if (normalized.includes("portrait") || normalized.includes("me") || normalized.includes("person")) return "portrait";
   if (normalized.includes("landscape") || normalized.includes("sky") || normalized.includes("sunset")) return "landscape";
   return "lifestyle";
+}
+
+function validateCalibrationScenarioId(scenarioId, sampleId) {
+  if (scenarioId === undefined) return;
+  assert(Object.hasOwn(calibrationScenarios, scenarioId), `${sampleId}: unsupported calibrationScenarioId ${scenarioId}.`);
 }
 
 function resolveInputPath(inputPath) {

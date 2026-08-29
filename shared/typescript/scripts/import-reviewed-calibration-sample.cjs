@@ -35,6 +35,17 @@ const targetMatchMetrics = [
   "overall",
 ];
 
+const calibrationScenarios = {
+  portrait: { domain: "portrait" },
+  landscape: { domain: "landscape" },
+  sky: { domain: "landscape" },
+  clutter: { domain: "portrait" },
+  backlight: { domain: "portrait" },
+  horizon: { domain: "landscape" },
+  motion: { domain: "lifestyle" },
+  night: { domain: "night" },
+};
+
 if (require.main === module || globalThis.__LENSPILOT_RUN_IMPORT_CLI__) {
   runCli(getCliArgs());
 }
@@ -101,6 +112,13 @@ function validateReviewedSample(sample) {
   assert(typeof sample.prompt === "string" && sample.prompt.length > 0, `${sample.id}: prompt is required.`);
   assert(sample.captureMetadata?.capturedAt, `${sample.id}: captureMetadata.capturedAt is required.`);
   assert(sample.captureMetadata?.deviceModel, `${sample.id}: captureMetadata.deviceModel is required.`);
+  validateCalibrationScenarioId(sample.captureMetadata?.calibrationScenarioId, sample.id);
+  const scenarioDomain = sample.captureMetadata?.calibrationScenarioId
+    ? calibrationScenarios[sample.captureMetadata.calibrationScenarioId]?.domain
+    : undefined;
+  if (scenarioDomain) {
+    assert(sample.domain === scenarioDomain, `${sample.id}: domain ${sample.domain} does not match calibration scenario ${sample.captureMetadata.calibrationScenarioId}.`);
+  }
   assert(sample.privacy?.singlePhoneOnly === true, `${sample.id}: privacy.singlePhoneOnly must be true.`);
   assert(sample.privacy?.cloudAnalysisUsed === false, `${sample.id}: privacy.cloudAnalysisUsed must be false.`);
   assert(sample.privacy?.generativeEditsAllowed === false, `${sample.id}: privacy.generativeEditsAllowed must be false.`);
@@ -118,6 +136,11 @@ function validateReviewedSample(sample) {
     assert(typeof range?.max === "number", `${sample.id}: expected.targetMatch.${metric}.max is required.`);
     assert(range.min >= 0 && range.max <= 1 && range.min <= range.max, `${sample.id}: invalid expected.targetMatch.${metric} range.`);
   }
+}
+
+function validateCalibrationScenarioId(scenarioId, sampleId) {
+  if (scenarioId === undefined) return;
+  assert(Object.hasOwn(calibrationScenarios, scenarioId), `${sampleId}: unsupported calibrationScenarioId ${scenarioId}.`);
 }
 
 function validateManifest(manifest) {
