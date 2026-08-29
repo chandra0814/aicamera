@@ -157,22 +157,226 @@ public extension OnlineInspirationResult {
     }
 }
 
+public struct OnlineInspirationProviderHealth: Identifiable, Codable, Equatable, Sendable {
+    public let source: OnlineInspirationRequest.Source
+    public let status: Status
+    public let resultCount: Int
+    public let checkedAt: Date
+    public let message: String?
+    public let privacy: Privacy
+
+    public var id: String { source.rawValue }
+
+    public init(
+        source: OnlineInspirationRequest.Source,
+        status: Status,
+        resultCount: Int,
+        checkedAt: Date = Date(),
+        message: String? = nil,
+        privacy: Privacy = Privacy()
+    ) {
+        self.source = source
+        self.status = status
+        self.resultCount = max(0, resultCount)
+        self.checkedAt = checkedAt
+        self.privacy = privacy
+
+        if let message {
+            let trimmedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines)
+            self.message = trimmedMessage.isEmpty ? nil : trimmedMessage
+        } else {
+            self.message = nil
+        }
+    }
+
+    public static func available(
+        source: OnlineInspirationRequest.Source,
+        resultCount: Int,
+        checkedAt: Date = Date()
+    ) -> OnlineInspirationProviderHealth {
+        OnlineInspirationProviderHealth(
+            source: source,
+            status: resultCount > 0 ? .available : .empty,
+            resultCount: resultCount,
+            checkedAt: checkedAt
+        )
+    }
+
+    public static func failed(
+        source: OnlineInspirationRequest.Source,
+        error: Error,
+        checkedAt: Date = Date()
+    ) -> OnlineInspirationProviderHealth {
+        OnlineInspirationProviderHealth(
+            source: source,
+            status: .failed,
+            resultCount: 0,
+            checkedAt: checkedAt,
+            message: failureMessage(for: error)
+        )
+    }
+
+    public static func failureMessage(for error: Error) -> String {
+        guard let inspirationError = error as? OnlineInspirationError else {
+            return "Provider request failed"
+        }
+
+        switch inspirationError {
+        case .unsafePlan:
+            return "Blocked by privacy safeguards"
+        case .invalidSearchURL:
+            return "Invalid search URL"
+        case let .invalidHTTPStatus(statusCode):
+            return "HTTP \(statusCode)"
+        case .missingProviderData:
+            return "Missing provider data"
+        case .thumbnailTooLarge(_):
+            return "Response too large"
+        }
+    }
+}
+
+public extension OnlineInspirationProviderHealth {
+    enum Status: String, Codable, Equatable, Sendable {
+        case available
+        case empty
+        case failed
+    }
+
+    struct Privacy: Codable, Equatable, Sendable {
+        public let publicSourceOnly: Bool
+        public let derivedFromPromptOnly: Bool
+        public let storesRawPhoto: Bool
+        public let uploadsLiveCameraFrame: Bool
+        public let sendsIdentityData: Bool
+        public let sendsPreciseLocation: Bool
+
+        public init(
+            publicSourceOnly: Bool = true,
+            derivedFromPromptOnly: Bool = true,
+            storesRawPhoto: Bool = false,
+            uploadsLiveCameraFrame: Bool = false,
+            sendsIdentityData: Bool = false,
+            sendsPreciseLocation: Bool = false
+        ) {
+            self.publicSourceOnly = publicSourceOnly
+            self.derivedFromPromptOnly = derivedFromPromptOnly
+            self.storesRawPhoto = storesRawPhoto
+            self.uploadsLiveCameraFrame = uploadsLiveCameraFrame
+            self.sendsIdentityData = sendsIdentityData
+            self.sendsPreciseLocation = sendsPreciseLocation
+        }
+    }
+}
+
+public struct OnlineInspirationHealthSnapshot: Codable, Equatable, Sendable {
+    public let planId: String
+    public let source: OnlineInspirationRequest.Source
+    public let status: Status
+    public let checkedAt: Date
+    public let totalResultCount: Int
+    public let providers: [OnlineInspirationProviderHealth]
+    public let privacy: Privacy
+
+    public init(
+        planId: String,
+        source: OnlineInspirationRequest.Source,
+        providers: [OnlineInspirationProviderHealth],
+        checkedAt: Date = Date(),
+        status: Status? = nil,
+        privacy: Privacy = Privacy()
+    ) {
+        self.planId = planId
+        self.source = source
+        self.providers = providers
+        self.checkedAt = checkedAt
+        self.status = status ?? Self.aggregateStatus(for: providers)
+        self.totalResultCount = providers.reduce(0) { $0 + $1.resultCount }
+        self.privacy = privacy
+    }
+
+    private static func aggregateStatus(for providers: [OnlineInspirationProviderHealth]) -> Status {
+        guard !providers.isEmpty else { return .empty }
+
+        let hasAvailableProvider = providers.contains { $0.status == .available }
+        let hasFailedProvider = providers.contains { $0.status == .failed }
+
+        if hasAvailableProvider && hasFailedProvider { return .degraded }
+        if hasAvailableProvider { return .available }
+        if hasFailedProvider { return .failed }
+        return .empty
+    }
+}
+
+public extension OnlineInspirationHealthSnapshot {
+    enum Status: String, Codable, Equatable, Sendable {
+        case available
+        case degraded
+        case empty
+        case failed
+    }
+
+    struct Privacy: Codable, Equatable, Sendable {
+        public let singlePhoneOnly: Bool
+        public let requiresUserConsent: Bool
+        public let sendsRawCameraFrame: Bool
+        public let sendsPrivatePhoto: Bool
+        public let sendsIdentityData: Bool
+        public let sendsPreciseLocation: Bool
+
+        public init(
+            singlePhoneOnly: Bool = true,
+            requiresUserConsent: Bool = true,
+            sendsRawCameraFrame: Bool = false,
+            sendsPrivatePhoto: Bool = false,
+            sendsIdentityData: Bool = false,
+            sendsPreciseLocation: Bool = false
+        ) {
+            self.singlePhoneOnly = singlePhoneOnly
+            self.requiresUserConsent = requiresUserConsent
+            self.sendsRawCameraFrame = sendsRawCameraFrame
+            self.sendsPrivatePhoto = sendsPrivatePhoto
+            self.sendsIdentityData = sendsIdentityData
+            self.sendsPreciseLocation = sendsPreciseLocation
+        }
+
+        public init(requestPrivacy: OnlineInspirationRequest.Privacy) {
+            self.init(
+                singlePhoneOnly: requestPrivacy.singlePhoneOnly,
+                requiresUserConsent: requestPrivacy.requiresUserConsent,
+                sendsRawCameraFrame: requestPrivacy.sendsRawCameraFrame,
+                sendsPrivatePhoto: requestPrivacy.sendsPrivatePhoto,
+                sendsIdentityData: requestPrivacy.sendsIdentityData,
+                sendsPreciseLocation: requestPrivacy.sendsPreciseLocation
+            )
+        }
+    }
+}
+
 public struct OnlineInspirationResponse: Equatable, Sendable {
     public let planId: String
     public let source: OnlineInspirationRequest.Source
     public let sources: [OnlineInspirationRequest.Source]
     public let results: [OnlineInspirationResult]
+    public let healthSnapshot: OnlineInspirationHealthSnapshot
 
     public init(
         planId: String,
         source: OnlineInspirationRequest.Source,
         results: [OnlineInspirationResult],
-        sources: [OnlineInspirationRequest.Source]? = nil
+        sources: [OnlineInspirationRequest.Source]? = nil,
+        healthSnapshot: OnlineInspirationHealthSnapshot? = nil
     ) {
+        let resolvedSources = sources ?? Self.uniqueSources(from: results, fallback: [source])
         self.planId = planId
         self.source = source
-        self.sources = sources ?? Self.uniqueSources(from: results, fallback: [source])
+        self.sources = resolvedSources
         self.results = results
+        self.healthSnapshot = healthSnapshot ?? OnlineInspirationHealthSnapshot(
+            planId: planId,
+            source: source,
+            providers: Self.providerHealth(from: results, sources: resolvedSources)
+        )
     }
 
     private static func uniqueSources(
@@ -188,6 +392,23 @@ public struct OnlineInspirationResponse: Equatable, Sendable {
         }
 
         return sources.isEmpty ? fallback : sources
+    }
+
+    private static func providerHealth(
+        from results: [OnlineInspirationResult],
+        sources: [OnlineInspirationRequest.Source]
+    ) -> [OnlineInspirationProviderHealth] {
+        let checkedAt = Date()
+        let groupedResults = Dictionary(grouping: results, by: \.source)
+
+        return sources.map { source in
+            let resultCount = groupedResults[source]?.count ?? 0
+            return OnlineInspirationProviderHealth.available(
+                source: source,
+                resultCount: resultCount,
+                checkedAt: checkedAt
+            )
+        }
     }
 }
 
@@ -418,8 +639,23 @@ public actor OnlineInspirationThumbnailCache {
     }
 }
 
+public struct OnlineInspirationProviderFetchOutcome: Equatable, Sendable {
+    public let results: [OnlineInspirationResult]
+    public let providerHealth: [OnlineInspirationProviderHealth]
+
+    public init(results: [OnlineInspirationResult], providerHealth: [OnlineInspirationProviderHealth]) {
+        self.results = results
+        self.providerHealth = providerHealth
+    }
+}
+
 public protocol OnlineInspirationProvider: Sendable {
+    var source: OnlineInspirationRequest.Source { get }
     func fetchReferences(for request: OnlineInspirationRequest) async throws -> [OnlineInspirationResult]
+}
+
+public protocol OnlineInspirationHealthReportingProvider: OnlineInspirationProvider {
+    func fetchReferencesWithHealth(for request: OnlineInspirationRequest) async throws -> OnlineInspirationProviderFetchOutcome
 }
 
 public struct OnlineInspirationService: Sendable {
@@ -439,8 +675,49 @@ public struct OnlineInspirationService: Sendable {
         perQueryLimit: Int = 4
     ) async throws -> OnlineInspirationResponse {
         let request = try OnlineInspirationRequest(plan: plan, perQueryLimit: perQueryLimit)
+        return try await fetchResponse(for: request)
+    }
+
+    public func fetchResponse(for request: OnlineInspirationRequest) async throws -> OnlineInspirationResponse {
+        guard request.privacy.canUseOnlineProvider else {
+            throw OnlineInspirationError.unsafePlan
+        }
+
+        if let provider = provider as? any OnlineInspirationHealthReportingProvider {
+            let outcome = try await provider.fetchReferencesWithHealth(for: request)
+            let rankedResults = ranker.rank(outcome.results, for: request)
+            let healthSnapshot = OnlineInspirationHealthSnapshot(
+                planId: request.planId,
+                source: request.source,
+                providers: outcome.providerHealth,
+                privacy: .init(requestPrivacy: request.privacy)
+            )
+            return OnlineInspirationResponse(
+                planId: request.planId,
+                source: request.source,
+                results: rankedResults,
+                healthSnapshot: healthSnapshot
+            )
+        }
+
         let results = try await fetchReferences(for: request)
-        return OnlineInspirationResponse(planId: request.planId, source: request.source, results: results)
+        let healthSnapshot = OnlineInspirationHealthSnapshot(
+            planId: request.planId,
+            source: request.source,
+            providers: [
+                OnlineInspirationProviderHealth.available(
+                    source: provider.source,
+                    resultCount: results.count
+                )
+            ],
+            privacy: .init(requestPrivacy: request.privacy)
+        )
+        return OnlineInspirationResponse(
+            planId: request.planId,
+            source: request.source,
+            results: results,
+            healthSnapshot: healthSnapshot
+        )
     }
 
     public func fetchReferences(for request: OnlineInspirationRequest) async throws -> [OnlineInspirationResult] {
@@ -453,7 +730,7 @@ public struct OnlineInspirationService: Sendable {
     }
 }
 
-public struct PublicSourceInspirationProvider: OnlineInspirationProvider {
+public struct PublicSourceInspirationProvider: OnlineInspirationHealthReportingProvider {
     private let providers: [any OnlineInspirationProvider]
 
     public init(
@@ -465,19 +742,32 @@ public struct PublicSourceInspirationProvider: OnlineInspirationProvider {
         self.providers = providers
     }
 
+    public var source: OnlineInspirationRequest.Source { .publicSources }
+
     public func fetchReferences(for request: OnlineInspirationRequest) async throws -> [OnlineInspirationResult] {
+        let outcome = try await fetchReferencesWithHealth(for: request)
+        if !outcome.results.isEmpty || outcome.providerHealth.isEmpty || !outcome.providerHealth.allSatisfy({ $0.status == .failed }) {
+            return outcome.results
+        }
+
+        throw OnlineInspirationError.missingProviderData
+    }
+
+    public func fetchReferencesWithHealth(for request: OnlineInspirationRequest) async throws -> OnlineInspirationProviderFetchOutcome {
         guard request.privacy.canUseOnlineProvider else {
             throw OnlineInspirationError.unsafePlan
         }
 
         var results: [OnlineInspirationResult] = []
-        var errors: [Error] = []
+        var providerHealth: [OnlineInspirationProviderHealth] = []
         var seenPageURLs: Set<URL> = []
         var seenImageURLs: Set<URL> = []
 
         for provider in providers {
             do {
+                let checkedAt = Date()
                 let providerResults = try await provider.fetchReferences(for: request)
+                var acceptedResultCount = 0
                 for result in providerResults {
                     guard !seenPageURLs.contains(result.pageURL) else { continue }
                     if let imageURL = result.imageURL, seenImageURLs.contains(imageURL) { continue }
@@ -487,17 +777,26 @@ public struct PublicSourceInspirationProvider: OnlineInspirationProvider {
                         seenImageURLs.insert(imageURL)
                     }
                     results.append(result)
+                    acceptedResultCount += 1
                 }
+                providerHealth.append(
+                    OnlineInspirationProviderHealth.available(
+                        source: provider.source,
+                        resultCount: acceptedResultCount,
+                        checkedAt: checkedAt
+                    )
+                )
             } catch {
-                errors.append(error)
+                providerHealth.append(
+                    OnlineInspirationProviderHealth.failed(
+                        source: provider.source,
+                        error: error
+                    )
+                )
             }
         }
 
-        if !results.isEmpty || errors.isEmpty {
-            return results
-        }
-
-        throw errors[0]
+        return OnlineInspirationProviderFetchOutcome(results: results, providerHealth: providerHealth)
     }
 }
 
@@ -507,6 +806,8 @@ public struct WikimediaCommonsInspirationProvider: OnlineInspirationProvider {
     public init(apiURL: URL = URL(string: "https://commons.wikimedia.org/w/api.php")!) {
         self.apiURL = apiURL
     }
+
+    public var source: OnlineInspirationRequest.Source { .wikimediaCommons }
 
     public func fetchReferences(for request: OnlineInspirationRequest) async throws -> [OnlineInspirationResult] {
         guard request.privacy.canUseOnlineProvider else {
@@ -600,6 +901,8 @@ public struct OpenverseInspirationProvider: OnlineInspirationProvider {
     public init(apiURL: URL = URL(string: "https://api.openverse.engineering/v1/images/")!) {
         self.apiURL = apiURL
     }
+
+    public var source: OnlineInspirationRequest.Source { .openverse }
 
     public func fetchReferences(for request: OnlineInspirationRequest) async throws -> [OnlineInspirationResult] {
         guard request.privacy.canUseOnlineProvider else {

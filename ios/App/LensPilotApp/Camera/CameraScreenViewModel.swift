@@ -103,6 +103,7 @@ final class CameraScreenViewModel: ObservableObject {
     @Published private(set) var onlineReferencePlan: OnlineReferencePlan?
     @Published private(set) var onlineInspirationResults: [OnlineInspirationResult] = []
     @Published private(set) var onlineInspirationThumbnailData: [String: Data] = [:]
+    @Published private(set) var onlineInspirationHealthSnapshot: OnlineInspirationHealthSnapshot?
     @Published private(set) var onlineInspirationLoadState: OnlineInspirationLoadState = .idle
     @Published private(set) var speechIntentState: SpeechIntentState = .idle
     @Published private(set) var speechIntentTranscript = ""
@@ -289,6 +290,7 @@ final class CameraScreenViewModel: ObservableObject {
     func fetchOnlineInspirationReferences() {
         guard let plan = onlineReferencePlan else {
             onlineInspirationResults = []
+            onlineInspirationHealthSnapshot = nil
             onlineInspirationLoadState = .idle
             return
         }
@@ -297,19 +299,27 @@ final class CameraScreenViewModel: ObservableObject {
 
         let planId = plan.id
         onlineInspirationLoadState = .loading
+        onlineInspirationHealthSnapshot = nil
         Task {
             do {
                 let response = try await onlineInspirationService.fetchReferences(for: plan, perQueryLimit: 3)
                 guard onlineReferencePlan?.id == planId else { return }
                 onlineInspirationResults = response.results
                 onlineInspirationThumbnailData = [:]
+                onlineInspirationHealthSnapshot = response.healthSnapshot
                 hasLoadedOnlineInspiration = !response.results.isEmpty
-                onlineInspirationLoadState = .loaded(response.results.count)
+                switch response.healthSnapshot.status {
+                case .failed:
+                    onlineInspirationLoadState = .failed("Public sources unavailable")
+                case .available, .degraded, .empty:
+                    onlineInspirationLoadState = .loaded(response.results.count)
+                }
                 warmOnlineInspirationThumbnailCache(for: response.results, planId: planId)
             } catch {
                 guard onlineReferencePlan?.id == planId else { return }
                 onlineInspirationResults = []
                 onlineInspirationThumbnailData = [:]
+                onlineInspirationHealthSnapshot = nil
                 hasLoadedOnlineInspiration = false
                 onlineInspirationLoadState = .failed("Public references unavailable")
                 errorMessage = "Online inspiration failed. Camera guidance still works offline."
@@ -661,6 +671,7 @@ final class CameraScreenViewModel: ObservableObject {
             onlineReferencePlan = nil
             onlineInspirationResults = []
             onlineInspirationThumbnailData = [:]
+            onlineInspirationHealthSnapshot = nil
             onlineInspirationLoadState = .idle
             hasLoadedOnlineInspiration = false
             return
@@ -675,6 +686,7 @@ final class CameraScreenViewModel: ObservableObject {
         if nextPlan != onlineReferencePlan {
             onlineInspirationResults = []
             onlineInspirationThumbnailData = [:]
+            onlineInspirationHealthSnapshot = nil
             onlineInspirationLoadState = .idle
             hasLoadedOnlineInspiration = false
         }

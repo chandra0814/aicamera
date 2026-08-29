@@ -116,11 +116,48 @@ export interface OnlineInspirationResult {
   };
 }
 
+export type OnlineInspirationProviderHealthStatus = "available" | "empty" | "failed";
+export type OnlineInspirationHealthStatus = "available" | "degraded" | "empty" | "failed";
+
+export interface OnlineInspirationProviderHealth {
+  source: OnlineInspirationSource;
+  status: OnlineInspirationProviderHealthStatus;
+  resultCount: number;
+  checkedAt: string;
+  message?: string;
+  privacy: {
+    publicSourceOnly: true;
+    derivedFromPromptOnly: true;
+    storesRawPhoto: false;
+    uploadsLiveCameraFrame: false;
+    sendsIdentityData: false;
+    sendsPreciseLocation: false;
+  };
+}
+
+export interface OnlineInspirationHealthSnapshot {
+  planId: string;
+  source: OnlineInspirationSource;
+  status: OnlineInspirationHealthStatus;
+  checkedAt: string;
+  totalResultCount: number;
+  providers: OnlineInspirationProviderHealth[];
+  privacy: {
+    singlePhoneOnly: true;
+    requiresUserConsent: true;
+    sendsRawCameraFrame: false;
+    sendsPrivatePhoto: false;
+    sendsIdentityData: false;
+    sendsPreciseLocation: false;
+  };
+}
+
 export interface OnlineInspirationResponse {
   planId: string;
   source: OnlineInspirationSource;
   sources: OnlineInspirationSource[];
   results: OnlineInspirationResult[];
+  healthSnapshot: OnlineInspirationHealthSnapshot;
 }
 
 export function emptyPersonalVisualPreferenceProfile(
@@ -422,6 +459,82 @@ export function makeOnlineInspirationRequest(
   };
 }
 
+export const onlineInspirationProviderHealthPrivacy = {
+  publicSourceOnly: true,
+  derivedFromPromptOnly: true,
+  storesRawPhoto: false,
+  uploadsLiveCameraFrame: false,
+  sendsIdentityData: false,
+  sendsPreciseLocation: false,
+} as const;
+
+export const onlineInspirationHealthSnapshotPrivacy = {
+  singlePhoneOnly: true,
+  requiresUserConsent: true,
+  sendsRawCameraFrame: false,
+  sendsPrivatePhoto: false,
+  sendsIdentityData: false,
+  sendsPreciseLocation: false,
+} as const;
+
+export function makeOnlineInspirationProviderHealth(
+  source: OnlineInspirationSource,
+  resultCount: number,
+  status?: OnlineInspirationProviderHealthStatus,
+  checkedAt = new Date().toISOString(),
+  message?: string
+): OnlineInspirationProviderHealth {
+  const safeResultCount = Number.isFinite(resultCount)
+    ? Math.max(0, Math.floor(resultCount))
+    : 0;
+  const cleanedMessage = message?.trim();
+
+  return {
+    source,
+    status: status ?? (safeResultCount > 0 ? "available" : "empty"),
+    resultCount: safeResultCount,
+    checkedAt,
+    ...(cleanedMessage ? { message: cleanedMessage } : {}),
+    privacy: onlineInspirationProviderHealthPrivacy,
+  };
+}
+
+export function makeOnlineInspirationHealthSnapshot({
+  planId,
+  source,
+  providers,
+  checkedAt = new Date().toISOString(),
+}: {
+  planId: string;
+  source: OnlineInspirationSource;
+  providers: OnlineInspirationProviderHealth[];
+  checkedAt?: string;
+}): OnlineInspirationHealthSnapshot {
+  return {
+    planId,
+    source,
+    status: aggregateOnlineInspirationHealthStatus(providers),
+    checkedAt,
+    totalResultCount: providers.reduce((total, provider) => total + provider.resultCount, 0),
+    providers,
+    privacy: onlineInspirationHealthSnapshotPrivacy,
+  };
+}
+
+export function aggregateOnlineInspirationHealthStatus(
+  providers: OnlineInspirationProviderHealth[]
+): OnlineInspirationHealthStatus {
+  if (providers.length === 0) return "empty";
+
+  const hasAvailableProvider = providers.some((provider) => provider.status === "available");
+  const hasFailedProvider = providers.some((provider) => provider.status === "failed");
+
+  if (hasAvailableProvider && hasFailedProvider) return "degraded";
+  if (hasAvailableProvider) return "available";
+  if (hasFailedProvider) return "failed";
+  return "empty";
+}
+
 export function buildWikimediaCommonsSearchUrl(
   query: string,
   limit = 4,
@@ -565,7 +678,19 @@ export async function fetchWikimediaCommonsReferences(
   }
 
   const ranked = rankOnlineInspirationResults(results, request);
-  return { planId: request.planId, source: request.source, sources: uniqueSources(ranked, request.source), results: ranked };
+  return {
+    planId: request.planId,
+    source: request.source,
+    sources: uniqueSources(ranked, request.source),
+    results: ranked,
+    healthSnapshot: makeOnlineInspirationHealthSnapshot({
+      planId: request.planId,
+      source: request.source,
+      providers: [
+        makeOnlineInspirationProviderHealth("wikimedia_commons", ranked.length),
+      ],
+    }),
+  };
 }
 
 export function rankOnlineInspirationResults(

@@ -833,6 +833,66 @@ final class AiCoreTests: XCTestCase {
         XCTAssertEqual(ranked.dropFirst().first?.source, .openverse)
     }
 
+    func testPublicSourceOnlineInspirationReportsProviderHealthForPartialFailures() async throws {
+        let request = OnlineInspirationRequest(
+            planId: "online_reference_provider_health_test",
+            queries: ["cinematic portrait phone photography reference"]
+        )
+        let availableReference = OnlineInspirationResult(
+            id: "wikimedia_commons_health_photo",
+            source: .wikimediaCommons,
+            query: request.queries[0],
+            title: "Cinematic portrait photograph.jpg",
+            pageURL: URL(string: "https://commons.wikimedia.org/wiki/File:Cinematic_portrait_photograph.jpg")!,
+            thumbnailURL: URL(string: "https://upload.wikimedia.org/wikipedia/commons/thumb/photo.jpg/640px-photo.jpg"),
+            imageURL: URL(string: "https://upload.wikimedia.org/wikipedia/commons/photo.jpg"),
+            mimeType: "image/jpeg",
+            license: "CC BY-SA 4.0",
+            creator: "Jane Doe"
+        )
+        let provider = PublicSourceInspirationProvider(providers: [
+            FixedOnlineInspirationProvider(source: .wikimediaCommons, results: [availableReference]),
+            FailingOnlineInspirationProvider(source: .openverse, error: OnlineInspirationError.invalidHTTPStatus(503))
+        ])
+
+        let outcome = try await provider.fetchReferencesWithHealth(for: request)
+
+        XCTAssertEqual(outcome.results.map(\.id), ["wikimedia_commons_health_photo"])
+        XCTAssertEqual(outcome.providerHealth.map(\.source), [.wikimediaCommons, .openverse])
+        XCTAssertEqual(outcome.providerHealth[0].status, .available)
+        XCTAssertEqual(outcome.providerHealth[0].resultCount, 1)
+        XCTAssertEqual(outcome.providerHealth[1].status, .failed)
+        XCTAssertEqual(outcome.providerHealth[1].message, "HTTP 503")
+        XCTAssertTrue(outcome.providerHealth[0].privacy.publicSourceOnly)
+        XCTAssertFalse(outcome.providerHealth[0].privacy.uploadsLiveCameraFrame)
+
+        let response = try await OnlineInspirationService(provider: provider).fetchResponse(for: request)
+        XCTAssertEqual(response.healthSnapshot.status, .degraded)
+        XCTAssertEqual(response.healthSnapshot.totalResultCount, 1)
+        XCTAssertTrue(response.healthSnapshot.privacy.singlePhoneOnly)
+        XCTAssertFalse(response.healthSnapshot.privacy.sendsRawCameraFrame)
+    }
+
+    func testOnlineInspirationServiceReturnsFailedHealthWhenEveryPublicSourceFails() async throws {
+        let request = OnlineInspirationRequest(
+            planId: "online_reference_provider_health_failed_test",
+            queries: ["cinematic portrait phone photography reference"]
+        )
+        let provider = PublicSourceInspirationProvider(providers: [
+            FailingOnlineInspirationProvider(source: .wikimediaCommons, error: OnlineInspirationError.invalidHTTPStatus(503)),
+            FailingOnlineInspirationProvider(source: .openverse, error: OnlineInspirationError.invalidHTTPStatus(429))
+        ])
+
+        let response = try await OnlineInspirationService(provider: provider).fetchResponse(for: request)
+
+        XCTAssertTrue(response.results.isEmpty)
+        XCTAssertEqual(response.healthSnapshot.status, .failed)
+        XCTAssertEqual(response.healthSnapshot.totalResultCount, 0)
+        XCTAssertEqual(response.healthSnapshot.providers.map(\.status), [.failed, .failed])
+        XCTAssertEqual(response.healthSnapshot.providers.compactMap(\.message), ["HTTP 503", "HTTP 429"])
+        XCTAssertEqual(response.sources, [.publicSources])
+    }
+
     func testOnlineInspirationThumbnailCacheStoresAndEvictsLocalData() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("LensPilotOnlineInspiration-\(UUID().uuidString)", isDirectory: true)
@@ -853,6 +913,26 @@ final class AiCoreTests: XCTestCase {
         XCTAssertEqual(secondCachedData, Data([4, 5, 6]))
 
         try await cache.removeAll()
+    }
+
+    private struct FixedOnlineInspirationProvider: OnlineInspirationProvider {
+        let source: OnlineInspirationRequest.Source
+        let results: [OnlineInspirationResult]
+
+        func fetchReferences(for request: OnlineInspirationRequest) async throws -> [OnlineInspirationResult] {
+            _ = request
+            return results
+        }
+    }
+
+    private struct FailingOnlineInspirationProvider: OnlineInspirationProvider {
+        let source: OnlineInspirationRequest.Source
+        let error: OnlineInspirationError
+
+        func fetchReferences(for request: OnlineInspirationRequest) async throws -> [OnlineInspirationResult] {
+            _ = request
+            throw error
+        }
     }
 
     private static func portraitScene() -> SceneState {

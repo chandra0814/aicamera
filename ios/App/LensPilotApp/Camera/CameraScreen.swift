@@ -592,6 +592,16 @@ private struct PersonalVisualAiSettingsSheet: View {
                     }
                 }
 
+                if let healthSnapshot = viewModel.onlineInspirationHealthSnapshot {
+                    Section("Source Health") {
+                        LabeledContent("Status", value: healthSnapshot.status.title)
+
+                        ForEach(healthSnapshot.providers) { health in
+                            OnlineInspirationProviderHealthRow(health: health)
+                        }
+                    }
+                }
+
                 if viewModel.onlineInspirationLoadState.isLoading {
                     Section("Public References") {
                         HStack {
@@ -660,6 +670,43 @@ private struct PersonalVisualAiSettingsSheet: View {
         #else
         return nil
         #endif
+    }
+}
+
+private struct OnlineInspirationProviderHealthRow: View {
+    let health: OnlineInspirationProviderHealth
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: health.status.iconName)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(health.status.tint)
+                .frame(width: 24)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(health.source.title)
+                    .font(.subheadline.weight(.semibold))
+
+                if let message = health.message {
+                    Text(message)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                } else {
+                    Text(health.status.title)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Spacer(minLength: 8)
+
+            Text("\(health.resultCount)")
+                .font(.subheadline.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .accessibilityLabel("\(health.resultCount) public references")
+        }
+        .padding(.vertical, 2)
     }
 }
 
@@ -973,6 +1020,69 @@ private extension OnlineReferencePlan.AllowedInput {
             return "Shot Plan"
         case .deviceCapabilitySummary:
             return "Device"
+        }
+    }
+}
+
+private extension OnlineInspirationHealthSnapshot.Status {
+    var title: String {
+        switch self {
+        case .available:
+            return "Available"
+        case .degraded:
+            return "Partial"
+        case .empty:
+            return "No Matches"
+        case .failed:
+            return "Unavailable"
+        }
+    }
+}
+
+private extension OnlineInspirationProviderHealth.Status {
+    var title: String {
+        switch self {
+        case .available:
+            return "Available"
+        case .empty:
+            return "No Matches"
+        case .failed:
+            return "Unavailable"
+        }
+    }
+
+    var iconName: String {
+        switch self {
+        case .available:
+            return "checkmark.circle.fill"
+        case .empty:
+            return "magnifyingglass.circle"
+        case .failed:
+            return "exclamationmark.triangle.fill"
+        }
+    }
+
+    var tint: Color {
+        switch self {
+        case .available:
+            return .green
+        case .empty:
+            return .secondary
+        case .failed:
+            return .orange
+        }
+    }
+}
+
+private extension OnlineInspirationRequest.Source {
+    var title: String {
+        switch self {
+        case .publicSources:
+            return "Public Sources"
+        case .wikimediaCommons:
+            return "Wikimedia Commons"
+        case .openverse:
+            return "Openverse"
         }
     }
 }

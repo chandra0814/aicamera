@@ -256,6 +256,22 @@ const rankedReferences = rankOnlineInspirationResults([
 assert(rankedReferences[0].id === publicReferenceResults[0].id, "Ranking should favor relevant photographic results over icon-like files.");
 assert(rankedReferences[1].source === "openverse", "Ranking should diversify top public references across providers.");
 
+const providerHealthSnapshot = makeOnlineInspirationHealthSnapshot({
+  planId: inspirationRequest.planId,
+  source: inspirationRequest.source,
+  providers: [
+    makeOnlineInspirationProviderHealth("wikimedia_commons", publicReferenceResults.length, undefined, "2026-08-29T00:00:00.000Z"),
+    makeOnlineInspirationProviderHealth("openverse", 0, "failed", "2026-08-29T00:00:00.000Z", "Provider request failed"),
+  ],
+  checkedAt: "2026-08-29T00:00:00.000Z",
+});
+assert(providerHealthSnapshot.status === "degraded", "Provider health should report partial public-source failures.");
+assert(providerHealthSnapshot.totalResultCount === 1, "Provider health should count usable public references.");
+assert(providerHealthSnapshot.privacy.singlePhoneOnly === true, "Provider health must remain single-phone.");
+assert(providerHealthSnapshot.privacy.sendsRawCameraFrame === false, "Provider health must not upload camera frames.");
+assert(providerHealthSnapshot.providers[0].privacy.derivedFromPromptOnly === true, "Provider health must be prompt-only derived.");
+assert(providerHealthSnapshot.providers[1].message === "Provider request failed", "Provider health should expose sanitized failure context.");
+
 const thumbnailCache = makeThumbnailMemoryCache(1);
 thumbnailCache.set("https://example.test/first.jpg", new Uint8Array([1]));
 thumbnailCache.set("https://example.test/second.jpg", new Uint8Array([2]));
@@ -268,6 +284,7 @@ console.log(JSON.stringify({
   localProfileStorage: storageSnapshot.privacy,
   onlineReferencePlan: plan.reason,
   onlineSourceAdapter: [...new Set(rankedReferences.map((result) => result.source))].join("+"),
+  onlineProviderHealth: providerHealthSnapshot.status,
   onlineRanking: rankedReferences[0].id,
   privacy: plan.privacy,
   status: "passed",
@@ -453,6 +470,66 @@ function makeOnlineInspirationRequest(plan, perQueryLimit = 4) {
       sendsPreciseLocation: false,
     },
   };
+}
+
+function makeOnlineInspirationProviderHealth(
+  source,
+  resultCount,
+  status = undefined,
+  checkedAt = new Date().toISOString(),
+  message = undefined
+) {
+  const safeResultCount = Number.isFinite(resultCount)
+    ? Math.max(0, Math.floor(resultCount))
+    : 0;
+  const cleanedMessage = typeof message === "string" ? message.trim() : "";
+
+  return {
+    source,
+    status: status ?? (safeResultCount > 0 ? "available" : "empty"),
+    resultCount: safeResultCount,
+    checkedAt,
+    ...(cleanedMessage ? { message: cleanedMessage } : {}),
+    privacy: {
+      publicSourceOnly: true,
+      derivedFromPromptOnly: true,
+      storesRawPhoto: false,
+      uploadsLiveCameraFrame: false,
+      sendsIdentityData: false,
+      sendsPreciseLocation: false,
+    },
+  };
+}
+
+function makeOnlineInspirationHealthSnapshot({ planId, source, providers, checkedAt = new Date().toISOString() }) {
+  return {
+    planId,
+    source,
+    status: aggregateOnlineInspirationHealthStatus(providers),
+    checkedAt,
+    totalResultCount: providers.reduce((total, provider) => total + provider.resultCount, 0),
+    providers,
+    privacy: {
+      singlePhoneOnly: true,
+      requiresUserConsent: true,
+      sendsRawCameraFrame: false,
+      sendsPrivatePhoto: false,
+      sendsIdentityData: false,
+      sendsPreciseLocation: false,
+    },
+  };
+}
+
+function aggregateOnlineInspirationHealthStatus(providers) {
+  if (providers.length === 0) return "empty";
+
+  const hasAvailableProvider = providers.some((provider) => provider.status === "available");
+  const hasFailedProvider = providers.some((provider) => provider.status === "failed");
+
+  if (hasAvailableProvider && hasFailedProvider) return "degraded";
+  if (hasAvailableProvider) return "available";
+  if (hasFailedProvider) return "failed";
+  return "empty";
 }
 
 function buildWikimediaCommonsSearchUrl(query, limit = 4, apiUrl = "https://commons.wikimedia.org/w/api.php") {
