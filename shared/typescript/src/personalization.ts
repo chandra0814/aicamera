@@ -1,6 +1,6 @@
-import type { CaptureDomain, ShotSpec } from "./contracts";
+import type { CaptureDomain, ReferencePhotoState, ShotSpec } from "./contracts";
 import type { GuidanceAction } from "./planning";
-import { defaultGuidanceCalibration, type GuidanceCalibration } from "./ai-core";
+import { defaultGuidanceCalibration, type CaptureCoachingSummary, type GuidanceCalibration } from "./ai-core";
 
 export interface PersonalizationConsent {
   learningEnabled: boolean;
@@ -158,6 +158,28 @@ export interface OnlineInspirationResponse {
   sources: OnlineInspirationSource[];
   results: OnlineInspirationResult[];
   healthSnapshot: OnlineInspirationHealthSnapshot;
+}
+
+export type SinglePhoneAiDiagnosticsStatus = "passed" | "attention" | "blocked";
+
+export interface SinglePhoneAiDiagnosticCheck {
+  id: string;
+  title: string;
+  status: SinglePhoneAiDiagnosticsStatus;
+  detail: string;
+}
+
+export interface SinglePhoneAiDiagnosticsReport {
+  generatedAt: string;
+  overallStatus: SinglePhoneAiDiagnosticsStatus;
+  checks: SinglePhoneAiDiagnosticCheck[];
+  privacy: {
+    singlePhoneOnly: true;
+    storesRawPhoto: false;
+    uploadsLiveCameraFrame: false;
+    sendsIdentityData: false;
+    sendsPreciseLocation: false;
+  };
 }
 
 export function emptyPersonalVisualPreferenceProfile(
@@ -535,6 +557,53 @@ export function aggregateOnlineInspirationHealthStatus(
   return "empty";
 }
 
+export const singlePhoneAiDiagnosticsPrivacy = {
+  singlePhoneOnly: true,
+  storesRawPhoto: false,
+  uploadsLiveCameraFrame: false,
+  sendsIdentityData: false,
+  sendsPreciseLocation: false,
+} as const;
+
+export function makeSinglePhoneAiDiagnosticsReport({
+  hasShotPlan,
+  referencePhoto,
+  onlineReferencePlan,
+  onlineInspirationHealthSnapshot,
+  personalProfile,
+  captureCoachingSummary,
+  generatedAt = new Date().toISOString(),
+}: {
+  hasShotPlan: boolean;
+  referencePhoto?: ReferencePhotoState;
+  onlineReferencePlan?: OnlineReferencePlan;
+  onlineInspirationHealthSnapshot?: OnlineInspirationHealthSnapshot;
+  personalProfile: PersonalVisualPreferenceProfile;
+  captureCoachingSummary?: CaptureCoachingSummary;
+  generatedAt?: string;
+}): SinglePhoneAiDiagnosticsReport {
+  const checks: SinglePhoneAiDiagnosticCheck[] = [
+    {
+      id: "shot_planning",
+      title: "Shot Planning",
+      status: hasShotPlan ? "passed" : "attention",
+      detail: hasShotPlan ? "Ready" : "Run a prompt first",
+    },
+    referencePopupDiagnosticCheck(referencePhoto),
+    onlineReferencePlanDiagnosticCheck(onlineReferencePlan),
+    onlineProviderHealthDiagnosticCheck(onlineInspirationHealthSnapshot),
+    localLearningDiagnosticCheck(personalProfile),
+    captureCoachingDiagnosticCheck(captureCoachingSummary),
+  ];
+
+  return {
+    generatedAt,
+    overallStatus: aggregateSinglePhoneAiDiagnosticsStatus(checks),
+    checks,
+    privacy: singlePhoneAiDiagnosticsPrivacy,
+  };
+}
+
 export function buildWikimediaCommonsSearchUrl(
   query: string,
   limit = 4,
@@ -818,6 +887,167 @@ function uniqueSources(
 ): OnlineInspirationSource[] {
   const sources = [...new Set(results.map((result) => result.source))];
   return sources.length > 0 ? sources : [fallback];
+}
+
+function aggregateSinglePhoneAiDiagnosticsStatus(
+  checks: SinglePhoneAiDiagnosticCheck[]
+): SinglePhoneAiDiagnosticsStatus {
+  if (checks.some((check) => check.status === "blocked")) return "blocked";
+  if (checks.some((check) => check.status === "attention")) return "attention";
+  return "passed";
+}
+
+function referencePopupDiagnosticCheck(referencePhoto?: ReferencePhotoState): SinglePhoneAiDiagnosticCheck {
+  if (!referencePhoto) {
+    return {
+      id: "reference_popup",
+      title: "Reference Popup",
+      status: "attention",
+      detail: "No reference active",
+    };
+  }
+
+  if (referencePhoto.privacy.cloudAnalysisUsed) {
+    return {
+      id: "reference_popup",
+      title: "Reference Popup",
+      status: "blocked",
+      detail: "Cloud analysis detected",
+    };
+  }
+
+  return {
+    id: "reference_popup",
+    title: "Reference Popup",
+    status: referencePhoto.display.showCameraPopup ? "passed" : "attention",
+    detail: referencePhoto.display.showCameraPopup ? "Popup visible" : "Popup hidden",
+  };
+}
+
+function onlineReferencePlanDiagnosticCheck(plan?: OnlineReferencePlan): SinglePhoneAiDiagnosticCheck {
+  if (!plan) {
+    return {
+      id: "online_reference_plan",
+      title: "Online Plan",
+      status: "attention",
+      detail: "Not enabled",
+    };
+  }
+
+  const isSafe = plan.privacy.singlePhoneOnly &&
+    plan.privacy.requiresUserConsent &&
+    !plan.privacy.sendsRawCameraFrame &&
+    !plan.privacy.sendsPrivatePhoto &&
+    !plan.privacy.sendsIdentityData;
+
+  return {
+    id: "online_reference_plan",
+    title: "Online Plan",
+    status: isSafe ? "passed" : "blocked",
+    detail: `${plan.searchQueries.length} public queries`,
+  };
+}
+
+function onlineProviderHealthDiagnosticCheck(
+  snapshot?: OnlineInspirationHealthSnapshot
+): SinglePhoneAiDiagnosticCheck {
+  if (!snapshot) {
+    return {
+      id: "online_provider_health",
+      title: "Source Health",
+      status: "attention",
+      detail: "Not checked",
+    };
+  }
+
+  const isSafe = snapshot.privacy.singlePhoneOnly &&
+    !snapshot.privacy.sendsRawCameraFrame &&
+    !snapshot.privacy.sendsPrivatePhoto &&
+    !snapshot.privacy.sendsIdentityData &&
+    !snapshot.privacy.sendsPreciseLocation;
+
+  if (!isSafe) {
+    return {
+      id: "online_provider_health",
+      title: "Source Health",
+      status: "blocked",
+      detail: "Unsafe provider payload",
+    };
+  }
+
+  switch (snapshot.status) {
+    case "available":
+      return {
+        id: "online_provider_health",
+        title: "Source Health",
+        status: "passed",
+        detail: `${snapshot.totalResultCount} public references`,
+      };
+    case "degraded":
+      return {
+        id: "online_provider_health",
+        title: "Source Health",
+        status: "attention",
+        detail: "Partial results",
+      };
+    case "empty":
+      return {
+        id: "online_provider_health",
+        title: "Source Health",
+        status: "attention",
+        detail: "No matches",
+      };
+    case "failed":
+      return {
+        id: "online_provider_health",
+        title: "Source Health",
+        status: "attention",
+        detail: "Unavailable",
+      };
+  }
+}
+
+function localLearningDiagnosticCheck(profile: PersonalVisualPreferenceProfile): SinglePhoneAiDiagnosticCheck {
+  if (!profile.consent.learningEnabled) {
+    return {
+      id: "local_learning",
+      title: "Local Learning",
+      status: "attention",
+      detail: "Off",
+    };
+  }
+
+  return {
+    id: "local_learning",
+    title: "Local Learning",
+    status: profile.totalEvents > 0 ? "passed" : "attention",
+    detail: `${profile.totalEvents} events`,
+  };
+}
+
+function captureCoachingDiagnosticCheck(
+  summary?: CaptureCoachingSummary
+): SinglePhoneAiDiagnosticCheck {
+  if (!summary) {
+    return {
+      id: "capture_coaching",
+      title: "Capture Coaching",
+      status: "attention",
+      detail: "Not run",
+    };
+  }
+
+  const isSafe = summary.privacy.singlePhoneOnly &&
+    !summary.privacy.storesRawPhoto &&
+    !summary.privacy.uploadsLiveCameraFrame &&
+    !summary.privacy.identityRecognitionAllowed;
+
+  return {
+    id: "capture_coaching",
+    title: "Capture Coaching",
+    status: isSafe ? "passed" : "blocked",
+    detail: summary.headline,
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

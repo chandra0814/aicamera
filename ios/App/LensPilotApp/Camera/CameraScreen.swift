@@ -15,6 +15,7 @@ struct CameraScreen: View {
     @State private var isCalibrationReviewPresented = false
     @State private var isCalibrationQueuePresented = false
     @State private var isPersonalizationSheetPresented = false
+    @State private var isDiagnosticsSheetPresented = false
     @State private var calibrationReviewDraft = CalibrationReviewDraft()
 
     var body: some View {
@@ -90,6 +91,9 @@ struct CameraScreen: View {
         .sheet(isPresented: $isPersonalizationSheetPresented) {
             PersonalVisualAiSettingsSheet(viewModel: viewModel)
         }
+        .sheet(isPresented: $isDiagnosticsSheetPresented) {
+            AiDiagnosticsSheet(viewModel: viewModel)
+        }
         .sheet(isPresented: $isCalibrationQueuePresented) {
             CalibrationCaptureQueueSheet(
                 progress: viewModel.calibrationQueueProgress,
@@ -145,6 +149,17 @@ struct CameraScreen: View {
             }
             .foregroundStyle(.white)
             .accessibilityLabel("Open Personal Visual AI settings")
+
+            Button {
+                isDiagnosticsSheetPresented = true
+            } label: {
+                Image(systemName: "wrench.and.screwdriver")
+                    .font(.headline)
+                    .frame(width: 42, height: 42)
+                    .background(.black.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+            }
+            .foregroundStyle(.white)
+            .accessibilityLabel("Open AI diagnostics")
 
             Spacer()
 
@@ -493,6 +508,164 @@ private struct CalibrationCaptureScenarioRow: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Select \(scenario.title) calibration scenario")
+    }
+}
+
+private struct AiDiagnosticsSheet: View {
+    @ObservedObject var viewModel: CameraScreenViewModel
+    @Environment(\.dismiss) private var dismiss
+
+    private var report: SinglePhoneAiDiagnosticsReport {
+        viewModel.aiDiagnosticsReport
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Run") {
+                    Button {
+                        viewModel.runSinglePhoneAiDiagnostics()
+                    } label: {
+                        Label("Run Single-Phone AI Test", systemImage: "play.circle")
+                    }
+
+                    Button {
+                        viewModel.runReferencePopupDiagnostic()
+                    } label: {
+                        Label("Test Reference Popup", systemImage: "plus.viewfinder")
+                    }
+
+                    Button {
+                        viewModel.runCaptureCoachingDiagnostic()
+                    } label: {
+                        Label("Test Capture Coaching", systemImage: "checkmark.seal")
+                    }
+
+                    Button {
+                        viewModel.runLocalLearningDiagnostic()
+                    } label: {
+                        Label("Record Local Learning Test", systemImage: "person.crop.circle.badge.checkmark")
+                    }
+                    .disabled(!viewModel.personalizationConsent.learningEnabled)
+
+                    Button {
+                        viewModel.fetchOnlineInspirationReferences()
+                    } label: {
+                        Label(viewModel.onlineInspirationLoadState.actionTitle, systemImage: viewModel.onlineInspirationLoadState.actionIcon)
+                    }
+                    .disabled(viewModel.onlineReferencePlan == nil || viewModel.onlineInspirationLoadState.isLoading)
+                }
+
+                Section("Status") {
+                    LabeledContent("Overall", value: report.overallStatus.title)
+                    LabeledContent("Last Run") {
+                        if let diagnosticLastRunAt = viewModel.diagnosticLastRunAt {
+                            Text(diagnosticLastRunAt, style: .time)
+                        } else {
+                            Text("Not Run")
+                        }
+                    }
+                    LabeledContent("Message", value: viewModel.diagnosticMessage)
+
+                    ForEach(report.checks) { check in
+                        AiDiagnosticStatusRow(check: check)
+                    }
+                }
+
+                if let healthSnapshot = viewModel.onlineInspirationHealthSnapshot {
+                    Section("Source Health") {
+                        LabeledContent("Status", value: healthSnapshot.status.title)
+                        ForEach(healthSnapshot.providers) { health in
+                            OnlineInspirationProviderHealthRow(health: health)
+                        }
+                    }
+                }
+
+                if let review = viewModel.diagnosticCaptureReview {
+                    Section("Capture Coaching") {
+                        if let summary = review.coachingSummary {
+                            LabeledContent("Headline", value: summary.headline)
+                            LabeledContent("Best Score", value: "\(Int((summary.bestShotScore * 100).rounded()))%")
+
+                            if let nextShotInstruction = summary.nextShotInstruction {
+                                Label(nextShotInstruction, systemImage: summary.topCorrectionReason?.diagnosticIconName ?? "sparkles")
+                                    .font(.subheadline)
+                            }
+
+                            ForEach(summary.improvementSignals.prefix(2)) { signal in
+                                HStack {
+                                    Text(signal.title)
+                                    Spacer()
+                                    Text("\(Int((signal.value * 100).rounded()))%")
+                                        .font(.caption.monospacedDigit())
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+
+                        ForEach(review.rankedShots) { shot in
+                            HStack {
+                                Label(shot.label == .best ? "Best" : "Alternative", systemImage: shot.label == .best ? "checkmark.circle.fill" : "circle")
+                                Spacer()
+                                Text("\(Int((shot.score * 100).rounded()))%")
+                                    .font(.subheadline.monospacedDigit())
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+
+                Section {
+                    Button(role: .destructive) {
+                        viewModel.clearAiDiagnostics()
+                    } label: {
+                        Label("Clear Diagnostics", systemImage: "trash")
+                    }
+                }
+            }
+            .navigationTitle("AI Diagnostics")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                    }
+                    .accessibilityLabel("Close AI diagnostics")
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+}
+
+private struct AiDiagnosticStatusRow: View {
+    let check: SinglePhoneAiDiagnosticsReport.Check
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: check.status.iconName)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(check.status.tint)
+                .frame(width: 24)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(check.title)
+                    .font(.subheadline.weight(.semibold))
+                Text(check.detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 8)
+
+            Text(check.status.title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 2)
     }
 }
 
@@ -970,6 +1143,31 @@ private extension GuidanceAction.Reason {
             return "Ready to capture"
         }
     }
+
+    var diagnosticIconName: String {
+        switch self {
+        case .improveSubjectBackgroundSeparation:
+            return "viewfinder"
+        case .levelHorizon:
+            return "gyroscope"
+        case .protectHighlights:
+            return "sun.max"
+        case .improveFaceLight:
+            return "light.max"
+        case .reduceClutter:
+            return "rectangle.compress.vertical"
+        case .matchReference:
+            return "photo.on.rectangle"
+        case .improvePose:
+            return "figure.stand"
+        case .increaseSky:
+            return "cloud.sun"
+        case .reduceMotionBlur:
+            return "camera.aperture"
+        case .readyToCapture:
+            return "checkmark.circle"
+        }
+    }
 }
 
 private extension PersonalVisualPreferenceProfile {
@@ -1020,6 +1218,41 @@ private extension OnlineReferencePlan.AllowedInput {
             return "Shot Plan"
         case .deviceCapabilitySummary:
             return "Device"
+        }
+    }
+}
+
+private extension SinglePhoneAiDiagnosticsReport.Status {
+    var title: String {
+        switch self {
+        case .passed:
+            return "Passed"
+        case .attention:
+            return "Check"
+        case .blocked:
+            return "Blocked"
+        }
+    }
+
+    var iconName: String {
+        switch self {
+        case .passed:
+            return "checkmark.circle.fill"
+        case .attention:
+            return "exclamationmark.circle.fill"
+        case .blocked:
+            return "xmark.octagon.fill"
+        }
+    }
+
+    var tint: Color {
+        switch self {
+        case .passed:
+            return .green
+        case .attention:
+            return .orange
+        case .blocked:
+            return .red
         }
     }
 }

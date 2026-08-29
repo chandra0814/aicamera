@@ -277,6 +277,93 @@ final class AiCoreTests: XCTestCase {
         XCTAssertNil(review.coachingSummary)
     }
 
+    func testSinglePhoneAiDiagnosticsReportPassesSafeOnDeviceFlows() throws {
+        let prompt = "Give me a cinematic portrait with online inspiration."
+        let aiResult = LensPilotAiCore().run(
+            prompt: prompt,
+            sceneState: Self.portraitScene(),
+            deviceCapability: Self.deviceCapability()
+        )
+        let profile = PersonalVisualPreferenceProfile(
+            consent: PersonalizationConsent(learningEnabled: true, onlineReferencesAllowed: true),
+            totalEvents: 1
+        )
+        let plan = try XCTUnwrap(PersonalVisualLearningEngine().makeOnlineReferencePlan(
+            for: aiResult.shotSpec,
+            prompt: prompt,
+            profile: profile
+        ))
+        let healthSnapshot = OnlineInspirationHealthSnapshot(
+            planId: plan.id,
+            source: .publicSources,
+            providers: [
+                OnlineInspirationProviderHealth.available(source: .wikimediaCommons, resultCount: 2)
+            ]
+        )
+        let captureReview = CaptureReviewBuilder().makeReview(
+            frames: [
+                CaptureFrameMetric(id: "diagnostic_1", sequenceIndex: 0, byteCount: 18_800),
+                CaptureFrameMetric(id: "diagnostic_2", sequenceIndex: 1, byteCount: 18_200)
+            ],
+            targetMatch: aiResult.targetMatch
+        )
+
+        let report = SinglePhoneAiDiagnosticsReport.make(
+            hasShotPlan: true,
+            referencePhoto: Self.referencePhoto(cloudAnalysisUsed: false, showCameraPopup: true),
+            onlineReferencePlan: plan,
+            onlineInspirationHealthSnapshot: healthSnapshot,
+            personalProfile: profile,
+            captureCoachingSummary: captureReview.coachingSummary,
+            generatedAt: Date(timeIntervalSince1970: 0)
+        )
+
+        XCTAssertEqual(report.overallStatus, .passed)
+        XCTAssertEqual(report.checks.map(\.id), [
+            "shot_planning",
+            "reference_popup",
+            "online_reference_plan",
+            "online_provider_health",
+            "local_learning",
+            "capture_coaching"
+        ])
+        XCTAssertTrue(report.checks.allSatisfy { $0.status == .passed })
+        XCTAssertTrue(report.privacy.singlePhoneOnly)
+        XCTAssertFalse(report.privacy.uploadsLiveCameraFrame)
+        XCTAssertFalse(report.privacy.sendsIdentityData)
+    }
+
+    func testSinglePhoneAiDiagnosticsReportBlocksUnsafePayloads() {
+        let unsafeHealthSnapshot = OnlineInspirationHealthSnapshot(
+            planId: "unsafe_online_health",
+            source: .publicSources,
+            providers: [],
+            privacy: .init(
+                singlePhoneOnly: true,
+                requiresUserConsent: true,
+                sendsRawCameraFrame: true,
+                sendsPrivatePhoto: false,
+                sendsIdentityData: false,
+                sendsPreciseLocation: false
+            )
+        )
+
+        let report = SinglePhoneAiDiagnosticsReport.make(
+            hasShotPlan: true,
+            referencePhoto: Self.referencePhoto(cloudAnalysisUsed: true, showCameraPopup: true),
+            onlineReferencePlan: nil,
+            onlineInspirationHealthSnapshot: unsafeHealthSnapshot,
+            personalProfile: .empty(consent: .disabled),
+            captureCoachingSummary: nil,
+            generatedAt: Date(timeIntervalSince1970: 0)
+        )
+
+        XCTAssertEqual(report.overallStatus, .blocked)
+        XCTAssertEqual(report.checks.first { $0.id == "reference_popup" }?.status, .blocked)
+        XCTAssertEqual(report.checks.first { $0.id == "online_provider_health" }?.status, .blocked)
+        XCTAssertTrue(report.privacy.singlePhoneOnly)
+    }
+
     func testCalibrationCaptureQueueGuidesRequiredRealCaptureScenarios() {
         let scenarios = CalibrationCaptureScenario.allCases
         let progress = CalibrationCaptureQueueProgress()
@@ -933,6 +1020,29 @@ final class AiCoreTests: XCTestCase {
             _ = request
             throw error
         }
+    }
+
+    private static func referencePhoto(cloudAnalysisUsed: Bool, showCameraPopup: Bool) -> ReferencePhotoState {
+        ReferencePhotoState(
+            id: "reference_diagnostic_test",
+            source: .photoLibrary,
+            localAssetUri: "local://reference_diagnostic_test",
+            thumbnailUri: "memory://reference_diagnostic_test/thumbnail",
+            analysisStatus: .ready,
+            extractedFeatures: ReferencePhotoFeatures(
+                framing: "portrait",
+                apparentFocalLength: "telephoto",
+                cameraHeight: "eye_level",
+                subjectScale: 0.6,
+                poseHints: ["relaxed_shoulders"],
+                lightingDirection: "front_soft",
+                colorMood: "warm",
+                depthStyle: "shallow",
+                achievableTranslationNotes: ["Match light and framing on this phone."]
+            ),
+            display: .init(showCameraPopup: showCameraPopup, popupPosition: .topRight, viewerState: .collapsedPopup),
+            privacy: .init(cloudAnalysisUsed: cloudAnalysisUsed, userConsentedToCloudAnalysis: cloudAnalysisUsed)
+        )
     }
 
     private static func portraitScene() -> SceneState {

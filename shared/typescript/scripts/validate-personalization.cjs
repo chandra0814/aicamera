@@ -272,6 +272,51 @@ assert(providerHealthSnapshot.privacy.sendsRawCameraFrame === false, "Provider h
 assert(providerHealthSnapshot.providers[0].privacy.derivedFromPromptOnly === true, "Provider health must be prompt-only derived.");
 assert(providerHealthSnapshot.providers[1].message === "Provider request failed", "Provider health should expose sanitized failure context.");
 
+const availableProviderHealthSnapshot = makeOnlineInspirationHealthSnapshot({
+  planId: inspirationRequest.planId,
+  source: inspirationRequest.source,
+  providers: [
+    makeOnlineInspirationProviderHealth("wikimedia_commons", publicReferenceResults.length, undefined, "2026-08-29T00:00:00.000Z"),
+    makeOnlineInspirationProviderHealth("openverse", openverseReferenceResults.length, undefined, "2026-08-29T00:00:00.000Z"),
+  ],
+  checkedAt: "2026-08-29T00:00:00.000Z",
+});
+const diagnosticProfile = { ...profile, consent: onlineReferenceConsent, totalEvents: 1 };
+const diagnosticsReport = makeSinglePhoneAiDiagnosticsReport({
+  hasShotPlan: true,
+  referencePhoto: referencePhotoFixture(false, true),
+  onlineReferencePlan: plan,
+  onlineInspirationHealthSnapshot: availableProviderHealthSnapshot,
+  personalProfile: diagnosticProfile,
+  captureCoachingSummary: captureCoachingSummaryFixture(),
+  generatedAt: "2026-08-29T00:00:00.000Z",
+});
+assert(diagnosticsReport.overallStatus === "passed", "Single-phone diagnostics should pass when every local flow is healthy.");
+assert(diagnosticsReport.checks.length === 6, "Single-phone diagnostics should cover the expected AI test cases.");
+assert(diagnosticsReport.checks.every((check) => check.status === "passed"), "Every healthy diagnostic check should pass.");
+assert(diagnosticsReport.privacy.singlePhoneOnly === true, "Diagnostics report must stay single-phone.");
+assert(diagnosticsReport.privacy.uploadsLiveCameraFrame === false, "Diagnostics report must not upload live camera frames.");
+
+const unsafeHealthSnapshot = {
+  ...availableProviderHealthSnapshot,
+  privacy: {
+    ...availableProviderHealthSnapshot.privacy,
+    sendsRawCameraFrame: true,
+  },
+};
+const blockedDiagnosticsReport = makeSinglePhoneAiDiagnosticsReport({
+  hasShotPlan: true,
+  referencePhoto: referencePhotoFixture(true, true),
+  onlineReferencePlan: plan,
+  onlineInspirationHealthSnapshot: unsafeHealthSnapshot,
+  personalProfile: diagnosticProfile,
+  captureCoachingSummary: captureCoachingSummaryFixture(),
+  generatedAt: "2026-08-29T00:00:00.000Z",
+});
+assert(blockedDiagnosticsReport.overallStatus === "blocked", "Single-phone diagnostics should block unsafe payloads.");
+assert(blockedDiagnosticsReport.checks.find((check) => check.id === "reference_popup").status === "blocked", "Diagnostics should block cloud-analyzed references.");
+assert(blockedDiagnosticsReport.checks.find((check) => check.id === "online_provider_health").status === "blocked", "Diagnostics should block provider health that uploads camera frames.");
+
 const thumbnailCache = makeThumbnailMemoryCache(1);
 thumbnailCache.set("https://example.test/first.jpg", new Uint8Array([1]));
 thumbnailCache.set("https://example.test/second.jpg", new Uint8Array([2]));
@@ -285,6 +330,7 @@ console.log(JSON.stringify({
   onlineReferencePlan: plan.reason,
   onlineSourceAdapter: [...new Set(rankedReferences.map((result) => result.source))].join("+"),
   onlineProviderHealth: providerHealthSnapshot.status,
+  singlePhoneDiagnostics: diagnosticsReport.overallStatus,
   onlineRanking: rankedReferences[0].id,
   privacy: plan.privacy,
   status: "passed",
@@ -530,6 +576,263 @@ function aggregateOnlineInspirationHealthStatus(providers) {
   if (hasAvailableProvider) return "available";
   if (hasFailedProvider) return "failed";
   return "empty";
+}
+
+function makeSinglePhoneAiDiagnosticsReport({
+  hasShotPlan,
+  referencePhoto,
+  onlineReferencePlan,
+  onlineInspirationHealthSnapshot,
+  personalProfile,
+  captureCoachingSummary,
+  generatedAt = new Date().toISOString(),
+}) {
+  const checks = [
+    {
+      id: "shot_planning",
+      title: "Shot Planning",
+      status: hasShotPlan ? "passed" : "attention",
+      detail: hasShotPlan ? "Ready" : "Run a prompt first",
+    },
+    referencePopupDiagnosticCheck(referencePhoto),
+    onlineReferencePlanDiagnosticCheck(onlineReferencePlan),
+    onlineProviderHealthDiagnosticCheck(onlineInspirationHealthSnapshot),
+    localLearningDiagnosticCheck(personalProfile),
+    captureCoachingDiagnosticCheck(captureCoachingSummary),
+  ];
+
+  return {
+    generatedAt,
+    overallStatus: aggregateSinglePhoneAiDiagnosticsStatus(checks),
+    checks,
+    privacy: {
+      singlePhoneOnly: true,
+      storesRawPhoto: false,
+      uploadsLiveCameraFrame: false,
+      sendsIdentityData: false,
+      sendsPreciseLocation: false,
+    },
+  };
+}
+
+function referencePhotoFixture(cloudAnalysisUsed, showCameraPopup) {
+  return {
+    id: "reference_diagnostic_test",
+    source: "photo_library",
+    localAssetUri: "local://reference_diagnostic_test",
+    thumbnailUri: "memory://reference_diagnostic_test/thumbnail",
+    analysisStatus: "ready",
+    extractedFeatures: {
+      framing: "portrait",
+      apparentFocalLength: "telephoto",
+      cameraHeight: "eye_level",
+      subjectScale: 0.6,
+      poseHints: ["relaxed_shoulders"],
+      lightingDirection: "front_soft",
+      colorMood: "warm",
+      depthStyle: "shallow",
+      achievableTranslationNotes: ["Match light and framing on this phone."],
+    },
+    display: {
+      showCameraPopup,
+      popupPosition: "top_right",
+      viewerState: "collapsed_popup",
+    },
+    privacy: {
+      cloudAnalysisUsed,
+      userConsentedToCloudAnalysis: cloudAnalysisUsed,
+    },
+  };
+}
+
+function captureCoachingSummaryFixture() {
+  return {
+    headline: "Good direction",
+    bestShotScore: 0.82,
+    targetMatch: 0.8,
+    positiveSignals: [{
+      id: "pose",
+      title: "Pose",
+      value: 0.86,
+      reason: "improve_pose",
+    }],
+    improvementSignals: [{
+      id: "lighting",
+      title: "Lighting",
+      value: 0.68,
+      reason: "improve_face_light",
+    }],
+    topCorrectionReason: "improve_face_light",
+    nextShotInstruction: "Next shot: turn toward cleaner light",
+    privacy: {
+      singlePhoneOnly: true,
+      storesRawPhoto: false,
+      uploadsLiveCameraFrame: false,
+      identityRecognitionAllowed: false,
+    },
+  };
+}
+
+function aggregateSinglePhoneAiDiagnosticsStatus(checks) {
+  if (checks.some((check) => check.status === "blocked")) return "blocked";
+  if (checks.some((check) => check.status === "attention")) return "attention";
+  return "passed";
+}
+
+function referencePopupDiagnosticCheck(referencePhoto) {
+  if (!referencePhoto) {
+    return {
+      id: "reference_popup",
+      title: "Reference Popup",
+      status: "attention",
+      detail: "No reference active",
+    };
+  }
+
+  if (referencePhoto.privacy.cloudAnalysisUsed) {
+    return {
+      id: "reference_popup",
+      title: "Reference Popup",
+      status: "blocked",
+      detail: "Cloud analysis detected",
+    };
+  }
+
+  return {
+    id: "reference_popup",
+    title: "Reference Popup",
+    status: referencePhoto.display.showCameraPopup ? "passed" : "attention",
+    detail: referencePhoto.display.showCameraPopup ? "Popup visible" : "Popup hidden",
+  };
+}
+
+function onlineReferencePlanDiagnosticCheck(plan) {
+  if (!plan) {
+    return {
+      id: "online_reference_plan",
+      title: "Online Plan",
+      status: "attention",
+      detail: "Not enabled",
+    };
+  }
+
+  const isSafe = plan.privacy.singlePhoneOnly &&
+    plan.privacy.requiresUserConsent &&
+    !plan.privacy.sendsRawCameraFrame &&
+    !plan.privacy.sendsPrivatePhoto &&
+    !plan.privacy.sendsIdentityData;
+
+  return {
+    id: "online_reference_plan",
+    title: "Online Plan",
+    status: isSafe ? "passed" : "blocked",
+    detail: `${plan.searchQueries.length} public queries`,
+  };
+}
+
+function onlineProviderHealthDiagnosticCheck(snapshot) {
+  if (!snapshot) {
+    return {
+      id: "online_provider_health",
+      title: "Source Health",
+      status: "attention",
+      detail: "Not checked",
+    };
+  }
+
+  const isSafe = snapshot.privacy.singlePhoneOnly &&
+    !snapshot.privacy.sendsRawCameraFrame &&
+    !snapshot.privacy.sendsPrivatePhoto &&
+    !snapshot.privacy.sendsIdentityData &&
+    !snapshot.privacy.sendsPreciseLocation;
+
+  if (!isSafe) {
+    return {
+      id: "online_provider_health",
+      title: "Source Health",
+      status: "blocked",
+      detail: "Unsafe provider payload",
+    };
+  }
+
+  switch (snapshot.status) {
+    case "available":
+      return {
+        id: "online_provider_health",
+        title: "Source Health",
+        status: "passed",
+        detail: `${snapshot.totalResultCount} public references`,
+      };
+    case "degraded":
+      return {
+        id: "online_provider_health",
+        title: "Source Health",
+        status: "attention",
+        detail: "Partial results",
+      };
+    case "empty":
+      return {
+        id: "online_provider_health",
+        title: "Source Health",
+        status: "attention",
+        detail: "No matches",
+      };
+    case "failed":
+      return {
+        id: "online_provider_health",
+        title: "Source Health",
+        status: "attention",
+        detail: "Unavailable",
+      };
+    default:
+      return {
+        id: "online_provider_health",
+        title: "Source Health",
+        status: "attention",
+        detail: "Unknown",
+      };
+  }
+}
+
+function localLearningDiagnosticCheck(profile) {
+  if (!profile.consent.learningEnabled) {
+    return {
+      id: "local_learning",
+      title: "Local Learning",
+      status: "attention",
+      detail: "Off",
+    };
+  }
+
+  return {
+    id: "local_learning",
+    title: "Local Learning",
+    status: profile.totalEvents > 0 ? "passed" : "attention",
+    detail: `${profile.totalEvents} events`,
+  };
+}
+
+function captureCoachingDiagnosticCheck(summary) {
+  if (!summary) {
+    return {
+      id: "capture_coaching",
+      title: "Capture Coaching",
+      status: "attention",
+      detail: "Not run",
+    };
+  }
+
+  const isSafe = summary.privacy.singlePhoneOnly &&
+    !summary.privacy.storesRawPhoto &&
+    !summary.privacy.uploadsLiveCameraFrame &&
+    !summary.privacy.identityRecognitionAllowed;
+
+  return {
+    id: "capture_coaching",
+    title: "Capture Coaching",
+    status: isSafe ? "passed" : "blocked",
+    detail: summary.headline,
+  };
 }
 
 function buildWikimediaCommonsSearchUrl(query, limit = 4, apiUrl = "https://commons.wikimedia.org/w/api.php") {

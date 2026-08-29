@@ -6,6 +6,10 @@ import LensPilotCore
 import LensPilotDirector
 import LensPilotVision
 
+#if canImport(UIKit)
+import UIKit
+#endif
+
 struct CaptureReviewPresentation: Identifiable {
     let id: String
     let bestPhotoData: Data
@@ -105,6 +109,9 @@ final class CameraScreenViewModel: ObservableObject {
     @Published private(set) var onlineInspirationThumbnailData: [String: Data] = [:]
     @Published private(set) var onlineInspirationHealthSnapshot: OnlineInspirationHealthSnapshot?
     @Published private(set) var onlineInspirationLoadState: OnlineInspirationLoadState = .idle
+    @Published private(set) var diagnosticCaptureReview: CaptureReviewResult?
+    @Published private(set) var diagnosticMessage = "Ready"
+    @Published private(set) var diagnosticLastRunAt: Date?
     @Published private(set) var speechIntentState: SpeechIntentState = .idle
     @Published private(set) var speechIntentTranscript = ""
     @Published private(set) var isCapturing = false
@@ -358,6 +365,88 @@ final class CameraScreenViewModel: ObservableObject {
 
     func cachedOnlineInspirationThumbnailData(for result: OnlineInspirationResult) -> Data? {
         onlineInspirationThumbnailData[result.id]
+    }
+
+    var aiDiagnosticsReport: SinglePhoneAiDiagnosticsReport {
+        SinglePhoneAiDiagnosticsReport.make(
+            hasShotPlan: currentShotPlan != nil,
+            referencePhoto: directorState.referencePhoto,
+            onlineReferencePlan: onlineReferencePlan,
+            onlineInspirationHealthSnapshot: onlineInspirationHealthSnapshot,
+            personalProfile: personalProfile,
+            captureCoachingSummary: diagnosticCaptureReview?.coachingSummary
+        )
+    }
+
+    func runSinglePhoneAiDiagnostics() {
+        makePlanFromIntent()
+        runReferencePopupDiagnostic()
+        runCaptureCoachingDiagnostic()
+
+        if personalizationConsent.learningEnabled {
+            runLocalLearningDiagnostic()
+        } else {
+            diagnosticMessage = "Reference popup and capture coaching passed. Local learning is off."
+        }
+
+        if onlineReferencePlan != nil {
+            fetchOnlineInspirationReferences()
+        }
+
+        diagnosticLastRunAt = Date()
+    }
+
+    func runReferencePopupDiagnostic() {
+        activateReferencePhoto(
+            imageData: Self.diagnosticReferenceImageData(),
+            source: .sharedFile,
+            localAssetUri: "diagnostic://single-phone-reference-popup",
+            notes: ["Diagnostic reference loaded on this phone. Tap the popup to inspect the reference."]
+        )
+        diagnosticMessage = "Reference popup test is active."
+        diagnosticLastRunAt = Date()
+    }
+
+    func runLocalLearningDiagnostic() {
+        guard personalizationConsent.learningEnabled else {
+            diagnosticMessage = "Turn on Local Learning to run the learning test."
+            errorMessage = "Local learning is off."
+            return
+        }
+
+        if currentShotSpec == nil {
+            makePlanFromIntent()
+        }
+
+        recordPersonalLearningEvent(
+            outcome: .acceptedGuidance,
+            acceptedGuidanceReason: latestGuidanceAction?.reason ?? .matchReference,
+            userRating: 4,
+            onlineReferenceUsed: hasLoadedOnlineInspiration
+        )
+        diagnosticMessage = "Local learning test event recorded on this phone."
+        diagnosticLastRunAt = Date()
+    }
+
+    func runCaptureCoachingDiagnostic() {
+        if currentShotPlan == nil || currentTargetMatch == nil {
+            makePlanFromIntent()
+        }
+
+        let frames = [
+            CaptureFrameMetric(id: "diagnostic_best", sequenceIndex: 0, byteCount: 240_000),
+            CaptureFrameMetric(id: "diagnostic_alt", sequenceIndex: 1, byteCount: 172_000),
+            CaptureFrameMetric(id: "diagnostic_hold", sequenceIndex: 2, byteCount: 160_000)
+        ]
+        diagnosticCaptureReview = captureReviewBuilder.makeReview(frames: frames, targetMatch: currentTargetMatch)
+        diagnosticMessage = "Capture coaching test generated locally."
+        diagnosticLastRunAt = Date()
+    }
+
+    func clearAiDiagnostics() {
+        diagnosticCaptureReview = nil
+        diagnosticMessage = "Ready"
+        diagnosticLastRunAt = nil
     }
 
     private func handleSceneDebugState(_ debugState: SceneDebugState) {
@@ -756,6 +845,31 @@ final class CameraScreenViewModel: ObservableObject {
         }
 
         return result
+    }
+
+    private static func diagnosticReferenceImageData() -> Data {
+        #if canImport(UIKit)
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: 96, height: 120))
+
+        return renderer.pngData { context in
+            let cgContext = context.cgContext
+
+            UIColor(red: 0.06, green: 0.12, blue: 0.14, alpha: 1).setFill()
+            cgContext.fill(CGRect(x: 0, y: 0, width: 96, height: 120))
+
+            UIColor(red: 0.95, green: 0.78, blue: 0.35, alpha: 1).setFill()
+            cgContext.fill(CGRect(x: 14, y: 16, width: 68, height: 52))
+
+            UIColor(red: 0.18, green: 0.55, blue: 0.68, alpha: 1).setFill()
+            cgContext.fill(CGRect(x: 14, y: 74, width: 44, height: 30))
+
+            UIColor.white.withAlphaComponent(0.9).setStroke()
+            cgContext.setLineWidth(4)
+            cgContext.stroke(CGRect(x: 10, y: 12, width: 76, height: 96))
+        }
+        #else
+        return Data([137, 80, 78, 71, 13, 10, 26, 10])
+        #endif
     }
 
     private static func loadPersonalProfile() -> PersonalVisualPreferenceProfile? {
