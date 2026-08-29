@@ -16,15 +16,17 @@
   - reviewed app export normalization before manifest import
   - guidance stabilizer checks for immediate opposite-action suppression and completed-action memory
   - Personal Visual AI validation for consent-gated learning, positive/negative capture feedback, correction-reason learning boosts, small personalization boosts, and online-reference privacy boundaries
-  - Personal Visual AI local profile storage sanitization, cloud-sync stripping, and oversized-profile rejection
+  - Personal Visual AI local profile storage sanitization, preferred encrypted-at-rest policy, legacy-store migration flags, cloud-sync stripping, and oversized-profile rejection
   - Wikimedia Commons online-inspiration request construction and public image response parsing
   - Openverse-style public image request construction and response parsing
   - online-inspiration source-diverse result ranking and thumbnail cache eviction
   - deterministic Target Preview privacy, safety label, achievability, and composition-overlay validation
   - same-phone Target Preview adjustment validation for brighter, more sky, less background blur, and natural-color commands
   - after-capture coaching validation for strong signals, next-shot corrections, and single-phone privacy flags
+  - single-phone AI diagnostics validation for shot planning, reference popup, online source health, local learning, encrypted learning storage, and capture coaching
 - `LensPilotVisionTests` on macOS CI, covering the `SceneDebugState` to native `SceneState` bridge and on-device quality metric mapping.
-- `LensPilotCoreTests` on macOS CI, covering burst capture review ranking, after-capture coaching summaries, empty-burst handling, guided calibration queue progress, calibration weight tuning, reviewed guidance-priority calibration, guidance stabilization, Personal Visual AI learning including customer correction reasons, online-reference privacy policy, Wikimedia Commons and Openverse online-inspiration parsing, source-diverse online-result ranking, thumbnail cache eviction, calibration sample export, and reviewed calibration sample promotion.
+- `LensPilotCoreTests` on macOS CI, covering burst capture review ranking, after-capture coaching summaries, empty-burst handling, guided calibration queue progress, calibration weight tuning, reviewed guidance-priority calibration, guidance stabilization, Personal Visual AI learning including customer correction reasons, local profile storage protection metadata, online-reference privacy policy, Wikimedia Commons and Openverse online-inspiration parsing, source-diverse online-result ranking, thumbnail cache eviction, calibration sample export, and reviewed calibration sample promotion.
+- `LensPilotDirectorTests` on macOS CI, covering same-phone reference popup activation, popup selection into the full reference viewer, and returning from full reference view back to the popup.
 - `AiBenchmarkTests` on macOS CI, covering the deterministic single-phone guidance benchmark suite.
 - GitHub Actions `iOS app build`, covering the SwiftUI app target, local package dependency wiring, camera screen, reference picker, popup, and result review compilation.
 

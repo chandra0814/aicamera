@@ -44,6 +44,7 @@ This implementation completes the MVP AI control skeleton, not the final product
 - Online inspiration results are now ranked for photographic relevance and warmed into a bounded local thumbnail cache before display.
 - Online inspiration now supports multiple public providers, starting with Wikimedia Commons and Openverse-style public image search, with deduplication and source-diverse ranking so one provider does not dominate the first results.
 - Calibration queue progress is stored as local counts and the active scenario only; it does not store photos, live frames, identity labels, or cloud state.
+- Personal Visual AI learned-profile storage now prefers Keychain encrypted, this-device-only storage on iOS, migrates legacy local profile bytes out of UserDefaults, and reports storage protection in AI Diagnostics.
 
 ## Not Yet Production AI
 
@@ -52,7 +53,7 @@ This implementation completes the MVP AI control skeleton, not the final product
 - No Core ML/TFLite production model bundle yet.
 - No cloud VLM/LLM adapter yet.
 - No generative preview engine yet.
-- No Keychain-backed encrypted preference store, embedding sync, or cloud personalization sync yet.
+- No embedding sync or cloud personalization sync yet.
 - No live production monitoring, endpoint health checks, or provider-specific quality analytics for public inspiration yet.
 - No blind-rater evaluation data yet.
 

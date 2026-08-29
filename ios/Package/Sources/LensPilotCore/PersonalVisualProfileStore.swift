@@ -1,23 +1,45 @@
 import Foundation
 
+#if canImport(Security)
+import Security
+#endif
+
 public enum PersonalVisualProfileStoreError: Error, Equatable {
     case profileTooLarge(maxBytes: Int, actualBytes: Int)
+    case keychainReadFailed(status: Int32)
+    case keychainWriteFailed(status: Int32)
+    case keychainDeleteFailed(status: Int32)
+}
+
+public enum PersonalVisualProfileStorageProtection: String, Codable, Equatable, Sendable {
+    case localFile = "local_file"
+    case keychainEncryptedThisDeviceOnly = "keychain_encrypted_this_device_only"
+
+    public var isEncryptedAtRest: Bool {
+        self == .keychainEncryptedThisDeviceOnly
+    }
 }
 
 public struct PersonalVisualProfileStore {
     public static let defaultStorageKey = "com.lenspilot.personalVisualProfile.v1"
+    public static let defaultKeychainService = "com.lenspilot.personalVisualProfile"
+    public static let defaultKeychainAccount = "profile.v1"
     public static let maxStoredProfileBytes = 64 * 1024
 
-    private let readData: () -> Data?
-    private let writeData: (Data?) -> Void
+    public let protection: PersonalVisualProfileStorageProtection
+
+    private let readData: () throws -> Data?
+    private let writeData: (Data?) throws -> Void
     private let maxStoredProfileBytes: Int
 
     public init(
         maxStoredProfileBytes: Int = Self.maxStoredProfileBytes,
-        readData: @escaping () -> Data?,
-        writeData: @escaping (Data?) -> Void
+        protection: PersonalVisualProfileStorageProtection = .localFile,
+        readData: @escaping () throws -> Data?,
+        writeData: @escaping (Data?) throws -> Void
     ) {
         self.maxStoredProfileBytes = max(1, maxStoredProfileBytes)
+        self.protection = protection
         self.readData = readData
         self.writeData = writeData
     }
@@ -38,18 +60,67 @@ public struct PersonalVisualProfileStore {
         }
     }
 
+    public static func defaultSecureStore(
+        userDefaults: UserDefaults = .standard,
+        key: String = Self.defaultStorageKey,
+        keychainService: String = Self.defaultKeychainService,
+        keychainAccount: String = Self.defaultKeychainAccount,
+        maxStoredProfileBytes: Int = Self.maxStoredProfileBytes
+    ) -> PersonalVisualProfileStore {
+        let effectiveMaxStoredProfileBytes = max(1, maxStoredProfileBytes)
+        #if canImport(Security)
+        let keychainStore = PersonalVisualProfileKeychainDataStore(
+            service: keychainService,
+            account: keychainAccount
+        )
+
+        return PersonalVisualProfileStore(
+            maxStoredProfileBytes: effectiveMaxStoredProfileBytes,
+            protection: .keychainEncryptedThisDeviceOnly
+        ) {
+            if let keychainData = try keychainStore.readData() {
+                return keychainData
+            }
+
+            guard let legacyData = userDefaults.data(forKey: key) else { return nil }
+            guard legacyData.count <= effectiveMaxStoredProfileBytes else {
+                throw PersonalVisualProfileStoreError.profileTooLarge(
+                    maxBytes: effectiveMaxStoredProfileBytes,
+                    actualBytes: legacyData.count
+                )
+            }
+            try keychainStore.writeData(legacyData)
+            userDefaults.removeObject(forKey: key)
+            return legacyData
+        } writeData: { data in
+            try keychainStore.writeData(data)
+            userDefaults.removeObject(forKey: key)
+        }
+        #else
+        return PersonalVisualProfileStore(
+            userDefaults: userDefaults,
+            key: key,
+            maxStoredProfileBytes: effectiveMaxStoredProfileBytes
+        )
+        #endif
+    }
+
     public func loadProfile() throws -> PersonalVisualPreferenceProfile? {
-        guard let data = readData() else { return nil }
+        guard let data = try readData() else { return nil }
         return try decodeProfile(from: data)
     }
 
     public func saveProfile(_ profile: PersonalVisualPreferenceProfile) throws {
         let data = try encodedProfileData(for: profile)
-        writeData(data)
+        try writeData(data)
     }
 
     public func deleteProfile() {
-        writeData(nil)
+        try? deleteProfileThrowing()
+    }
+
+    public func deleteProfileThrowing() throws {
+        try writeData(nil)
     }
 
     public func encodedProfileData(for profile: PersonalVisualPreferenceProfile) throws -> Data {
@@ -74,6 +145,75 @@ public struct PersonalVisualProfileStore {
         }
     }
 }
+
+#if canImport(Security)
+private struct PersonalVisualProfileKeychainDataStore {
+    let service: String
+    let account: String
+
+    func readData() throws -> Data? {
+        var query = baseQuery()
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        if status == errSecItemNotFound {
+            return nil
+        }
+
+        guard status == errSecSuccess else {
+            throw PersonalVisualProfileStoreError.keychainReadFailed(status: status)
+        }
+
+        return item as? Data
+    }
+
+    func writeData(_ data: Data?) throws {
+        guard let data else {
+            try deleteData()
+            return
+        }
+
+        let status = SecItemUpdate(
+            baseQuery() as CFDictionary,
+            [kSecValueData as String: data] as CFDictionary
+        )
+
+        if status == errSecSuccess {
+            return
+        }
+
+        guard status == errSecItemNotFound else {
+            throw PersonalVisualProfileStoreError.keychainWriteFailed(status: status)
+        }
+
+        var query = baseQuery()
+        query[kSecValueData as String] = data
+        query[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+
+        let addStatus = SecItemAdd(query as CFDictionary, nil)
+        guard addStatus == errSecSuccess else {
+            throw PersonalVisualProfileStoreError.keychainWriteFailed(status: addStatus)
+        }
+    }
+
+    private func deleteData() throws {
+        let status = SecItemDelete(baseQuery() as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else {
+            throw PersonalVisualProfileStoreError.keychainDeleteFailed(status: status)
+        }
+    }
+
+    private func baseQuery() -> [String: Any] {
+        [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account
+        ]
+    }
+}
+#endif
 
 public extension PersonalVisualPreferenceProfile {
     func sanitizedForLocalStorage() -> PersonalVisualPreferenceProfile {

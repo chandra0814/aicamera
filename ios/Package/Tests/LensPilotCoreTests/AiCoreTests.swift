@@ -314,6 +314,7 @@ final class AiCoreTests: XCTestCase {
             onlineReferencePlan: plan,
             onlineInspirationHealthSnapshot: healthSnapshot,
             personalProfile: profile,
+            personalProfileStoreProtection: .keychainEncryptedThisDeviceOnly,
             captureCoachingSummary: captureReview.coachingSummary,
             generatedAt: Date(timeIntervalSince1970: 0)
         )
@@ -325,6 +326,7 @@ final class AiCoreTests: XCTestCase {
             "online_reference_plan",
             "online_provider_health",
             "local_learning",
+            "learning_store",
             "capture_coaching"
         ])
         XCTAssertTrue(report.checks.allSatisfy { $0.status == .passed })
@@ -354,6 +356,7 @@ final class AiCoreTests: XCTestCase {
             onlineReferencePlan: nil,
             onlineInspirationHealthSnapshot: unsafeHealthSnapshot,
             personalProfile: .empty(consent: .disabled),
+            personalProfileStoreProtection: .localFile,
             captureCoachingSummary: nil,
             generatedAt: Date(timeIntervalSince1970: 0)
         )
@@ -646,6 +649,7 @@ final class AiCoreTests: XCTestCase {
         try store.saveProfile(rawProfile)
         let profile = try XCTUnwrap(try store.loadProfile())
 
+        XCTAssertEqual(store.protection, .localFile)
         XCTAssertEqual(profile.version, "1.0")
         XCTAssertTrue(profile.consent.learningEnabled)
         XCTAssertTrue(profile.consent.onlineReferencesAllowed)
@@ -666,6 +670,37 @@ final class AiCoreTests: XCTestCase {
 
         store.deleteProfile()
         XCTAssertNil(storedData)
+    }
+
+    func testPersonalVisualProfileStoreReportsEncryptedProtection() throws {
+        var storedData: Data?
+        let store = PersonalVisualProfileStore(
+            protection: .keychainEncryptedThisDeviceOnly,
+            readData: { storedData },
+            writeData: { storedData = $0 }
+        )
+
+        XCTAssertEqual(store.protection, .keychainEncryptedThisDeviceOnly)
+        XCTAssertTrue(store.protection.isEncryptedAtRest)
+
+        try store.saveProfile(.empty(consent: .localLearningEnabled))
+        XCTAssertNotNil(storedData)
+        XCTAssertNotNil(try store.loadProfile())
+    }
+
+    func testPersonalVisualProfileDefaultSecureStorePrefersKeychainWhenAvailable() {
+        let store = PersonalVisualProfileStore.defaultSecureStore(
+            keychainService: "com.lenspilot.tests.\(UUID().uuidString)",
+            keychainAccount: "profile"
+        )
+
+        #if canImport(Security)
+        XCTAssertEqual(store.protection, .keychainEncryptedThisDeviceOnly)
+        #else
+        XCTAssertEqual(store.protection, .localFile)
+        #endif
+
+        store.deleteProfile()
     }
 
     func testPersonalVisualProfileStoreRejectsOversizedProfiles() {

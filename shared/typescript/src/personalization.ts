@@ -63,6 +63,10 @@ export interface PersonalVisualPreferenceProfile {
   onlineReferenceUsageCount: number;
 }
 
+export type PersonalVisualProfileStorageProtection =
+  | "local_file"
+  | "keychain_encrypted_this_device_only";
+
 export interface OnlineReferencePlan {
   id: string;
   reason: "explicit_user_request" | "specialized_style" | "insufficient_personal_history";
@@ -201,9 +205,13 @@ export function emptyPersonalVisualPreferenceProfile(
 
 export const personalVisualProfileStoragePolicy = {
   storageKey: "com.lenspilot.personalVisualProfile.v1",
+  preferredProtection: "keychain_encrypted_this_device_only" as const,
+  legacyProtection: "local_file" as const,
   maxStoredProfileBytes: 64 * 1024,
   privacy: {
     localOnly: true,
+    encryptedAtRestPreferred: true,
+    migratesLegacyUserDefaults: true,
     storesRawPhoto: false,
     uploadsLiveCameraFrame: false,
     storesIdentityData: false,
@@ -213,6 +221,7 @@ export const personalVisualProfileStoragePolicy = {
 
 export interface PersonalVisualProfileStorageSnapshot {
   storageKey: string;
+  storageProtection: PersonalVisualProfileStorageProtection;
   profile: PersonalVisualPreferenceProfile;
   estimatedJsonBytes: number;
   privacy: typeof personalVisualProfileStoragePolicy.privacy;
@@ -260,11 +269,13 @@ export function decodePersonalVisualPreferenceProfileFromLocalStorage(
 
 export function makePersonalVisualProfileStorageSnapshot(
   profile: PersonalVisualPreferenceProfile,
-  storageKey = personalVisualProfileStoragePolicy.storageKey
+  storageKey = personalVisualProfileStoragePolicy.storageKey,
+  storageProtection: PersonalVisualProfileStorageProtection = personalVisualProfileStoragePolicy.preferredProtection
 ): PersonalVisualProfileStorageSnapshot {
   const storedProfile = sanitizePersonalVisualPreferenceProfile(profile);
   return {
     storageKey,
+    storageProtection,
     profile: storedProfile,
     estimatedJsonBytes: JSON.stringify(storedProfile).length,
     privacy: personalVisualProfileStoragePolicy.privacy,
@@ -571,6 +582,7 @@ export function makeSinglePhoneAiDiagnosticsReport({
   onlineReferencePlan,
   onlineInspirationHealthSnapshot,
   personalProfile,
+  personalProfileStoreProtection = personalVisualProfileStoragePolicy.preferredProtection,
   captureCoachingSummary,
   generatedAt = new Date().toISOString(),
 }: {
@@ -579,6 +591,7 @@ export function makeSinglePhoneAiDiagnosticsReport({
   onlineReferencePlan?: OnlineReferencePlan;
   onlineInspirationHealthSnapshot?: OnlineInspirationHealthSnapshot;
   personalProfile: PersonalVisualPreferenceProfile;
+  personalProfileStoreProtection?: PersonalVisualProfileStorageProtection;
   captureCoachingSummary?: CaptureCoachingSummary;
   generatedAt?: string;
 }): SinglePhoneAiDiagnosticsReport {
@@ -593,6 +606,7 @@ export function makeSinglePhoneAiDiagnosticsReport({
     onlineReferencePlanDiagnosticCheck(onlineReferencePlan),
     onlineProviderHealthDiagnosticCheck(onlineInspirationHealthSnapshot),
     localLearningDiagnosticCheck(personalProfile),
+    learningStoreDiagnosticCheck(personalProfile, personalProfileStoreProtection),
     captureCoachingDiagnosticCheck(captureCoachingSummary),
   ];
 
@@ -1022,6 +1036,29 @@ function localLearningDiagnosticCheck(profile: PersonalVisualPreferenceProfile):
     title: "Local Learning",
     status: profile.totalEvents > 0 ? "passed" : "attention",
     detail: `${profile.totalEvents} events`,
+  };
+}
+
+function learningStoreDiagnosticCheck(
+  profile: PersonalVisualPreferenceProfile,
+  protection: PersonalVisualProfileStorageProtection
+): SinglePhoneAiDiagnosticCheck {
+  if (!profile.consent.learningEnabled) {
+    return {
+      id: "learning_store",
+      title: "Learning Store",
+      status: "attention",
+      detail: "Learning off",
+    };
+  }
+
+  const encryptedAtRest = protection === "keychain_encrypted_this_device_only";
+
+  return {
+    id: "learning_store",
+    title: "Learning Store",
+    status: encryptedAtRest ? "passed" : "attention",
+    detail: encryptedAtRest ? "Keychain encrypted" : "Local file fallback",
   };
 }
 

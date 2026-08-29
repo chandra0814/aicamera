@@ -24,6 +24,7 @@ public struct SinglePhoneAiDiagnosticsReport: Codable, Equatable, Sendable {
         onlineReferencePlan: OnlineReferencePlan?,
         onlineInspirationHealthSnapshot: OnlineInspirationHealthSnapshot?,
         personalProfile: PersonalVisualPreferenceProfile,
+        personalProfileStoreProtection: PersonalVisualProfileStorageProtection = .localFile,
         captureCoachingSummary: CaptureCoachingSummary?,
         generatedAt: Date = Date()
     ) -> SinglePhoneAiDiagnosticsReport {
@@ -35,6 +36,7 @@ public struct SinglePhoneAiDiagnosticsReport: Codable, Equatable, Sendable {
                 onlineReferencePlanCheck(onlineReferencePlan),
                 onlineProviderHealthCheck(onlineInspirationHealthSnapshot),
                 localLearningCheck(profile: personalProfile),
+                learningStoreCheck(profile: personalProfile, protection: personalProfileStoreProtection),
                 captureCoachingCheck(captureCoachingSummary)
             ]
         )
@@ -183,6 +185,27 @@ public struct SinglePhoneAiDiagnosticsReport: Codable, Equatable, Sendable {
             title: "Local Learning",
             status: profile.totalEvents > 0 ? .passed : .attention,
             detail: "\(profile.totalEvents) events"
+        )
+    }
+
+    private static func learningStoreCheck(
+        profile: PersonalVisualPreferenceProfile,
+        protection: PersonalVisualProfileStorageProtection
+    ) -> Check {
+        guard profile.consent.learningEnabled else {
+            return Check(
+                id: "learning_store",
+                title: "Learning Store",
+                status: .attention,
+                detail: "Learning off"
+            )
+        }
+
+        return Check(
+            id: "learning_store",
+            title: "Learning Store",
+            status: protection.isEncryptedAtRest ? .passed : .attention,
+            detail: protection.isEncryptedAtRest ? "Keychain encrypted" : "Local file fallback"
         )
     }
 

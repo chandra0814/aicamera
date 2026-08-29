@@ -18,9 +18,13 @@ const onlineReferenceConsent = {
 
 const personalVisualProfileStoragePolicy = {
   storageKey: "com.lenspilot.personalVisualProfile.v1",
+  preferredProtection: "keychain_encrypted_this_device_only",
+  legacyProtection: "local_file",
   maxStoredProfileBytes: 64 * 1024,
   privacy: {
     localOnly: true,
+    encryptedAtRestPreferred: true,
+    migratesLegacyUserDefaults: true,
     storesRawPhoto: false,
     uploadsLiveCameraFrame: false,
     storesIdentityData: false,
@@ -119,7 +123,10 @@ const unsafeStoredProfile = {
 };
 const storageSnapshot = makePersonalVisualProfileStorageSnapshot(unsafeStoredProfile);
 assert(storageSnapshot.storageKey === personalVisualProfileStoragePolicy.storageKey, "Profile storage key should be stable.");
+assert(storageSnapshot.storageProtection === "keychain_encrypted_this_device_only", "Profile storage should prefer Keychain encryption.");
 assert(storageSnapshot.privacy.localOnly === true, "Profile storage must stay local-only.");
+assert(storageSnapshot.privacy.encryptedAtRestPreferred === true, "Profile storage should prefer encryption at rest.");
+assert(storageSnapshot.privacy.migratesLegacyUserDefaults === true, "Profile storage should migrate the legacy local store.");
 assert(storageSnapshot.privacy.storesRawPhoto === false, "Profile storage must not store raw photos.");
 assert(storageSnapshot.privacy.uploadsLiveCameraFrame === false, "Profile storage must not upload live frames.");
 assert(storageSnapshot.privacy.storesIdentityData === false, "Profile storage must not store identity data.");
@@ -288,12 +295,14 @@ const diagnosticsReport = makeSinglePhoneAiDiagnosticsReport({
   onlineReferencePlan: plan,
   onlineInspirationHealthSnapshot: availableProviderHealthSnapshot,
   personalProfile: diagnosticProfile,
+  personalProfileStoreProtection: "keychain_encrypted_this_device_only",
   captureCoachingSummary: captureCoachingSummaryFixture(),
   generatedAt: "2026-08-29T00:00:00.000Z",
 });
 assert(diagnosticsReport.overallStatus === "passed", "Single-phone diagnostics should pass when every local flow is healthy.");
-assert(diagnosticsReport.checks.length === 6, "Single-phone diagnostics should cover the expected AI test cases.");
+assert(diagnosticsReport.checks.length === 7, "Single-phone diagnostics should cover the expected AI test cases.");
 assert(diagnosticsReport.checks.every((check) => check.status === "passed"), "Every healthy diagnostic check should pass.");
+assert(diagnosticsReport.checks.find((check) => check.id === "learning_store").detail === "Keychain encrypted", "Diagnostics should confirm encrypted learning storage.");
 assert(diagnosticsReport.privacy.singlePhoneOnly === true, "Diagnostics report must stay single-phone.");
 assert(diagnosticsReport.privacy.uploadsLiveCameraFrame === false, "Diagnostics report must not upload live camera frames.");
 
@@ -400,6 +409,7 @@ function makePersonalVisualProfileStorageSnapshot(profile) {
   const storedProfile = sanitizeProfileForLocalStorage(profile);
   return {
     storageKey: personalVisualProfileStoragePolicy.storageKey,
+    storageProtection: personalVisualProfileStoragePolicy.preferredProtection,
     profile: storedProfile,
     estimatedJsonBytes: JSON.stringify(storedProfile).length,
     privacy: personalVisualProfileStoragePolicy.privacy,
@@ -584,6 +594,7 @@ function makeSinglePhoneAiDiagnosticsReport({
   onlineReferencePlan,
   onlineInspirationHealthSnapshot,
   personalProfile,
+  personalProfileStoreProtection = personalVisualProfileStoragePolicy.preferredProtection,
   captureCoachingSummary,
   generatedAt = new Date().toISOString(),
 }) {
@@ -598,6 +609,7 @@ function makeSinglePhoneAiDiagnosticsReport({
     onlineReferencePlanDiagnosticCheck(onlineReferencePlan),
     onlineProviderHealthDiagnosticCheck(onlineInspirationHealthSnapshot),
     localLearningDiagnosticCheck(personalProfile),
+    learningStoreDiagnosticCheck(personalProfile, personalProfileStoreProtection),
     captureCoachingDiagnosticCheck(captureCoachingSummary),
   ];
 
@@ -809,6 +821,26 @@ function localLearningDiagnosticCheck(profile) {
     title: "Local Learning",
     status: profile.totalEvents > 0 ? "passed" : "attention",
     detail: `${profile.totalEvents} events`,
+  };
+}
+
+function learningStoreDiagnosticCheck(profile, protection) {
+  if (!profile.consent.learningEnabled) {
+    return {
+      id: "learning_store",
+      title: "Learning Store",
+      status: "attention",
+      detail: "Learning off",
+    };
+  }
+
+  const encryptedAtRest = protection === "keychain_encrypted_this_device_only";
+
+  return {
+    id: "learning_store",
+    title: "Learning Store",
+    status: encryptedAtRest ? "passed" : "attention",
+    detail: encryptedAtRest ? "Keychain encrypted" : "Local file fallback",
   };
 }
 

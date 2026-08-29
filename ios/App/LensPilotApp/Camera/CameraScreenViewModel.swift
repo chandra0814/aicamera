@@ -374,6 +374,7 @@ final class CameraScreenViewModel: ObservableObject {
             onlineReferencePlan: onlineReferencePlan,
             onlineInspirationHealthSnapshot: onlineInspirationHealthSnapshot,
             personalProfile: personalProfile,
+            personalProfileStoreProtection: Self.personalProfileStore().protection,
             captureCoachingSummary: diagnosticCaptureReview?.coachingSummary
         )
     }
@@ -873,7 +874,7 @@ final class CameraScreenViewModel: ObservableObject {
     }
 
     private static func loadPersonalProfile() -> PersonalVisualPreferenceProfile? {
-        try? PersonalVisualProfileStore().loadProfile()
+        try? personalProfileStore().loadProfile()
     }
 
     private static func loadCalibrationQueueProgress() -> CalibrationCaptureQueueProgress {
@@ -885,10 +886,14 @@ final class CameraScreenViewModel: ObservableObject {
         personalProfile = sanitizedProfile
 
         do {
-            try PersonalVisualProfileStore().saveProfile(sanitizedProfile)
+            try Self.personalProfileStore().saveProfile(sanitizedProfile)
         } catch {
             errorMessage = "Personal learning profile could not be saved."
         }
+    }
+
+    private static func personalProfileStore() -> PersonalVisualProfileStore {
+        PersonalVisualProfileStore.defaultSecureStore()
     }
 
     private func recordCalibrationQueueCaptureIfNeeded() {
