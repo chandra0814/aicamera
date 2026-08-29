@@ -59,6 +59,9 @@ struct CameraScreen: View {
                 onRejectResult: {
                     viewModel.rejectLatestCaptureResult()
                 },
+                onRejectWithReason: { reason in
+                    viewModel.rejectLatestCaptureResult(reason: reason)
+                },
                 onLabelCalibration: {
                     viewModel.dismissCaptureReview()
                     DispatchQueue.main.async {

@@ -469,10 +469,11 @@ final class CameraScreenViewModel: ObservableObject {
         captureReview = nil
     }
 
-    func rejectLatestCaptureResult() {
+    func rejectLatestCaptureResult(reason: GuidanceAction.Reason? = nil) {
         recordPersonalLearningEvent(
             outcome: .rejectedGuidance,
-            rejectedGuidanceReason: latestGuidanceAction?.reason,
+            rejectedGuidanceReason: reason == nil ? latestGuidanceAction?.reason : nil,
+            customerCorrectionReason: reason,
             userRating: 1,
             onlineReferenceUsed: hasLoadedOnlineInspiration
         )
@@ -595,6 +596,7 @@ final class CameraScreenViewModel: ObservableObject {
         outcome: PersonalLearningEvent.Outcome,
         acceptedGuidanceReason: GuidanceAction.Reason? = nil,
         rejectedGuidanceReason: GuidanceAction.Reason? = nil,
+        customerCorrectionReason: GuidanceAction.Reason? = nil,
         userRating: Double? = nil,
         onlineReferenceUsed: Bool = false
     ) {
@@ -607,6 +609,7 @@ final class CameraScreenViewModel: ObservableObject {
             promptRequirements: promptRequirements(for: shotSpec, prompt: intentText),
             acceptedGuidanceReason: acceptedGuidanceReason,
             rejectedGuidanceReason: rejectedGuidanceReason,
+            customerCorrectionReason: customerCorrectionReason,
             selectedStyle: shotSpec.style.name,
             selectedColorIntent: shotSpec.style.colorIntent,
             selectedFraming: shotSpec.composition.framing,

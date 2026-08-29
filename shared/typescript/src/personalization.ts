@@ -35,6 +35,7 @@ export interface PersonalLearningEvent {
   promptRequirements: string[];
   acceptedGuidanceReason?: GuidanceAction["reason"];
   rejectedGuidanceReason?: GuidanceAction["reason"];
+  customerCorrectionReason?: GuidanceAction["reason"];
   selectedStyle?: ShotSpec["style"]["name"];
   selectedColorIntent?: ShotSpec["style"]["colorIntent"];
   selectedFraming?: ShotSpec["composition"]["framing"];
@@ -249,6 +250,12 @@ export class PersonalVisualLearningEngine {
 
     if (event.rejectedGuidanceReason) {
       bump(next.guidanceReasonAffinities, event.rejectedGuidanceReason, -0.08 * Math.max(0.25, Math.abs(signal)));
+    }
+
+    if (event.customerCorrectionReason) {
+      const correctionSignal = Math.max(0.4, Math.abs(signal));
+      bump(next.guidanceReasonAffinities, event.customerCorrectionReason, 0.10 * correctionSignal);
+      bump(next.requirementAffinities, `customer_correction_${event.customerCorrectionReason}`, 0.05 * correctionSignal);
     }
 
     return next;

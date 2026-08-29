@@ -6,6 +6,7 @@ public struct CaptureResultReviewView: View {
     private let bestImage: Image?
     private let onKeepResult: (() -> Void)?
     private let onRejectResult: (() -> Void)?
+    private let onRejectWithReason: ((GuidanceAction.Reason) -> Void)?
     private let onLabelCalibration: (() -> Void)?
     private let onDone: () -> Void
 
@@ -14,6 +15,7 @@ public struct CaptureResultReviewView: View {
         bestImage: Image? = nil,
         onKeepResult: (() -> Void)? = nil,
         onRejectResult: (() -> Void)? = nil,
+        onRejectWithReason: ((GuidanceAction.Reason) -> Void)? = nil,
         onLabelCalibration: (() -> Void)? = nil,
         onDone: @escaping () -> Void
     ) {
@@ -21,6 +23,7 @@ public struct CaptureResultReviewView: View {
         self.bestImage = bestImage
         self.onKeepResult = onKeepResult
         self.onRejectResult = onRejectResult
+        self.onRejectWithReason = onRejectWithReason
         self.onLabelCalibration = onLabelCalibration
         self.onDone = onDone
     }
@@ -84,7 +87,28 @@ public struct CaptureResultReviewView: View {
             }
 
             HStack(spacing: 10) {
-                if let onRejectResult {
+                if let onRejectWithReason {
+                    Menu {
+                        ForEach(Self.feedbackReasons, id: \.rawValue) { reason in
+                            Button {
+                                onRejectWithReason(reason)
+                            } label: {
+                                Label(reason.feedbackTitle, systemImage: reason.feedbackIconName)
+                            }
+                        }
+
+                        if let onRejectResult {
+                            Button(role: .destructive, action: onRejectResult) {
+                                Label("Not Sure", systemImage: "questionmark.circle")
+                            }
+                        }
+                    } label: {
+                        Label("Needs Work", systemImage: "hand.thumbsdown")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .accessibilityLabel("Tell LensPilot what needs work")
+                } else if let onRejectResult {
                     Button(action: onRejectResult) {
                         Label("Needs Work", systemImage: "hand.thumbsdown")
                             .frame(maxWidth: .infinity)
@@ -104,5 +128,69 @@ public struct CaptureResultReviewView: View {
             }
         }
         .padding(18)
+    }
+
+    private static let feedbackReasons: [GuidanceAction.Reason] = [
+        .improveFaceLight,
+        .reduceClutter,
+        .levelHorizon,
+        .improvePose,
+        .reduceMotionBlur,
+        .protectHighlights,
+        .matchReference,
+        .increaseSky,
+        .improveSubjectBackgroundSeparation
+    ]
+}
+
+private extension GuidanceAction.Reason {
+    var feedbackTitle: String {
+        switch self {
+        case .improveSubjectBackgroundSeparation:
+            return "Framing"
+        case .levelHorizon:
+            return "Horizon"
+        case .protectHighlights:
+            return "Exposure"
+        case .improveFaceLight:
+            return "Lighting"
+        case .reduceClutter:
+            return "Background"
+        case .matchReference:
+            return "Reference Match"
+        case .improvePose:
+            return "Pose"
+        case .increaseSky:
+            return "More Sky"
+        case .reduceMotionBlur:
+            return "Sharpness"
+        case .readyToCapture:
+            return "Timing"
+        }
+    }
+
+    var feedbackIconName: String {
+        switch self {
+        case .improveSubjectBackgroundSeparation:
+            return "viewfinder"
+        case .levelHorizon:
+            return "gyroscope"
+        case .protectHighlights:
+            return "sun.max"
+        case .improveFaceLight:
+            return "light.max"
+        case .reduceClutter:
+            return "rectangle.compress.vertical"
+        case .matchReference:
+            return "photo.on.rectangle"
+        case .improvePose:
+            return "figure.stand"
+        case .increaseSky:
+            return "cloud.sun"
+        case .reduceMotionBlur:
+            return "camera.aperture"
+        case .readyToCapture:
+            return "timer"
+        }
     }
 }

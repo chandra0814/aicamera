@@ -39,7 +39,7 @@
 - AI Shot Preview V1 now produces a deterministic same-phone `TargetPreview` contract and renders target framing, horizon, achievability, lens, tone, and depth cues over the live camera without generative or cloud claims.
 - Same-phone preview adjustments now let the user refine the target with brighter, more sky, less background blur, natural color, and more drama commands from the camera screen; the updated ShotSpec/ShotPlan remains capture-realistic by default.
 - Personal Visual AI now persists the learned aggregate profile locally through a sanitized profile store that strips cloud-sync state, caps stored JSON size, drops unknown keys, and never stores raw photos, live frames, or identity data.
-- Capture review now lets the user mark a result as Keep or Needs Work, feeding positive and negative same-phone feedback into the local learned profile.
+- Capture review now lets the user mark a result as Keep or Needs Work, including specific correction reasons that feed same-phone feedback into the local learned profile.
 
 ## Single-Phone Verification Checklist
 
@@ -55,7 +55,7 @@
 - AI Shot Preview V1 is capture-realistic by default, uses the ShotPlan composition target, and explicitly marks previews that would require AI enhancement after capture.
 - Preview adjustment controls run locally, preserve the single-phone privacy invariant, and do not upload raw camera frames or private reference photos.
 - Learned profile persistence stores only sanitized aggregate preference signals on the same phone and strips cloud personalization sync.
-- Capture feedback records structured ratings and guidance outcomes only; it does not store the captured photo as a learning event.
+- Capture feedback records structured ratings, guidance outcomes, and selected correction reasons only; it does not store the captured photo as a learning event.
 
 ## MVP Boundary
 

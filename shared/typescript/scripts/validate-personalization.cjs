@@ -77,6 +77,7 @@ const rejectedProfile = updatedProfile(emptyProfile(localLearningConsent), {
   outcome: "rejected_guidance",
   rejectedGuidanceReason: "reduce_clutter",
   acceptedGuidanceReason: undefined,
+  customerCorrectionReason: undefined,
   selectedTargetMatch: 0.42,
   userRating: 1,
   onlineReferenceUsed: false,
@@ -86,6 +87,24 @@ assert((rejectedProfile.styleAffinities.cinematic ?? 0) < 0, "Rejected results s
 assert((rejectedProfile.requirementAffinities.clean_background ?? 0) < 0, "Rejected results should reduce requirement affinity.");
 assert((rejectedProfile.guidanceReasonAffinities.reduce_clutter ?? 0) < 0, "Rejected guidance should reduce reason affinity.");
 assert(!guidanceCalibration(rejectedProfile).globalReasonBoosts.reduce_clutter, "Negative feedback should not become a positive guidance boost.");
+
+const correctionProfile = updatedProfile(emptyProfile(localLearningConsent), {
+  ...event,
+  id: "learn_customer_correction_reason",
+  outcome: "rejected_guidance",
+  acceptedGuidanceReason: undefined,
+  rejectedGuidanceReason: undefined,
+  customerCorrectionReason: "improve_face_light",
+  selectedTargetMatch: 0.36,
+  userRating: 1,
+  onlineReferenceUsed: false,
+}, localLearningConsent);
+assert(correctionProfile.totalEvents === 1, "Customer correction feedback should count as a local structured event.");
+assert((correctionProfile.styleAffinities.cinematic ?? 0) < 0, "A rejected result should still reduce the current style signal.");
+assert((correctionProfile.guidanceReasonAffinities.improve_face_light ?? 0) > 0, "Customer correction should increase the selected future guidance reason.");
+assert((correctionProfile.requirementAffinities.customer_correction_improve_face_light ?? 0) > 0, "Customer correction should store a safe aggregate requirement signal.");
+assert((guidanceCalibration(correctionProfile).globalReasonBoosts.improve_face_light ?? 0) > 0, "Customer correction should become a small personal guidance boost.");
+assert((guidanceCalibration(correctionProfile).globalReasonBoosts.improve_face_light ?? 0) <= 0.04, "Customer correction boost must stay secondary.");
 
 const unsafeStoredProfile = {
   ...profile,
@@ -245,6 +264,7 @@ assert(thumbnailCache.get("https://example.test/second.jpg")[0] === 2, "Thumbnai
 
 console.log(JSON.stringify({
   personalLearning: true,
+  correctiveFeedbackLearning: true,
   localProfileStorage: storageSnapshot.privacy,
   onlineReferencePlan: plan.reason,
   onlineSourceAdapter: [...new Set(rankedReferences.map((result) => result.source))].join("+"),
@@ -348,6 +368,11 @@ function updatedProfile(profile, event, consent = profile.consent) {
   for (const requirement of event.promptRequirements) bump(next.requirementAffinities, requirement, 0.04 * signal);
   if (event.acceptedGuidanceReason) bump(next.guidanceReasonAffinities, event.acceptedGuidanceReason, 0.08 * Math.max(0.25, signal));
   if (event.rejectedGuidanceReason) bump(next.guidanceReasonAffinities, event.rejectedGuidanceReason, -0.08 * Math.max(0.25, Math.abs(signal)));
+  if (event.customerCorrectionReason) {
+    const correctionSignal = Math.max(0.4, Math.abs(signal));
+    bump(next.guidanceReasonAffinities, event.customerCorrectionReason, 0.10 * correctionSignal);
+    bump(next.requirementAffinities, `customer_correction_${event.customerCorrectionReason}`, 0.05 * correctionSignal);
+  }
 
   return next;
 }

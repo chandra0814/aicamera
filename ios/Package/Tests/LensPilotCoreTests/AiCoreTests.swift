@@ -375,6 +375,42 @@ final class AiCoreTests: XCTestCase {
         XCTAssertEqual(profile.guidanceCalibration().scoreBoost(for: action, domain: .portrait), 0, accuracy: 0.0001)
     }
 
+    func testPersonalVisualLearningBoostsCustomerCorrectionReasonAfterRejectedResult() {
+        let engine = PersonalVisualLearningEngine()
+        let event = PersonalLearningEvent(
+            id: "learn_customer_correction_reason",
+            timestamp: Date(timeIntervalSince1970: 0),
+            domain: .portrait,
+            outcome: .rejectedGuidance,
+            promptRequirements: ["cinematic", "clean_background"],
+            customerCorrectionReason: .improveFaceLight,
+            selectedStyle: .cinematic,
+            selectedColorIntent: .warmHighlightsCoolShadows,
+            selectedFraming: .environmental,
+            selectedTargetMatch: 0.36,
+            userRating: 1,
+            onlineReferenceUsed: false
+        )
+
+        let profile = engine.updatedProfile(
+            from: .empty(consent: .localLearningEnabled),
+            with: event,
+            consent: .localLearningEnabled
+        )
+        let action = Self.guidanceAction(
+            id: "improve_face_light",
+            action: .moveLeft,
+            reason: .improveFaceLight
+        )
+
+        XCTAssertEqual(profile.totalEvents, 1)
+        XCTAssertLessThan(profile.styleAffinities["cinematic"] ?? 0, 0)
+        XCTAssertGreaterThan(profile.guidanceReasonAffinities["improve_face_light"] ?? 0, 0)
+        XCTAssertGreaterThan(profile.requirementAffinities["customer_correction_improve_face_light"] ?? 0, 0)
+        XCTAssertGreaterThan(profile.guidanceCalibration().scoreBoost(for: action, domain: .portrait), 0)
+        XCTAssertLessThanOrEqual(profile.guidanceCalibration().scoreBoost(for: action, domain: .portrait), 0.04)
+    }
+
     func testPersonalVisualProfileStorePersistsSanitizedLocalProfile() throws {
         var storedData: Data?
         let store = PersonalVisualProfileStore(

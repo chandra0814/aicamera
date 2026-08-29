@@ -27,6 +27,7 @@ public struct PersonalLearningEvent: Codable, Equatable, Sendable, Identifiable 
     public let promptRequirements: [String]
     public let acceptedGuidanceReason: GuidanceAction.Reason?
     public let rejectedGuidanceReason: GuidanceAction.Reason?
+    public let customerCorrectionReason: GuidanceAction.Reason?
     public let selectedStyle: ShotSpec.Name?
     public let selectedColorIntent: ShotSpec.ColorIntent?
     public let selectedFraming: ShotSpec.Framing?
@@ -43,6 +44,7 @@ public struct PersonalLearningEvent: Codable, Equatable, Sendable, Identifiable 
         promptRequirements: [String] = [],
         acceptedGuidanceReason: GuidanceAction.Reason? = nil,
         rejectedGuidanceReason: GuidanceAction.Reason? = nil,
+        customerCorrectionReason: GuidanceAction.Reason? = nil,
         selectedStyle: ShotSpec.Name? = nil,
         selectedColorIntent: ShotSpec.ColorIntent? = nil,
         selectedFraming: ShotSpec.Framing? = nil,
@@ -58,6 +60,7 @@ public struct PersonalLearningEvent: Codable, Equatable, Sendable, Identifiable 
         self.promptRequirements = promptRequirements
         self.acceptedGuidanceReason = acceptedGuidanceReason
         self.rejectedGuidanceReason = rejectedGuidanceReason
+        self.customerCorrectionReason = customerCorrectionReason
         self.selectedStyle = selectedStyle
         self.selectedColorIntent = selectedColorIntent
         self.selectedFraming = selectedFraming
@@ -281,6 +284,12 @@ public struct PersonalVisualLearningEngine: Sendable {
 
         if let rejectedGuidanceReason = event.rejectedGuidanceReason {
             bump(&guidanceReasonAffinities, key: rejectedGuidanceReason.rawValue, amount: -0.08 * max(0.25, abs(signal)))
+        }
+
+        if let customerCorrectionReason = event.customerCorrectionReason {
+            let correctionSignal = max(0.4, abs(signal))
+            bump(&guidanceReasonAffinities, key: customerCorrectionReason.rawValue, amount: 0.10 * correctionSignal)
+            bump(&requirementAffinities, key: "customer_correction_\(customerCorrectionReason.rawValue)", amount: 0.05 * correctionSignal)
         }
 
         return PersonalVisualPreferenceProfile(
