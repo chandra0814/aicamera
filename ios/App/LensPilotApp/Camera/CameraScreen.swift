@@ -54,6 +54,7 @@ struct CameraScreen: View {
             CaptureResultReviewView(
                 rankedShots: review.rankedShots,
                 bestImage: image(from: review.bestPhotoData),
+                coachingSummary: review.coachingSummary,
                 onKeepResult: {
                     viewModel.keepLatestCaptureResult()
                 },

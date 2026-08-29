@@ -117,6 +117,7 @@ final class AiCoreTests: XCTestCase {
 
         XCTAssertEqual(manifest.reviewedSampleCount, 1)
         XCTAssertEqual(manifest.reviewedDomains, ["portrait"])
+        XCTAssertEqual(manifest.collectionPlan.requiredScenarios, CalibrationCaptureScenario.allCases.map(\.rawValue))
         XCTAssertEqual(manifest.targetMatchCalibration.backgroundClutterPenalty, 0.25, accuracy: 0.0001)
         XCTAssertGreaterThan(calibratedResult.targetMatch.background, defaultResult.targetMatch.background)
         XCTAssertGreaterThan(calibratedResult.targetMatch.intentMatch, defaultResult.targetMatch.intentMatch)
@@ -135,6 +136,14 @@ final class AiCoreTests: XCTestCase {
             from: Self.calibrationManifestData(singlePhoneOnly: false)
         )) { error in
             XCTAssertEqual(error as? TargetMatchCalibrationManifestError, .singlePhoneCalibrationRequired)
+        }
+    }
+
+    func testTargetMatchCalibrationManifestRejectsUnknownScenario() {
+        XCTAssertThrowsError(try TargetMatchCalibrationManifest.decode(
+            from: Self.calibrationManifestData(requiredScenarios: ["portrait", "two_phone_setup"])
+        )) { error in
+            XCTAssertEqual(error as? TargetMatchCalibrationManifestError, .invalidScenario("two_phone_setup"))
         }
     }
 
@@ -226,7 +235,7 @@ final class AiCoreTests: XCTestCase {
         XCTAssertFalse(decoded.privacy.identityRecognitionAllowed)
     }
 
-    func testCaptureReviewBuilderRanksBurstFrames() {
+    func testCaptureReviewBuilderRanksBurstFrames() throws {
         let aiResult = LensPilotAiCore().run(
             prompt: "Give me a cinematic portrait with natural skin and a clean background.",
             sceneState: Self.portraitScene(),
@@ -247,6 +256,17 @@ final class AiCoreTests: XCTestCase {
         XCTAssertEqual(review.rankedShots.first?.label, .best)
         XCTAssertNotNil(review.bestShotId)
         XCTAssertTrue(review.rankedShots.allSatisfy { $0.score >= 0 && $0.score <= 1 })
+
+        let summary = try XCTUnwrap(review.coachingSummary)
+        XCTAssertEqual(summary.headline, "Needs another pass")
+        XCTAssertEqual(summary.topCorrectionReason, .improveFaceLight)
+        XCTAssertEqual(summary.nextShotInstruction, "Next shot: turn toward cleaner light")
+        XCTAssertTrue(summary.positiveSignals.contains { $0.id == "pose" })
+        XCTAssertTrue(summary.improvementSignals.contains { $0.id == "lighting" })
+        XCTAssertTrue(summary.privacy.singlePhoneOnly)
+        XCTAssertFalse(summary.privacy.storesRawPhoto)
+        XCTAssertFalse(summary.privacy.uploadsLiveCameraFrame)
+        XCTAssertFalse(summary.privacy.identityRecognitionAllowed)
     }
 
     func testCaptureReviewBuilderHandlesEmptyBurst() {
@@ -254,6 +274,7 @@ final class AiCoreTests: XCTestCase {
 
         XCTAssertTrue(review.rankedShots.isEmpty)
         XCTAssertNil(review.bestShotId)
+        XCTAssertNil(review.coachingSummary)
     }
 
     func testCalibrationCaptureQueueGuidesRequiredRealCaptureScenarios() {
@@ -913,9 +934,14 @@ final class AiCoreTests: XCTestCase {
 
     private static func calibrationManifestData(
         singlePhoneOnly: Bool = true,
-        backgroundClutterPenalty: Double = 0.55
+        backgroundClutterPenalty: Double = 0.55,
+        requiredScenarios: [String]? = nil
     ) -> Data {
         let singlePhoneValue = singlePhoneOnly ? "true" : "false"
+        let scenarioIds = requiredScenarios ?? CalibrationCaptureScenario.allCases.map(\.rawValue)
+        let requiredScenarioValues = scenarioIds
+            .map { "\"\($0)\"" }
+            .joined(separator: ", ")
         let json = """
         {
           "version": "2026.08.17",
@@ -923,7 +949,8 @@ final class AiCoreTests: XCTestCase {
             "singlePhoneOnly": \(singlePhoneValue),
             "realCaptureTargetCount": 24,
             "minimumBlindReviewers": 2,
-            "requiredDomains": ["portrait", "landscape", "lifestyle", "night"]
+            "requiredDomains": ["portrait", "landscape", "lifestyle", "night"],
+            "requiredScenarios": [\(requiredScenarioValues)]
           },
           "targetMatchCalibration": {
             "horizonRollFullPenaltyDegrees": 12,

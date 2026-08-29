@@ -15,19 +15,8 @@ if (shotSpec.subject.identityRecognitionAllowed !== false) {
 }
 
 const recommendedLens = deviceCapability.physicalCameras.some((camera) => camera.lensType === "telephoto") ? "telephoto" : "wide";
-const horizon = clamp01(1 - Math.abs(sceneState.scene.horizon.rollDegrees) / calibration.horizonRollFullPenaltyDegrees);
-const exposure = clamp01(
-  1 -
-    sceneState.scene.lighting.highlightClipping * calibration.highlightClippingPenalty -
-    sceneState.scene.lighting.shadowClipping * calibration.shadowClippingPenalty
-);
-const targetMatch = average([
-  horizon,
-  exposure,
-  sceneState.composition.subjectPlacementScore,
-  sceneState.composition.balanceScore,
-  1 - sceneState.motion.blurRisk * calibration.motionBlurPenalty,
-]);
+const targetMatchScore = makeTargetMatchScore(sceneState, shotSpec, calibration);
+const targetMatch = targetMatchScore.overall;
 const targetPreview = {
   label: "capture_realistic",
   estimatedAchievability: 0.84,
@@ -44,6 +33,7 @@ const nextAction = sceneState.background.clutterScore > 0.55 && sceneState.safet
   : "hold_steady";
 const guidanceStabilized = validateGuidanceStabilizer();
 const previewAdjustments = validatePreviewAdjustments();
+const captureCoaching = validateCaptureCoaching(targetMatchScore);
 
 if (targetPreview.label !== "capture_realistic") {
   throw new Error("Target preview must stay capture-realistic for natural mode.");
@@ -73,6 +63,11 @@ console.log(JSON.stringify({
   nextAction,
   guidanceStabilized,
   previewAdjustments,
+  captureCoaching: {
+    headline: captureCoaching.headline,
+    nextShotInstruction: captureCoaching.nextShotInstruction,
+    singlePhoneOnly: captureCoaching.privacy.singlePhoneOnly,
+  },
 }, null, 2));
 
 function average(values) {
@@ -80,7 +75,201 @@ function average(values) {
 }
 
 function clamp01(value) {
-  return Math.max(0, Math.min(1, value));
+  return Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0));
+}
+
+function makeTargetMatchScore(sceneState, shotSpec, calibration) {
+  const subject = sceneState.subjects[0];
+  const target = shotSpec.domain === "portrait"
+    ? { x: 0.3, y: 0.18, width: 0.4, height: 0.66 }
+    : subject?.bounds ?? { x: 0.05, y: 0.05, width: 0.9, height: 0.9 };
+  const subjectPosition = subject ? rectSimilarity(subject.bounds, target) : 0.25;
+  const horizon = sceneState.scene.horizon
+    ? clamp01(1 - Math.abs(sceneState.scene.horizon.rollDegrees) / Math.max(calibration.horizonRollFullPenaltyDegrees, 0.001))
+    : calibration.missingHorizonScore;
+  const exposure = clamp01(
+    1 -
+      sceneState.scene.lighting.highlightClipping * calibration.highlightClippingPenalty -
+      sceneState.scene.lighting.shadowClipping * calibration.shadowClippingPenalty
+  );
+  const background = clamp01(
+    1 -
+      sceneState.background.clutterScore * calibration.backgroundClutterPenalty -
+      sceneState.background.poleBehindHeadRisk * calibration.poleBehindHeadPenalty
+  );
+  const lighting = clamp01(
+    (sceneState.scene.lighting.faceLightQuality ?? calibration.missingFaceLightQuality) -
+      sceneState.scene.lighting.dynamicRangeRisk * calibration.dynamicRangeLightingPenalty
+  );
+  const pose = clamp01(subject?.face?.eyeOpenProbability ?? calibration.missingPoseScore);
+  const sharpnessProbability = clamp01(1 - sceneState.motion.blurRisk * calibration.motionBlurPenalty);
+  const composition = average([subjectPosition, sceneState.composition.balanceScore, sceneState.composition.subjectPlacementScore]);
+  const cameraAngle = shotSpec.cameraIntent.perspective === "eye_level"
+    ? clamp01(1 - Math.abs(sceneState.cameraState.pitchDegrees ?? 0) / Math.max(calibration.eyeLevelPitchFullPenaltyDegrees, 0.001))
+    : calibration.nonPortraitCameraAngleScore;
+  const intentMatch = average([composition, lighting, background, exposure]);
+  const scores = {
+    composition,
+    subjectPosition,
+    cameraAngle,
+    lighting,
+    background,
+    horizon,
+    pose,
+    sharpnessProbability,
+    exposure,
+    intentMatch,
+  };
+
+  return { ...scores, overall: average(Object.values(scores)) };
+}
+
+function rectSimilarity(a, b) {
+  const centerDistance = Math.hypot(a.x + a.width / 2 - (b.x + b.width / 2), a.y + a.height / 2 - (b.y + b.height / 2));
+  const sizeDistance = Math.abs(a.width * a.height - b.width * b.height);
+  return clamp01(1 - centerDistance * 1.8 - sizeDistance);
+}
+
+function validateCaptureCoaching(targetMatchScore) {
+  const review = makeCaptureReview(
+    [
+      { id: "capture_1", sequenceIndex: 0, byteCount: 18_400 },
+      { id: "capture_2", sequenceIndex: 1, byteCount: 18_940 },
+      { id: "capture_3", sequenceIndex: 2, byteCount: 18_280 },
+      { id: "capture_4", sequenceIndex: 3, byteCount: 18_120 },
+    ],
+    targetMatchScore
+  );
+
+  assert(review.rankedShots.length === 3, "Capture review should keep the top three burst frames.");
+  assert(review.rankedShots[0].label === "best", "Capture review should mark the best frame.");
+  assert(review.coachingSummary.headline === "Needs another pass", "Capture coaching should summarize low target match.");
+  assert(review.coachingSummary.topCorrectionReason === "improve_face_light", "Capture coaching should pick the weakest next correction.");
+  assert(review.coachingSummary.nextShotInstruction === "Next shot: turn toward cleaner light", "Capture coaching should expose a concrete next shot instruction.");
+  assert(review.coachingSummary.positiveSignals.some((signal) => signal.id === "pose"), "Capture coaching should preserve the strongest positive signal.");
+  assert(review.coachingSummary.improvementSignals.some((signal) => signal.id === "lighting"), "Capture coaching should preserve the weakest improvement signal.");
+  assert(review.coachingSummary.privacy.singlePhoneOnly === true, "Capture coaching must stay single-phone only.");
+  assert(review.coachingSummary.privacy.storesRawPhoto === false, "Capture coaching must not store raw photos.");
+  assert(review.coachingSummary.privacy.uploadsLiveCameraFrame === false, "Capture coaching must not upload live camera frames.");
+  assert(review.coachingSummary.privacy.identityRecognitionAllowed === false, "Capture coaching must not allow identity recognition.");
+
+  return review.coachingSummary;
+}
+
+function makeCaptureReview(frames, targetMatchScore) {
+  if (!frames.length) {
+    return { rankedShots: [] };
+  }
+
+  const rankedShots = frames
+    .map((frame) => {
+      const qualitySignal = ((frame.byteCount + frame.sequenceIndex * 31) % 23) / 100;
+      const orderPenalty = frame.sequenceIndex * 0.015;
+      const candidate = {
+        id: frame.id,
+        sharpness: clamp01(0.76 + qualitySignal - orderPenalty),
+        exposure: targetMatchScore.exposure,
+        faceQuality: targetMatchScore.pose,
+        poseScore: targetMatchScore.pose,
+        composition: targetMatchScore.composition,
+        background: targetMatchScore.background,
+        intentMatch: targetMatchScore.intentMatch,
+      };
+      return {
+        id: candidate.id,
+        score: average([
+          candidate.sharpness,
+          candidate.exposure,
+          candidate.faceQuality,
+          candidate.poseScore,
+          candidate.composition,
+          candidate.background,
+          candidate.intentMatch,
+        ]),
+        label: "alternative",
+        reasons: captureShotReasons(candidate),
+      };
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3)
+    .map((shot, index) => ({ ...shot, label: index === 0 ? "best" : "alternative" }));
+
+  return {
+    rankedShots,
+    bestShotId: rankedShots[0]?.id,
+    coachingSummary: makeCaptureCoachingSummary(rankedShots, targetMatchScore),
+  };
+}
+
+function makeCaptureCoachingSummary(rankedShots, targetMatchScore) {
+  const bestShot = rankedShots[0];
+  const improvementSignals = captureMetricSignals(targetMatchScore)
+    .filter((signal) => signal.value < 0.78)
+    .sort((a, b) => a.value - b.value || a.id.localeCompare(b.id))
+    .slice(0, 2);
+  const positiveSignals = captureMetricSignals(targetMatchScore)
+    .filter((signal) => signal.value >= 0.8)
+    .sort((a, b) => b.value - a.value || a.id.localeCompare(b.id))
+    .slice(0, 3);
+  const topCorrectionReason = improvementSignals[0]?.reason;
+
+  return {
+    headline: targetMatchScore.overall >= 0.88 && bestShot.score >= 0.85
+      ? "Strong match"
+      : targetMatchScore.overall >= 0.72
+        ? "Good direction"
+        : "Needs another pass",
+    bestShotScore: clamp01(bestShot.score),
+    targetMatch: clamp01(targetMatchScore.overall),
+    positiveSignals,
+    improvementSignals,
+    topCorrectionReason,
+    nextShotInstruction: topCorrectionReason ? captureNextShotInstruction(topCorrectionReason) : undefined,
+    privacy: {
+      singlePhoneOnly: true,
+      storesRawPhoto: false,
+      uploadsLiveCameraFrame: false,
+      identityRecognitionAllowed: false,
+    },
+  };
+}
+
+function captureShotReasons(candidate) {
+  const reasons = [];
+  if (candidate.sharpness > 0.82) reasons.push("sharp");
+  if (candidate.exposure > 0.8) reasons.push("well_exposed");
+  if ((candidate.faceQuality ?? 0) > 0.8) reasons.push("good_face_quality");
+  if (candidate.composition > 0.8) reasons.push("strong_composition");
+  if (candidate.intentMatch > 0.8) reasons.push("matches_intent");
+  return reasons.length ? reasons : ["balanced_result"];
+}
+
+function captureMetricSignals(score) {
+  return [
+    { id: "composition", title: "Composition", value: clamp01(score.composition), reason: "improve_subject_background_separation" },
+    { id: "subject_position", title: "Subject Position", value: clamp01(score.subjectPosition), reason: "improve_subject_background_separation" },
+    { id: "camera_angle", title: "Camera Angle", value: clamp01(score.cameraAngle), reason: "match_reference" },
+    { id: "lighting", title: "Lighting", value: clamp01(score.lighting), reason: "improve_face_light" },
+    { id: "background", title: "Background", value: clamp01(score.background), reason: "reduce_clutter" },
+    { id: "horizon", title: "Horizon", value: clamp01(score.horizon), reason: "level_horizon" },
+    { id: "pose", title: "Pose", value: clamp01(score.pose), reason: "improve_pose" },
+    { id: "sharpness", title: "Sharpness", value: clamp01(score.sharpnessProbability), reason: "reduce_motion_blur" },
+    { id: "exposure", title: "Exposure", value: clamp01(score.exposure), reason: "protect_highlights" },
+    { id: "intent_match", title: "Intent Match", value: clamp01(score.intentMatch), reason: "match_reference" },
+  ];
+}
+
+function captureNextShotInstruction(reason) {
+  if (reason === "improve_subject_background_separation") return "Next shot: improve framing";
+  if (reason === "level_horizon") return "Next shot: level the horizon";
+  if (reason === "protect_highlights") return "Next shot: protect highlights";
+  if (reason === "improve_face_light") return "Next shot: turn toward cleaner light";
+  if (reason === "reduce_clutter") return "Next shot: clean the background";
+  if (reason === "match_reference") return "Next shot: match the reference angle";
+  if (reason === "improve_pose") return "Next shot: settle the pose";
+  if (reason === "increase_sky") return "Next shot: show more sky";
+  if (reason === "reduce_motion_blur") return "Next shot: hold steadier";
+  return "Next shot: hold this timing";
 }
 
 function validateGuidanceStabilizer() {

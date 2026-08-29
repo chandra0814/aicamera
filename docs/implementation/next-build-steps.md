@@ -19,6 +19,7 @@
 - `FrameAnalyzer` now produces on-device horizon roll, face quality, pose, segmentation availability, and motion stability metrics for the AI core.
 - Reference photos now use a real `PhotosPicker` flow; the selected image appears as the camera popup and opens in the full same-phone reference viewer.
 - Capture now follows the plan's burst count, ranks the captured frames with the on-device best-shot ranker, and shows a same-phone result review.
+- Result review now includes an after-capture coaching summary with strong signals and the next best correction for the following shot.
 - The live scene bridge is covered by `LensPilotVisionTests`.
 - The AI guidance benchmark suite now covers cluttered portrait, tilted horizon, sunset highlight protection, motion blur, backlit face guidance, and ready-to-capture.
 - Target Match calibration weights are explicit in Swift and TypeScript, with a CI-validated calibration manifest and protocol.
@@ -59,6 +60,7 @@
 - Preview adjustment controls run locally, preserve the single-phone privacy invariant, and do not upload raw camera frames or private reference photos.
 - Learned profile persistence stores only sanitized aggregate preference signals on the same phone and strips cloud personalization sync.
 - Capture feedback records structured ratings, guidance outcomes, and selected correction reasons only; it does not store the captured photo as a learning event.
+- After-capture coaching uses score summaries and ranked-shot metadata only; it does not store or upload raw photos.
 - Calibration queue progress stores selected scenario IDs and counts only; photos remain outside the queue state and exports stay user-triggered.
 - Calibration export metadata may include the selected queue scenario id, but it still excludes raw photos, live frames, identity labels, and online-source data.
 

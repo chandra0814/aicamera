@@ -22,15 +22,16 @@
   - online-inspiration source-diverse result ranking and thumbnail cache eviction
   - deterministic Target Preview privacy, safety label, achievability, and composition-overlay validation
   - same-phone Target Preview adjustment validation for brighter, more sky, less background blur, and natural-color commands
+  - after-capture coaching validation for strong signals, next-shot corrections, and single-phone privacy flags
 - `LensPilotVisionTests` on macOS CI, covering the `SceneDebugState` to native `SceneState` bridge and on-device quality metric mapping.
-- `LensPilotCoreTests` on macOS CI, covering burst capture review ranking, empty-burst handling, guided calibration queue progress, calibration weight tuning, reviewed guidance-priority calibration, guidance stabilization, Personal Visual AI learning including customer correction reasons, online-reference privacy policy, Wikimedia Commons and Openverse online-inspiration parsing, source-diverse online-result ranking, thumbnail cache eviction, calibration sample export, and reviewed calibration sample promotion.
+- `LensPilotCoreTests` on macOS CI, covering burst capture review ranking, after-capture coaching summaries, empty-burst handling, guided calibration queue progress, calibration weight tuning, reviewed guidance-priority calibration, guidance stabilization, Personal Visual AI learning including customer correction reasons, online-reference privacy policy, Wikimedia Commons and Openverse online-inspiration parsing, source-diverse online-result ranking, thumbnail cache eviction, calibration sample export, and reviewed calibration sample promotion.
 - `AiBenchmarkTests` on macOS CI, covering the deterministic single-phone guidance benchmark suite.
 - GitHub Actions `iOS app build`, covering the SwiftUI app target, local package dependency wiring, camera screen, reference picker, popup, and result review compilation.
 
 ## Latest Verification
 
 - GitHub Actions run #39 passed AI fixture validation, Swift package tests, and the iOS app build for commit `c594694`.
-- Local `.\scripts\test-all.ps1` passed JSON validation, TypeScript AI fixture validation, deterministic Target Preview validation, preview adjustment validation, six deterministic AI guidance benchmarks, Target Match calibration validation, calibration promotion validation, guided calibration queue validation, reviewed import normalization, Personal Visual AI validation, local profile storage validation, capture-feedback correction learning validation, and multi-provider public inspiration validation on Windows after scenario metadata wiring.
+- Local `.\scripts\test-all.ps1` passed JSON validation, TypeScript AI fixture validation, deterministic Target Preview validation, preview adjustment validation, after-capture coaching validation, six deterministic AI guidance benchmarks, Target Match calibration validation, calibration promotion validation, guided calibration queue validation, reviewed import normalization, Personal Visual AI validation, local profile storage validation, capture-feedback correction learning validation, and multi-provider public inspiration validation on Windows after result coaching wiring.
 - Swift package tests still need GitHub/macOS CI for this workspace because Windows does not have Swift/Xcode installed.
 
 ## Not Runnable Here

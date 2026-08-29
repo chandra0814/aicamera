@@ -4,6 +4,7 @@ import SwiftUI
 public struct CaptureResultReviewView: View {
     private let rankedShots: [RankedShot]
     private let bestImage: Image?
+    private let coachingSummary: CaptureCoachingSummary?
     private let onKeepResult: (() -> Void)?
     private let onRejectResult: (() -> Void)?
     private let onRejectWithReason: ((GuidanceAction.Reason) -> Void)?
@@ -13,6 +14,7 @@ public struct CaptureResultReviewView: View {
     public init(
         rankedShots: [RankedShot],
         bestImage: Image? = nil,
+        coachingSummary: CaptureCoachingSummary? = nil,
         onKeepResult: (() -> Void)? = nil,
         onRejectResult: (() -> Void)? = nil,
         onRejectWithReason: ((GuidanceAction.Reason) -> Void)? = nil,
@@ -21,6 +23,7 @@ public struct CaptureResultReviewView: View {
     ) {
         self.rankedShots = rankedShots
         self.bestImage = bestImage
+        self.coachingSummary = coachingSummary
         self.onKeepResult = onKeepResult
         self.onRejectResult = onRejectResult
         self.onRejectWithReason = onRejectWithReason
@@ -67,6 +70,10 @@ public struct CaptureResultReviewView: View {
                         .font(.system(size: 48, weight: .regular))
                         .foregroundStyle(.white.opacity(0.85))
                 }
+            }
+
+            if let coachingSummary {
+                coachingSummaryView(coachingSummary)
             }
 
             VStack(spacing: 8) {
@@ -128,6 +135,48 @@ public struct CaptureResultReviewView: View {
             }
         }
         .padding(18)
+    }
+
+    private func coachingSummaryView(_ summary: CaptureCoachingSummary) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Text(summary.headline)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+                Spacer()
+                Text("\(Int((summary.bestShotScore * 100).rounded()))%")
+                    .font(.caption.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+
+            if let nextShotInstruction = summary.nextShotInstruction {
+                Label(nextShotInstruction, systemImage: summary.topCorrectionReason?.feedbackIconName ?? "sparkles")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.85)
+            }
+
+            if !summary.positiveSignals.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(summary.positiveSignals.prefix(3)) { signal in
+                        signalChip(signal)
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func signalChip(_ signal: CaptureCoachingSummary.Signal) -> some View {
+        Label(signal.title, systemImage: signal.reason?.feedbackIconName ?? "checkmark.circle")
+        .font(.caption2.weight(.medium))
+        .foregroundStyle(.secondary)
+        .lineLimit(1)
+        .minimumScaleFactor(0.8)
     }
 
     private static let feedbackReasons: [GuidanceAction.Reason] = [

@@ -4,6 +4,7 @@ public enum TargetMatchCalibrationManifestError: Error, Equatable, Sendable {
     case singlePhoneCalibrationRequired
     case requiredDomainsMissing
     case samplesMissing
+    case invalidScenario(String)
     case invalidWeight(String)
 }
 
@@ -122,6 +123,11 @@ public struct TargetMatchCalibrationManifest: Codable, Equatable, Sendable {
         guard !samples.isEmpty else {
             throw TargetMatchCalibrationManifestError.samplesMissing
         }
+        for scenarioId in collectionPlan.requiredScenarios {
+            guard CalibrationCaptureScenario(rawValue: scenarioId) != nil else {
+                throw TargetMatchCalibrationManifestError.invalidScenario(scenarioId)
+            }
+        }
 
         try requirePositive(targetMatchCalibration.horizonRollFullPenaltyDegrees, "horizonRollFullPenaltyDegrees")
         try requirePositive(targetMatchCalibration.eyeLevelPitchFullPenaltyDegrees, "eyeLevelPitchFullPenaltyDegrees")
@@ -204,17 +210,37 @@ public extension TargetMatchCalibrationManifest {
         public let realCaptureTargetCount: Int
         public let minimumBlindReviewers: Int
         public let requiredDomains: [String]
+        public let requiredScenarios: [String]
 
         public init(
             singlePhoneOnly: Bool,
             realCaptureTargetCount: Int,
             minimumBlindReviewers: Int,
-            requiredDomains: [String]
+            requiredDomains: [String],
+            requiredScenarios: [String] = []
         ) {
             self.singlePhoneOnly = singlePhoneOnly
             self.realCaptureTargetCount = realCaptureTargetCount
             self.minimumBlindReviewers = minimumBlindReviewers
             self.requiredDomains = requiredDomains
+            self.requiredScenarios = requiredScenarios
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            self.singlePhoneOnly = try container.decode(Bool.self, forKey: .singlePhoneOnly)
+            self.realCaptureTargetCount = try container.decode(Int.self, forKey: .realCaptureTargetCount)
+            self.minimumBlindReviewers = try container.decode(Int.self, forKey: .minimumBlindReviewers)
+            self.requiredDomains = try container.decode([String].self, forKey: .requiredDomains)
+            self.requiredScenarios = try container.decodeIfPresent([String].self, forKey: .requiredScenarios) ?? []
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case singlePhoneOnly
+            case realCaptureTargetCount
+            case minimumBlindReviewers
+            case requiredDomains
+            case requiredScenarios
         }
     }
 

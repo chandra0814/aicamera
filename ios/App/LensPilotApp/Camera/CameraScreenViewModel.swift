@@ -10,6 +10,7 @@ struct CaptureReviewPresentation: Identifiable {
     let id: String
     let bestPhotoData: Data
     let rankedShots: [RankedShot]
+    let coachingSummary: CaptureCoachingSummary?
 }
 
 private struct AiCoreConfiguration: Sendable {
@@ -567,7 +568,8 @@ final class CameraScreenViewModel: ObservableObject {
         captureReview = CaptureReviewPresentation(
             id: "review_\(UUID().uuidString.lowercased())",
             bestPhotoData: bestPhotoData,
-            rankedShots: review.rankedShots
+            rankedShots: review.rankedShots,
+            coachingSummary: review.coachingSummary
         )
         recordPersonalLearningEvent(
             outcome: .selectedBestShot,

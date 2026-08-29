@@ -46,6 +46,7 @@ export interface TargetMatchCalibrationManifest {
     realCaptureTargetCount: number;
     minimumBlindReviewers: number;
     requiredDomains: string[];
+    requiredScenarios?: string[];
   };
   targetMatchCalibration: TargetMatchCalibration;
   samples: Array<{
@@ -198,6 +199,41 @@ export interface RankedShot {
   score: number;
   label: "best" | "alternative";
   reasons: string[];
+}
+
+export interface CaptureFrameMetric {
+  id: string;
+  sequenceIndex: number;
+  byteCount: number;
+}
+
+export interface CaptureCoachingSignal {
+  id: string;
+  title: string;
+  value: number;
+  reason?: GuidanceReason;
+}
+
+export interface CaptureCoachingSummary {
+  headline: string;
+  bestShotScore: number;
+  targetMatch?: number;
+  positiveSignals: CaptureCoachingSignal[];
+  improvementSignals: CaptureCoachingSignal[];
+  topCorrectionReason?: GuidanceReason;
+  nextShotInstruction?: string;
+  privacy: {
+    singlePhoneOnly: true;
+    storesRawPhoto: false;
+    uploadsLiveCameraFrame: false;
+    identityRecognitionAllowed: false;
+  };
+}
+
+export interface CaptureReviewResult {
+  rankedShots: RankedShot[];
+  bestShotId?: string;
+  coachingSummary?: CaptureCoachingSummary;
 }
 
 export class IntentEngine {
@@ -635,6 +671,26 @@ export class BestShotRanker {
   }
 }
 
+export class CaptureReviewBuilder {
+  constructor(private readonly ranker = new BestShotRanker()) {}
+
+  makeReview(frames: CaptureFrameMetric[], targetMatch?: TargetMatchScore): CaptureReviewResult {
+    if (!frames.length) {
+      return { rankedShots: [] };
+    }
+
+    const candidates = frames.map((frame) => captureCandidateForFrame(frame, targetMatch));
+    const rankedShots = this.ranker.rank(candidates);
+    const coachingSummary = makeCaptureCoachingSummary(rankedShots, targetMatch);
+
+    return {
+      rankedShots,
+      bestShotId: rankedShots[0]?.id,
+      coachingSummary,
+    };
+  }
+}
+
 export class LensPilotAiCore {
   private readonly intentEngine = new IntentEngine();
   private readonly shotPlanner = new ShotPlanner();
@@ -869,6 +925,137 @@ function shotReasons(candidate: BestShotCandidate): string[] {
   if (candidate.composition > 0.8) reasons.push("strong_composition");
   if (candidate.intentMatch > 0.8) reasons.push("matches_intent");
   return reasons.length ? reasons : ["balanced_result"];
+}
+
+function captureCandidateForFrame(frame: CaptureFrameMetric, targetMatch?: TargetMatchScore): BestShotCandidate {
+  const qualitySignal = ((frame.byteCount + frame.sequenceIndex * 31) % 23) / 100;
+  const orderPenalty = frame.sequenceIndex * 0.015;
+  const sharpness = clamp01(0.76 + qualitySignal - orderPenalty);
+  const exposure = targetMatch?.exposure ?? 0.72;
+  const pose = targetMatch?.pose ?? 0.72;
+  const composition = targetMatch?.composition ?? 0.72;
+  const background = targetMatch?.background ?? 0.72;
+  const intentMatch = targetMatch?.intentMatch ?? targetMatch?.overall ?? 0.72;
+
+  return {
+    id: frame.id,
+    sharpness,
+    exposure,
+    faceQuality: pose,
+    poseScore: pose,
+    composition,
+    background,
+    intentMatch,
+  };
+}
+
+function makeCaptureCoachingSummary(
+  rankedShots: RankedShot[],
+  targetMatch?: TargetMatchScore
+): CaptureCoachingSummary | undefined {
+  const bestShot = rankedShots[0];
+  if (!bestShot) return undefined;
+
+  const improvementSignals = captureImprovementSignals(targetMatch);
+  const topCorrectionReason = improvementSignals[0]?.reason;
+
+  return {
+    headline: captureCoachingHeadline(bestShot.score, targetMatch?.overall),
+    bestShotScore: clamp01(bestShot.score),
+    targetMatch: targetMatch ? clamp01(targetMatch.overall) : undefined,
+    positiveSignals: capturePositiveSignals(targetMatch, bestShot),
+    improvementSignals,
+    topCorrectionReason,
+    nextShotInstruction: topCorrectionReason ? captureNextShotInstruction(topCorrectionReason) : undefined,
+    privacy: {
+      singlePhoneOnly: true,
+      storesRawPhoto: false,
+      uploadsLiveCameraFrame: false,
+      identityRecognitionAllowed: false,
+    },
+  };
+}
+
+function capturePositiveSignals(targetMatch: TargetMatchScore | undefined, bestShot: RankedShot): CaptureCoachingSignal[] {
+  if (targetMatch) {
+    const strongMetrics = captureMetricSignals(targetMatch)
+      .filter((signal) => signal.value >= 0.8)
+      .sort((a, b) => b.value - a.value || a.id.localeCompare(b.id))
+      .slice(0, 3);
+
+    if (strongMetrics.length) {
+      return strongMetrics;
+    }
+  }
+
+  return bestShot.reasons.slice(0, 2).map((reason) => ({
+    id: reason,
+    title: displayTitle(reason),
+    value: clamp01(bestShot.score),
+  }));
+}
+
+function captureImprovementSignals(targetMatch?: TargetMatchScore): CaptureCoachingSignal[] {
+  if (!targetMatch) return [];
+
+  return captureMetricSignals(targetMatch)
+    .filter((signal) => signal.value < 0.78)
+    .sort((a, b) => a.value - b.value || a.id.localeCompare(b.id))
+    .slice(0, 2);
+}
+
+function captureCoachingHeadline(bestShotScore: number, targetMatch?: number): string {
+  const matchScore = targetMatch ?? bestShotScore;
+
+  if (matchScore >= 0.88 && bestShotScore >= 0.85) {
+    return "Strong match";
+  }
+
+  if (matchScore >= 0.72) {
+    return "Good direction";
+  }
+
+  return "Needs another pass";
+}
+
+function captureNextShotInstruction(reason: GuidanceReason): string {
+  switch (reason) {
+    case "improve_subject_background_separation":
+      return "Next shot: improve framing";
+    case "level_horizon":
+      return "Next shot: level the horizon";
+    case "protect_highlights":
+      return "Next shot: protect highlights";
+    case "improve_face_light":
+      return "Next shot: turn toward cleaner light";
+    case "reduce_clutter":
+      return "Next shot: clean the background";
+    case "match_reference":
+      return "Next shot: match the reference angle";
+    case "improve_pose":
+      return "Next shot: settle the pose";
+    case "increase_sky":
+      return "Next shot: show more sky";
+    case "reduce_motion_blur":
+      return "Next shot: hold steadier";
+    case "ready_to_capture":
+      return "Next shot: hold this timing";
+  }
+}
+
+function captureMetricSignals(score: TargetMatchScore): CaptureCoachingSignal[] {
+  return [
+    { id: "composition", title: "Composition", value: clamp01(score.composition), reason: "improve_subject_background_separation" },
+    { id: "subject_position", title: "Subject Position", value: clamp01(score.subjectPosition), reason: "improve_subject_background_separation" },
+    { id: "camera_angle", title: "Camera Angle", value: clamp01(score.cameraAngle), reason: "match_reference" },
+    { id: "lighting", title: "Lighting", value: clamp01(score.lighting), reason: "improve_face_light" },
+    { id: "background", title: "Background", value: clamp01(score.background), reason: "reduce_clutter" },
+    { id: "horizon", title: "Horizon", value: clamp01(score.horizon), reason: "level_horizon" },
+    { id: "pose", title: "Pose", value: clamp01(score.pose), reason: "improve_pose" },
+    { id: "sharpness", title: "Sharpness", value: clamp01(score.sharpnessProbability), reason: "reduce_motion_blur" },
+    { id: "exposure", title: "Exposure", value: clamp01(score.exposure), reason: "protect_highlights" },
+    { id: "intent_match", title: "Intent Match", value: clamp01(score.intentMatch), reason: "match_reference" },
+  ];
 }
 
 function achievabilityForPreviewLabel(label: ShotPlan["previewConfiguration"]["label"], shotPlan: ShotPlan): number {
