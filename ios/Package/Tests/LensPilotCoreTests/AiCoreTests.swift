@@ -254,6 +254,87 @@ final class AiCoreTests: XCTestCase {
         XCTAssertNil(review.bestShotId)
     }
 
+    func testCalibrationCaptureQueueGuidesRequiredRealCaptureScenarios() {
+        let scenarios = CalibrationCaptureScenario.allCases
+        let progress = CalibrationCaptureQueueProgress()
+            .selecting(.sky)
+            .recordingCapture(for: .sky)
+            .recordingCapture(for: .sky)
+            .recordingCapture(for: .sky)
+            .recordingCapture(for: .sky)
+
+        XCTAssertEqual(scenarios.count, 8)
+        XCTAssertEqual(progress.requiredSampleCount, 24)
+        XCTAssertTrue(scenarios.contains { $0.domain == .portrait })
+        XCTAssertTrue(scenarios.contains { $0.domain == .landscape })
+        XCTAssertTrue(scenarios.contains { $0.domain == .lifestyle })
+        XCTAssertTrue(scenarios.contains { $0.domain == .night })
+        XCTAssertTrue(scenarios.map(\.rawValue).contains("portrait"))
+        XCTAssertTrue(scenarios.map(\.rawValue).contains("landscape"))
+        XCTAssertTrue(scenarios.map(\.rawValue).contains("sky"))
+        XCTAssertTrue(scenarios.map(\.rawValue).contains("clutter"))
+        XCTAssertTrue(scenarios.map(\.rawValue).contains("backlight"))
+        XCTAssertTrue(scenarios.map(\.rawValue).contains("horizon"))
+        XCTAssertTrue(scenarios.map(\.rawValue).contains("motion"))
+        XCTAssertEqual(CalibrationCaptureScenario.sky.preferredGuidanceReason, .increaseSky)
+        XCTAssertEqual(CalibrationCaptureScenario.motion.domain, .lifestyle)
+        XCTAssertTrue(CalibrationCaptureScenario.motion.rankedWeaknesses.contains(.sharpnessProbability))
+        XCTAssertEqual(progress.activeScenario, .sky)
+        XCTAssertEqual(progress.completedCount(for: .sky), 3)
+        XCTAssertEqual(progress.completedSampleCount, 3)
+        XCTAssertTrue(progress.isComplete(.sky))
+    }
+
+    func testCalibrationCaptureQueueStorePersistsSanitizedProgress() throws {
+        var storedData: Data?
+        let store = CalibrationCaptureQueueStore(
+            readData: { storedData },
+            writeData: { storedData = $0 }
+        )
+        let rawProgress = CalibrationCaptureQueueProgress(
+            version: "legacy",
+            activeScenarioId: "upload_private_photo",
+            completedCounts: [
+                "portrait": -4,
+                "landscape": 2,
+                "sky": 99,
+                "external_cloud_album": 7
+            ]
+        )
+
+        try store.saveProgress(rawProgress)
+        let progress = try XCTUnwrap(try store.loadProgress())
+
+        XCTAssertEqual(progress.version, "1.0")
+        XCTAssertNil(progress.activeScenario)
+        XCTAssertEqual(progress.completedCount(for: .portrait), 0)
+        XCTAssertEqual(progress.completedCount(for: .landscape), 2)
+        XCTAssertEqual(progress.completedCount(for: .sky), 3)
+        XCTAssertNil(progress.completedCounts["external_cloud_album"])
+
+        store.deleteProgress()
+        XCTAssertNil(storedData)
+    }
+
+    func testCalibrationCaptureQueueStoreRejectsOversizedProgress() {
+        let store = CalibrationCaptureQueueStore(
+            maxStoredProgressBytes: 8,
+            readData: { nil },
+            writeData: { _ in }
+        )
+        let progress = CalibrationCaptureQueueProgress()
+
+        XCTAssertThrowsError(try store.saveProgress(progress)) { error in
+            guard case let .progressTooLarge(maxBytes, actualBytes) = error as? CalibrationCaptureQueueStoreError else {
+                XCTFail("Expected oversized progress error.")
+                return
+            }
+
+            XCTAssertEqual(maxBytes, 8)
+            XCTAssertGreaterThan(actualBytes, maxBytes)
+        }
+    }
+
     func testGuidanceStabilizerSuppressesImmediateOppositeMovement() {
         var stabilizer = GuidanceStabilizer()
         let now = Date(timeIntervalSince1970: 0)

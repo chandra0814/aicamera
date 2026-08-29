@@ -28,6 +28,7 @@ This implementation completes the MVP AI control skeleton, not the final product
 - AI guidance benchmark suite: six deterministic calibration cases now cover cluttered portrait, tilted horizon, sunset highlight protection, motion blur, backlit face guidance, and ready-to-capture.
 - Target Match calibration scaffold: scoring weights are explicit in Swift and TypeScript, and CI validates the calibration manifest.
 - Calibration sample export: the single-phone camera UI can share anonymous `iphone_capture_candidate` JSON with prompt, scene, device, guidance, and Target Match data.
+- Guided calibration queue: the app now tracks 24 target real captures across portrait, landscape, sky, clutter, backlight, horizon, motion, and night scenarios.
 - Calibration promotion tool: reviewed candidates can be promoted into `iphone_capture` manifest entries only when single-phone privacy flags, domain labels, blind preference labels, and expected Target Match ranges are present.
 - In-app blind review labeling: after capture, the same phone opens a score-free label sheet for domain, preferred fix, ranked weaknesses, reviewer count, and reviewed-sample export.
 - Reviewed-sample importer: app exports can be normalized and appended to the calibration manifest only after single-phone privacy, blind-review, domain, and expected score-range validation passes.
@@ -40,11 +41,12 @@ This implementation completes the MVP AI control skeleton, not the final product
 - Online inspiration can now fetch public image references from Wikimedia Commons from prompt-derived queries only, display them in the same-phone settings sheet, and load a selected public result into the existing reference popup.
 - Online inspiration results are now ranked for photographic relevance and warmed into a bounded local thumbnail cache before display.
 - Online inspiration now supports multiple public providers, starting with Wikimedia Commons and Openverse-style public image search, with deduplication and source-diverse ranking so one provider does not dominate the first results.
+- Calibration queue progress is stored as local counts and the active scenario only; it does not store photos, live frames, identity labels, or cloud state.
 
 ## Not Yet Production AI
 
 - No trained aesthetic model yet.
-- No real iPhone target-match calibration dataset yet.
+- No completed real iPhone target-match calibration dataset yet.
 - No Core ML/TFLite production model bundle yet.
 - No cloud VLM/LLM adapter yet.
 - No generative preview engine yet.

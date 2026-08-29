@@ -94,6 +94,9 @@ final class CameraScreenViewModel: ObservableObject {
     @Published private(set) var referenceImageData: Data?
     @Published private(set) var captureReview: CaptureReviewPresentation?
     @Published private(set) var lastCalibrationCandidate: CalibrationSample?
+    @Published private(set) var activeCalibrationScenario: CalibrationCaptureScenario?
+    @Published private(set) var lastCalibrationScenario: CalibrationCaptureScenario?
+    @Published private(set) var calibrationQueueProgress = CalibrationCaptureQueueProgress()
     @Published private(set) var personalizationConsent: PersonalizationConsent
     @Published private(set) var personalProfile: PersonalVisualPreferenceProfile
     @Published private(set) var onlineReferencePlan: OnlineReferencePlan?
@@ -135,8 +138,11 @@ final class CameraScreenViewModel: ObservableObject {
     init(calibrationData: Data?) {
         let configuration = CameraScreenViewModel.makeAiCoreConfiguration(calibrationData: calibrationData)
         let storedProfile = CameraScreenViewModel.loadPersonalProfile()
+        let storedCalibrationQueueProgress = CameraScreenViewModel.loadCalibrationQueueProgress()
         self.targetMatchCalibration = configuration.targetMatchCalibration
         self.reviewedGuidanceCalibration = configuration.guidanceCalibration
+        self.calibrationQueueProgress = storedCalibrationQueueProgress
+        self.activeCalibrationScenario = storedCalibrationQueueProgress.activeScenario
         self.personalizationConsent = storedProfile?.consent ?? .disabled
         self.personalProfile = storedProfile ?? .empty(consent: .disabled)
         bindSpeechIntentController()
@@ -262,6 +268,21 @@ final class CameraScreenViewModel: ObservableObject {
         persistPersonalProfile()
         guidanceStabilizer.reset()
         runAi(sceneState: currentSceneState())
+    }
+
+    func selectCalibrationScenario(_ scenario: CalibrationCaptureScenario) {
+        activeCalibrationScenario = scenario
+        calibrationQueueProgress = calibrationQueueProgress.selecting(scenario)
+        persistCalibrationQueueProgress()
+        intentText = scenario.prompt
+        makePlanFromIntent()
+    }
+
+    func resetCalibrationQueue() {
+        activeCalibrationScenario = nil
+        lastCalibrationScenario = nil
+        calibrationQueueProgress = calibrationQueueProgress.reset()
+        persistCalibrationQueueProgress()
     }
 
     func fetchOnlineInspirationReferences() {
@@ -439,6 +460,7 @@ final class CameraScreenViewModel: ObservableObject {
         captureReview = nil
         lastCaptureData = nil
         lastCalibrationCandidate = nil
+        lastCalibrationScenario = nil
 
         Task {
             defer {
@@ -540,6 +562,7 @@ final class CameraScreenViewModel: ObservableObject {
 
         lastCaptureData = bestPhotoData
         lastCalibrationCandidate = makeCalibrationCandidate()
+        recordCalibrationQueueCaptureIfNeeded()
         captureReview = CaptureReviewPresentation(
             id: "review_\(UUID().uuidString.lowercased())",
             bestPhotoData: bestPhotoData,
@@ -724,6 +747,10 @@ final class CameraScreenViewModel: ObservableObject {
         try? PersonalVisualProfileStore().loadProfile()
     }
 
+    private static func loadCalibrationQueueProgress() -> CalibrationCaptureQueueProgress {
+        (try? CalibrationCaptureQueueStore().loadProgress()) ?? CalibrationCaptureQueueProgress()
+    }
+
     private func persistPersonalProfile() {
         let sanitizedProfile = personalProfile.sanitizedForLocalStorage()
         personalProfile = sanitizedProfile
@@ -732,6 +759,26 @@ final class CameraScreenViewModel: ObservableObject {
             try PersonalVisualProfileStore().saveProfile(sanitizedProfile)
         } catch {
             errorMessage = "Personal learning profile could not be saved."
+        }
+    }
+
+    private func recordCalibrationQueueCaptureIfNeeded() {
+        guard let activeCalibrationScenario else { return }
+
+        lastCalibrationScenario = activeCalibrationScenario
+        calibrationQueueProgress = calibrationQueueProgress.recordingCapture(for: activeCalibrationScenario)
+        persistCalibrationQueueProgress()
+    }
+
+    private func persistCalibrationQueueProgress() {
+        let sanitizedProgress = calibrationQueueProgress.sanitizedForLocalStorage()
+        calibrationQueueProgress = sanitizedProgress
+        activeCalibrationScenario = sanitizedProgress.activeScenario
+
+        do {
+            try CalibrationCaptureQueueStore().saveProgress(sanitizedProgress)
+        } catch {
+            errorMessage = "Calibration queue progress could not be saved."
         }
     }
 

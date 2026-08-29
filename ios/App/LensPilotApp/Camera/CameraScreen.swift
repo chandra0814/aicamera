@@ -13,6 +13,7 @@ struct CameraScreen: View {
     @StateObject private var viewModel = CameraScreenViewModel()
     @State private var selectedReferenceItem: PhotosPickerItem?
     @State private var isCalibrationReviewPresented = false
+    @State private var isCalibrationQueuePresented = false
     @State private var isPersonalizationSheetPresented = false
     @State private var calibrationReviewDraft = CalibrationReviewDraft()
 
@@ -63,6 +64,7 @@ struct CameraScreen: View {
                     viewModel.rejectLatestCaptureResult(reason: reason)
                 },
                 onLabelCalibration: {
+                    prepareCalibrationReviewDraft()
                     viewModel.dismissCaptureReview()
                     DispatchQueue.main.async {
                         isCalibrationReviewPresented = true
@@ -86,6 +88,24 @@ struct CameraScreen: View {
         }
         .sheet(isPresented: $isPersonalizationSheetPresented) {
             PersonalVisualAiSettingsSheet(viewModel: viewModel)
+        }
+        .sheet(isPresented: $isCalibrationQueuePresented) {
+            CalibrationCaptureQueueSheet(
+                progress: viewModel.calibrationQueueProgress,
+                activeScenario: viewModel.activeCalibrationScenario,
+                onSelect: { scenario in
+                    viewModel.selectCalibrationScenario(scenario)
+                    calibrationReviewDraft.applyScenario(scenario)
+                    isCalibrationQueuePresented = false
+                },
+                onReset: {
+                    viewModel.resetCalibrationQueue()
+                    calibrationReviewDraft = CalibrationReviewDraft()
+                },
+                onDone: {
+                    isCalibrationQueuePresented = false
+                }
+            )
         }
         .task {
             viewModel.start()
@@ -138,6 +158,13 @@ struct CameraScreen: View {
 
     private var controls: some View {
         VStack(spacing: 12) {
+            CalibrationQueueStatusButton(
+                progress: viewModel.calibrationQueueProgress,
+                activeScenario: viewModel.activeCalibrationScenario
+            ) {
+                isCalibrationQueuePresented = true
+            }
+
             if let plan = viewModel.onlineReferencePlan {
                 OnlineInspirationStatusButton(plan: plan) {
                     isPersonalizationSheetPresented = true
@@ -218,6 +245,7 @@ struct CameraScreen: View {
                 .accessibilityLabel("Export calibration sample")
 
                 Button {
+                    prepareCalibrationReviewDraft()
                     isCalibrationReviewPresented = true
                 } label: {
                     Image(systemName: "tag")
@@ -316,6 +344,154 @@ struct CameraScreen: View {
         #else
         return nil
         #endif
+    }
+
+    private func prepareCalibrationReviewDraft() {
+        guard let scenario = viewModel.lastCalibrationScenario ?? viewModel.activeCalibrationScenario else { return }
+        calibrationReviewDraft.applyScenario(scenario)
+    }
+}
+
+private struct CalibrationQueueStatusButton: View {
+    let progress: CalibrationCaptureQueueProgress
+    let activeScenario: CalibrationCaptureScenario?
+    let onSelect: () -> Void
+
+    var body: some View {
+        Button(action: onSelect) {
+            HStack(spacing: 10) {
+                Image(systemName: activeScenario?.symbolName ?? "list.bullet")
+                    .font(.subheadline.weight(.semibold))
+                    .frame(width: 28, height: 28)
+                    .background(.white.opacity(0.16), in: RoundedRectangle(cornerRadius: 8))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(activeScenario?.title ?? "Calibration Queue")
+                        .font(.caption.weight(.semibold))
+                        .lineLimit(1)
+                    Text(subtitle)
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(0.76))
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 6)
+
+                Text("\(progress.completedSampleCount)/\(progress.requiredSampleCount)")
+                    .font(.caption.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(.white)
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 12)
+            .frame(height: 48)
+            .background(.black.opacity(0.58), in: RoundedRectangle(cornerRadius: 8))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(.white.opacity(0.2), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Open calibration capture queue")
+    }
+
+    private var subtitle: String {
+        guard let activeScenario else {
+            return "\(progress.completedScenarioCount) scenarios complete"
+        }
+
+        return "\(progress.completedCount(for: activeScenario))/\(activeScenario.targetSampleCount) samples"
+    }
+}
+
+private struct CalibrationCaptureQueueSheet: View {
+    let progress: CalibrationCaptureQueueProgress
+    let activeScenario: CalibrationCaptureScenario?
+    let onSelect: (CalibrationCaptureScenario) -> Void
+    let onReset: () -> Void
+    let onDone: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Progress") {
+                    ProgressView(value: Double(progress.completedSampleCount), total: Double(progress.requiredSampleCount))
+                    LabeledContent("Samples", value: "\(progress.completedSampleCount)/\(progress.requiredSampleCount)")
+                    LabeledContent("Scenarios", value: "\(progress.completedScenarioCount)/\(CalibrationCaptureScenario.allCases.count)")
+                }
+
+                Section("Capture Queue") {
+                    ForEach(CalibrationCaptureScenario.allCases) { scenario in
+                        CalibrationCaptureScenarioRow(
+                            scenario: scenario,
+                            completedCount: progress.completedCount(for: scenario),
+                            isActive: activeScenario == scenario,
+                            isComplete: progress.isComplete(scenario)
+                        ) {
+                            onSelect(scenario)
+                        }
+                    }
+                }
+
+                Section {
+                    Button(role: .destructive, action: onReset) {
+                        Label("Reset Queue", systemImage: "arrow.counterclockwise")
+                    }
+                }
+            }
+            .navigationTitle("Calibration Queue")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(action: onDone) {
+                        Image(systemName: "xmark")
+                    }
+                    .accessibilityLabel("Close calibration queue")
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+}
+
+private struct CalibrationCaptureScenarioRow: View {
+    let scenario: CalibrationCaptureScenario
+    let completedCount: Int
+    let isActive: Bool
+    let isComplete: Bool
+    let onSelect: () -> Void
+
+    var body: some View {
+        Button(action: onSelect) {
+            HStack(spacing: 12) {
+                Image(systemName: scenario.symbolName)
+                    .font(.headline)
+                    .frame(width: 34, height: 34)
+                    .foregroundStyle(isComplete ? Color.green : Color.accentColor)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(scenario.title)
+                        .font(.subheadline.weight(.semibold))
+                    Text(scenario.prompt)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+
+                Spacer(minLength: 6)
+
+                VStack(alignment: .trailing, spacing: 5) {
+                    Text("\(completedCount)/\(scenario.targetSampleCount)")
+                        .font(.caption.monospacedDigit().weight(.semibold))
+                        .foregroundStyle(.secondary)
+
+                    Image(systemName: isComplete ? "checkmark.circle.fill" : isActive ? "smallcircle.filled.circle" : "circle")
+                        .foregroundStyle(isComplete ? Color.green : isActive ? Color.accentColor : Color.secondary)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Select \(scenario.title) calibration scenario")
     }
 }
 
@@ -556,6 +732,13 @@ private struct CalibrationReviewDraft {
         } else {
             rankedWeaknesses.append(weakness)
         }
+    }
+
+    mutating func applyScenario(_ scenario: CalibrationCaptureScenario) {
+        domain = scenario.domain
+        preferredGuidanceReason = scenario.preferredGuidanceReason
+        rankedWeaknesses = scenario.rankedWeaknesses
+        notes = scenario.reviewNotes
     }
 
     func makeReviewLabel() -> CalibrationSample.ReviewLabel {

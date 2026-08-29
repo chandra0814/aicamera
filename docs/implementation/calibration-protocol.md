@@ -6,6 +6,7 @@ LensPilot calibration must use single-phone captures only. A sample can include 
 
 Add calibration entries to `tests/calibration/target-match-calibration.json`.
 
+- Use the in-app calibration queue to select the active scenario before capture; this loads the prompt, increments local progress after capture, and prefills blind-review labels.
 - Use the in-app share control to export `sampleKind: "iphone_capture_candidate"` JSON from the current single-phone camera state.
 - After capture, use the tag control to open the blind review sheet and export a reviewed `sampleKind: "iphone_capture"` JSON without exposing Target Match scores during labeling.
 - Import reviewed app exports with `npm run calibration:import-reviewed -- --sample <reviewed-sample.json> --write` from `shared/typescript`.
@@ -20,16 +21,23 @@ Add calibration entries to `tests/calibration/target-match-calibration.json`.
 
 ## Minimum Dataset
 
-The current target is 24 real iPhone samples across:
+The current target is 24 real iPhone samples, three captures each across:
 
 - portrait
 - landscape
-- lifestyle
-- night
+- sky
 - clutter
 - backlight
 - horizon
-- motion blur
+- motion
+- night
+
+The queue maps these scenarios into the supported calibration domains:
+
+- portrait: portrait, clutter, backlight
+- landscape: landscape, sky, horizon
+- lifestyle: motion
+- night: night
 
 ## Tuning Rule
 
@@ -38,3 +46,5 @@ Only change `targetMatchCalibration` weights when the sample set shows a repeate
 Reviewed exports created in the app already include the captured scene snapshot, anonymous device capability, blind preference labels, and expected Target Match ranges. Use the reviewed-sample importer to normalize and append them to `tests/calibration/target-match-calibration.json` before tuning.
 
 The iOS app bundles this manifest as `target-match-calibration.json` and initializes the live `LensPilotAiCore` from its `targetMatchCalibration` weights and reviewed guidance labels. If the manifest is missing or violates single-phone validation rules, the app falls back to the standard deterministic weights and unboosted guidance policy rather than blocking camera use.
+
+Calibration queue progress is local-only app state. It stores the active scenario ID and completed counts, but it does not store captured photos, live camera frames, identity labels, cloud sync flags, or online-source data.

@@ -3,9 +3,10 @@
 ## Immediate iOS Work
 
 1. Open `ios/Package` from Xcode on macOS and run the `LensPilotCoreTests` test target.
-2. Use the in-app share control to export `iphone_capture_candidate` JSON for portrait, landscape, sky, clutter, backlight, horizon, and motion samples.
-3. Add blind preference labels from the in-app tag control, then import reviewed app exports with `npm run calibration:import-reviewed -- --sample <reviewed-sample.json> --write`.
-4. Calibrate the on-device metric weights and guidance priorities against those reviewed samples; the app now loads the bundled manifest into `LensPilotAiCore`.
+2. Use the in-app calibration queue to collect 24 guided real captures across portrait, landscape, sky, clutter, backlight, horizon, motion, and night scenarios.
+3. Use the in-app share control to export each selected `iphone_capture_candidate` JSON, then add blind preference labels from the in-app tag control.
+4. Import reviewed app exports with `npm run calibration:import-reviewed -- --sample <reviewed-sample.json> --write`.
+5. Calibrate the on-device metric weights and guidance priorities against those reviewed samples; the app now loads the bundled manifest into `LensPilotAiCore`.
 
 ## Completed Single-Phone Runtime Work
 
@@ -22,6 +23,7 @@
 - The AI guidance benchmark suite now covers cluttered portrait, tilted horizon, sunset highlight protection, motion blur, backlit face guidance, and ready-to-capture.
 - Target Match calibration weights are explicit in Swift and TypeScript, with a CI-validated calibration manifest and protocol.
 - The single-phone camera UI can share anonymous calibration candidate JSON for real-capture scoring.
+- The single-phone camera UI now has a guided 24-shot calibration queue with local-only progress counts and scenario-specific prompts.
 - Reviewed candidate promotion is now scripted and validated before samples can gate Target Match calibration.
 - The single-phone app can label the latest captured sample in a score-free blind review sheet and export reviewed calibration JSON.
 - Reviewed app exports can now be normalized and appended to the calibration manifest with a validated import command.
@@ -56,6 +58,7 @@
 - Preview adjustment controls run locally, preserve the single-phone privacy invariant, and do not upload raw camera frames or private reference photos.
 - Learned profile persistence stores only sanitized aggregate preference signals on the same phone and strips cloud personalization sync.
 - Capture feedback records structured ratings, guidance outcomes, and selected correction reasons only; it does not store the captured photo as a learning event.
+- Calibration queue progress stores selected scenario IDs and counts only; photos remain outside the queue state and exports stay user-triggered.
 
 ## MVP Boundary
 
