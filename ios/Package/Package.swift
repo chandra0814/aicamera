@@ -20,6 +20,7 @@ let package = Package(
         .target(name: "LensPilotVision", dependencies: ["LensPilotCore"]),
         .target(name: "LensPilotDirector", dependencies: ["LensPilotCore"]),
         .testTarget(name: "LensPilotCoreTests", dependencies: ["LensPilotCore"]),
+        .testTarget(name: "LensPilotDirectorTests", dependencies: ["LensPilotDirector", "LensPilotCore"]),
         .testTarget(name: "LensPilotVisionTests", dependencies: ["LensPilotVision"])
     ]
 )
