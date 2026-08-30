@@ -9,7 +9,7 @@ Add calibration entries to `tests/calibration/target-match-calibration.json`.
 - Use the in-app calibration queue to select the active scenario before capture; this loads the prompt, increments local progress after capture, and prefills blind-review labels.
 - Use the in-app share control to export `sampleKind: "iphone_capture_candidate"` JSON from the current single-phone camera state.
 - After capture, use the tag control to open the blind review sheet and export a reviewed `sampleKind: "iphone_capture"` JSON without exposing Target Match scores during labeling.
-- Import reviewed app exports with `npm run calibration:import-reviewed -- --sample <reviewed-sample.json> --write` from `shared/typescript`.
+- Import reviewed app exports with `npm run calibration:import-reviewed -- --sample <reviewed-sample.json> --write` from `shared/typescript`; after each write, the importer prints the updated calibration readiness, remaining capture count, missing domains, and missing scenarios.
 - Promote a candidate to `sampleKind: "iphone_capture"` only after blind preference labels are added.
 - Use `npm run calibration:promote -- --candidate <candidate.json> --sample-id <stable_id> --review-count 2 --preferred-guidance-reason <reason> --weaknesses background,lighting --write` from `shared/typescript` after review labels are ready.
 - Include either inline `sceneState` and `deviceCapability`, or paths to JSON files.
@@ -48,4 +48,4 @@ Reviewed exports created in the app already include the captured scene snapshot,
 
 The iOS app bundles this manifest as `target-match-calibration.json` and initializes the live `LensPilotAiCore` from its `targetMatchCalibration` weights and reviewed guidance labels. If the manifest is missing or violates single-phone validation rules, the app falls back to the standard deterministic weights and unboosted guidance policy rather than blocking camera use.
 
-Calibration queue progress is local-only app state. It stores the active scenario ID and completed counts, but it does not store captured photos, live camera frames, identity labels, cloud sync flags, or online-source data. Manifest validation also reports imported real-capture coverage by scenario so the 24-shot dataset can be checked before tuning.
+Calibration queue progress is local-only app state. It stores the active scenario ID and completed counts, but it does not store captured photos, live camera frames, identity labels, cloud sync flags, or online-source data. Manifest validation and reviewed-sample imports also report imported real-capture coverage by scenario so the 24-shot dataset can be checked before tuning.

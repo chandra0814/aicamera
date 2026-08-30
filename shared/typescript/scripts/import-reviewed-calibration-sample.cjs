@@ -65,9 +65,10 @@ function runCli(argv) {
       const manifestPath = resolveInputPath(options.manifestPath ?? defaultManifestPath);
       const manifest = readJson(manifestPath);
       const nextManifest = appendReviewedSample(manifest, reviewedSample);
-      validateManifest(nextManifest);
+      const readinessReport = validateManifest(nextManifest);
       fs.writeFileSync(manifestPath, `${JSON.stringify(nextManifest, null, 2)}\n`);
       console.error(`Imported reviewed calibration sample ${reviewedSample.id} into ${manifestPath}.`);
+      printReadinessSummary(readinessReport);
       return;
     }
 
@@ -163,8 +164,31 @@ function validateManifest(manifest) {
       process.stderr.write(validator.stderr);
       process.exit(validator.status ?? 1);
     }
+
+    return JSON.parse(validator.stdout);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+
+function printReadinessSummary(report) {
+  const status = report.calibrationReadiness ?? report.status;
+  const reviewedSampleCount = report.reviewedSampleCount ?? report.realCaptureSamples;
+  const targetRealCaptureCount = report.targetRealCaptureCount ?? report.targetRealCaptureSamples;
+  const missingSampleCount = report.missingRealCaptureSamples ?? report.missingSampleCount;
+  const missingDomains = report.missingRealCaptureDomains ?? report.missingDomains ?? [];
+  const missingScenarios = report.missingRealCaptureScenarios ?? report.missingScenarios ?? [];
+  const reviewed = `${reviewedSampleCount}/${targetRealCaptureCount} captures`;
+  console.error(`Calibration readiness: ${status} (${reviewed}).`);
+
+  if (missingSampleCount > 0) {
+    console.error(`Missing real-capture samples: ${missingSampleCount}.`);
+  }
+  if (missingDomains.length > 0) {
+    console.error(`Missing domains: ${missingDomains.join(", ")}.`);
+  }
+  if (missingScenarios.length > 0) {
+    console.error(`Missing scenarios: ${missingScenarios.join(", ")}.`);
   }
 }
 

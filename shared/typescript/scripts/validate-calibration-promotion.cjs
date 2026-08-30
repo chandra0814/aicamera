@@ -55,9 +55,24 @@ try {
   fs.writeFileSync(importManifestPath, `${JSON.stringify(importedManifest, null, 2)}\n`);
   runCalibrationValidator(importManifestPath);
 
+  const importerManifestPath = path.join(tempDir, "target-match-calibration-importer-cli.json");
+  const reviewedExportPath = path.join(tempDir, "reviewed-export.json");
+  fs.writeFileSync(importerManifestPath, `${JSON.stringify({ ...manifest, samples: [] }, null, 2)}\n`);
+  fs.writeFileSync(reviewedExportPath, `${JSON.stringify(reviewedExport, null, 2)}\n`);
+  const importerResult = runReviewedImporter(importerManifestPath, reviewedExportPath);
+  assert(
+    importerResult.stderr.includes("Calibration readiness: needs_more_samples (1/24 captures)."),
+    `Importer should print calibration readiness after write. stderr=${JSON.stringify(importerResult.stderr)} stdout=${JSON.stringify(importerResult.stdout)}`
+  );
+  assert(
+    importerResult.stderr.includes("Missing real-capture samples: 23."),
+    `Importer should print missing real-capture sample count. stderr=${JSON.stringify(importerResult.stderr)} stdout=${JSON.stringify(importerResult.stdout)}`
+  );
+
   console.log(JSON.stringify({
     promotedSample: promotedSample.id,
     importedSample: importedSample.id,
+    importReadinessSummary: true,
     status: "passed",
   }, null, 2));
 } finally {
@@ -141,6 +156,30 @@ function runCalibrationValidator(manifestPath) {
     process.stderr.write(validator.stderr);
     process.exit(validator.status ?? 1);
   }
+}
+
+function runReviewedImporter(manifestPath, samplePath) {
+  const importer = spawnSync(process.execPath, [
+    "-e",
+    `globalThis.__LENSPILOT_RUN_IMPORT_CLI__ = true; const fs = require("node:fs"); eval(fs.readFileSync("scripts/import-reviewed-calibration-sample.cjs", "utf8"));`,
+    "--",
+    "--sample",
+    samplePath,
+    "--manifest",
+    manifestPath,
+    "--write",
+  ], {
+    cwd: path.join(repoRoot, "shared/typescript"),
+    encoding: "utf8",
+  });
+
+  if (importer.status !== 0) {
+    process.stdout.write(importer.stdout);
+    process.stderr.write(importer.stderr);
+    process.exit(importer.status ?? 1);
+  }
+
+  return importer;
 }
 
 function readJson(filePath) {
