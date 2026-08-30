@@ -347,6 +347,12 @@ final class AiCoreTests: XCTestCase {
             prompt: prompt,
             profile: profile
         ))
+        let creativePlan = try XCTUnwrap(PersonalVisualLearningEngine().makeCreativeInterpretationPlan(
+            for: aiResult.shotSpec,
+            prompt: prompt,
+            profile: profile,
+            onlineReferencePlan: plan
+        ))
         let healthSnapshot = OnlineInspirationHealthSnapshot(
             planId: plan.id,
             source: .publicSources,
@@ -366,6 +372,7 @@ final class AiCoreTests: XCTestCase {
             hasShotPlan: true,
             referencePhoto: Self.referencePhoto(cloudAnalysisUsed: false, showCameraPopup: true),
             onlineReferencePlan: plan,
+            creativeInterpretationPlan: creativePlan,
             onlineInspirationHealthSnapshot: healthSnapshot,
             calibrationReadinessReport: Self.readyCalibrationReadinessReport(),
             personalProfile: profile,
@@ -379,6 +386,7 @@ final class AiCoreTests: XCTestCase {
             "shot_planning",
             "reference_popup",
             "online_reference_plan",
+            "creative_interpretation",
             "online_provider_health",
             "calibration_readiness",
             "local_learning",
@@ -853,6 +861,66 @@ final class AiCoreTests: XCTestCase {
         XCTAssertTrue(plan.allowedInputs.contains(.promptText))
         XCTAssertTrue(plan.mustNotSend.contains("raw_live_camera_feed"))
         XCTAssertTrue(plan.searchQueries.contains { $0.contains("cinematic") })
+    }
+
+    func testCreativeInterpretationPlanRequiresConsentAndUsesSafeSummaries() throws {
+        let engine = PersonalVisualLearningEngine()
+        let prompt = "Give me a cinematic luxury portrait with online inspiration."
+        let shotSpec = ShotSpecFactory().makeShotSpec(from: prompt, source: .text)
+        let profile = PersonalVisualPreferenceProfile(
+            consent: PersonalizationConsent(learningEnabled: true, onlineReferencesAllowed: true),
+            totalEvents: 3,
+            domainCounts: ["portrait": 3],
+            styleAffinities: ["cinematic": 0.4],
+            colorAffinities: ["warm_highlights_cool_shadows": 0.2],
+            framingAffinities: ["environmental": 0.3],
+            guidanceReasonAffinities: ["improve_face_light": 0.4],
+            requirementAffinities: ["luxury": 0.3],
+            onlineReferenceUsageCount: 1
+        )
+
+        XCTAssertNil(engine.makeCreativeInterpretationPlan(
+            for: shotSpec,
+            prompt: prompt,
+            profile: profile,
+            consent: .localLearningEnabled
+        ))
+
+        let onlinePlan = try XCTUnwrap(engine.makeOnlineReferencePlan(
+            for: shotSpec,
+            prompt: prompt,
+            profile: profile,
+            consent: profile.consent
+        ))
+        let creativePlan = try XCTUnwrap(engine.makeCreativeInterpretationPlan(
+            for: shotSpec,
+            prompt: prompt,
+            profile: profile,
+            onlineReferencePlan: onlinePlan,
+            consent: profile.consent
+        ))
+
+        XCTAssertEqual(creativePlan.reason, .explicitUserRequest)
+        XCTAssertTrue(creativePlan.allowedInputs.contains(.promptText))
+        XCTAssertTrue(creativePlan.allowedInputs.contains(.shotSpecSummary))
+        XCTAssertTrue(creativePlan.allowedInputs.contains(.learnedPreferenceSummary))
+        XCTAssertTrue(creativePlan.allowedInputs.contains(.publicReferenceSummary))
+        XCTAssertTrue(creativePlan.inputSummary.allSatisfy { !$0.contains("raw_live_camera") })
+        XCTAssertTrue(creativePlan.suggestions.contains { $0.category == .lighting })
+        XCTAssertTrue(creativePlan.suggestions.contains { $0.category == .reference })
+        XCTAssertTrue(creativePlan.suggestions.contains { $0.category == .safety })
+        XCTAssertTrue(creativePlan.mustNotSend.contains("raw_live_camera_feed"))
+        XCTAssertTrue(creativePlan.mustNotSend.contains("private_photo"))
+        XCTAssertTrue(creativePlan.mustNotSend.contains("raw_learning_events"))
+        XCTAssertTrue(creativePlan.privacy.isSafeForSinglePhoneCreativeReasoning)
+        XCTAssertTrue(creativePlan.privacy.singlePhoneOnly)
+        XCTAssertTrue(creativePlan.privacy.requiresUserConsent)
+        XCTAssertFalse(creativePlan.privacy.sendsRawCameraFrame)
+        XCTAssertFalse(creativePlan.privacy.sendsPrivatePhoto)
+        XCTAssertFalse(creativePlan.privacy.sendsIdentityData)
+        XCTAssertFalse(creativePlan.privacy.sendsPreciseLocation)
+        XCTAssertFalse(creativePlan.privacy.sendsRawLearningEvents)
+        XCTAssertFalse(creativePlan.privacy.allowsGenerativeOutput)
     }
 
     func testWikimediaCommonsOnlineInspirationAdapterUsesSafePublicFileSearch() throws {

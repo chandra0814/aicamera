@@ -83,6 +83,37 @@ export interface OnlineReferencePlan {
   };
 }
 
+export interface CreativeInterpretationPlan {
+  id: string;
+  reason: "explicit_user_request" | "specialized_style" | "online_inspiration" | "learned_preference";
+  inputSummary: string[];
+  suggestions: Array<{
+    id: string;
+    category: "lighting" | "composition" | "lens" | "color" | "reference" | "safety";
+    title: string;
+    instruction: string;
+  }>;
+  allowedInputs: Array<
+    | "prompt_text"
+    | "shot_spec_summary"
+    | "learned_preference_summary"
+    | "public_reference_summary"
+    | "device_capability_summary"
+  >;
+  mustNotSend: string[];
+  userDisclosure: string;
+  privacy: {
+    singlePhoneOnly: true;
+    requiresUserConsent: true;
+    sendsRawCameraFrame: false;
+    sendsPrivatePhoto: false;
+    sendsIdentityData: false;
+    sendsPreciseLocation: false;
+    sendsRawLearningEvents: false;
+    allowsGenerativeOutput: false;
+  };
+}
+
 export type OnlineInspirationSource = "public_sources" | "wikimedia_commons" | "openverse";
 
 export interface OnlineInspirationRequest {
@@ -385,6 +416,78 @@ export class PersonalVisualLearningEngine {
       },
     };
   }
+
+  makeCreativeInterpretationPlan(
+    shotSpec: ShotSpec,
+    prompt: string,
+    profile: PersonalVisualPreferenceProfile,
+    onlineReferencePlan?: OnlineReferencePlan,
+    consent: PersonalizationConsent = profile.consent
+  ): CreativeInterpretationPlan | undefined {
+    if (!consent.onlineReferencesAllowed) return undefined;
+
+    const normalizedPrompt = prompt.toLowerCase();
+    const explicitCreativeRequest = containsAny(normalizedPrompt, [
+      "creative",
+      "interpret",
+      "brief",
+      "inspiration",
+      "reference",
+      "online",
+      "trend",
+      "make it look",
+      "style",
+    ]);
+    const specializedStyle = shotSpec.style.name !== "natural" ||
+      Boolean(shotSpec.style.mood) ||
+      containsAny(normalizedPrompt, ["cinematic", "professional", "luxury", "dramatic", "moody", "instagram"]);
+    const insight = makePersonalVisualLearningInsight(profile, 3);
+    const hasLearnedSignals = consent.learningEnabled && profile.totalEvents >= 3 && insight.topSignals.length > 0;
+
+    if (!explicitCreativeRequest && !specializedStyle && !onlineReferencePlan && !hasLearnedSignals) return undefined;
+
+    const reason = explicitCreativeRequest
+      ? "explicit_user_request"
+      : onlineReferencePlan
+        ? "online_inspiration"
+        : hasLearnedSignals
+          ? "learned_preference"
+          : "specialized_style";
+
+    const allowedInputs: CreativeInterpretationPlan["allowedInputs"] = [
+      "prompt_text",
+      "shot_spec_summary",
+      "device_capability_summary",
+    ];
+    if (hasLearnedSignals) allowedInputs.push("learned_preference_summary");
+    if (onlineReferencePlan) allowedInputs.push("public_reference_summary");
+
+    return {
+      id: `creative_interpretation_${shotSpec.id}`,
+      reason,
+      inputSummary: creativeInputSummary(shotSpec, normalizedPrompt, profile, hasLearnedSignals, Boolean(onlineReferencePlan)),
+      suggestions: creativeSuggestions(shotSpec, normalizedPrompt, profile, hasLearnedSignals, Boolean(onlineReferencePlan)),
+      allowedInputs,
+      mustNotSend: [
+        "raw_live_camera_feed",
+        "private_photo",
+        "face_identity",
+        "precise_location_without_consent",
+        "raw_learning_events",
+      ],
+      userDisclosure: "LensPilot can interpret the shot using prompt, plan, learned aggregate preferences, and public-reference summaries only. It will not upload your live camera feed or private photos.",
+      privacy: {
+        singlePhoneOnly: true,
+        requiresUserConsent: true,
+        sendsRawCameraFrame: false,
+        sendsPrivatePhoto: false,
+        sendsIdentityData: false,
+        sendsPreciseLocation: false,
+        sendsRawLearningEvents: false,
+        allowsGenerativeOutput: false,
+      },
+    };
+  }
 }
 
 const profileDomainKeys = ["portrait", "landscape", "travel", "lifestyle", "night", "reference"] as const;
@@ -580,6 +683,7 @@ export function makeSinglePhoneAiDiagnosticsReport({
   hasShotPlan,
   referencePhoto,
   onlineReferencePlan,
+  creativeInterpretationPlan,
   onlineInspirationHealthSnapshot,
   calibrationReadinessReport,
   personalProfile,
@@ -590,6 +694,7 @@ export function makeSinglePhoneAiDiagnosticsReport({
   hasShotPlan: boolean;
   referencePhoto?: ReferencePhotoState;
   onlineReferencePlan?: OnlineReferencePlan;
+  creativeInterpretationPlan?: CreativeInterpretationPlan;
   onlineInspirationHealthSnapshot?: OnlineInspirationHealthSnapshot;
   calibrationReadinessReport?: TargetMatchCalibrationReadinessReport;
   personalProfile: PersonalVisualPreferenceProfile;
@@ -606,6 +711,7 @@ export function makeSinglePhoneAiDiagnosticsReport({
     },
     referencePopupDiagnosticCheck(referencePhoto),
     onlineReferencePlanDiagnosticCheck(onlineReferencePlan),
+    creativeInterpretationDiagnosticCheck(creativeInterpretationPlan),
     onlineProviderHealthDiagnosticCheck(onlineInspirationHealthSnapshot),
     calibrationReadinessDiagnosticCheck(calibrationReadinessReport),
     localLearningDiagnosticCheck(personalProfile),
@@ -618,6 +724,35 @@ export function makeSinglePhoneAiDiagnosticsReport({
     overallStatus: aggregateSinglePhoneAiDiagnosticsStatus(checks),
     checks,
     privacy: singlePhoneAiDiagnosticsPrivacy,
+  };
+}
+
+function creativeInterpretationDiagnosticCheck(
+  plan?: CreativeInterpretationPlan
+): SinglePhoneAiDiagnosticCheck {
+  if (!plan) {
+    return {
+      id: "creative_interpretation",
+      title: "Creative Plan",
+      status: "attention",
+      detail: "Not triggered",
+    };
+  }
+
+  const isSafe = plan.privacy.singlePhoneOnly &&
+    plan.privacy.requiresUserConsent &&
+    !plan.privacy.sendsRawCameraFrame &&
+    !plan.privacy.sendsPrivatePhoto &&
+    !plan.privacy.sendsIdentityData &&
+    !plan.privacy.sendsPreciseLocation &&
+    !plan.privacy.sendsRawLearningEvents &&
+    !plan.privacy.allowsGenerativeOutput;
+
+  return {
+    id: "creative_interpretation",
+    title: "Creative Plan",
+    status: isSafe ? "passed" : "blocked",
+    detail: `${plan.suggestions.length} suggestions`,
   };
 }
 
@@ -831,6 +966,205 @@ export class OnlineInspirationThumbnailMemoryCache {
   clear(): void {
     this.entries.clear();
   }
+}
+
+function creativeInputSummary(
+  shotSpec: ShotSpec,
+  prompt: string,
+  profile: PersonalVisualPreferenceProfile,
+  includeLearnedSignals: boolean,
+  includePublicReferences: boolean
+): string[] {
+  const summary = [
+    `Scene: ${displayLearningKey(shotSpec.domain)}`,
+    `Style: ${displayLearningKey(shotSpec.style.name)}`,
+    `Framing: ${displayLearningKey(shotSpec.composition.framing)}`,
+  ];
+
+  if (shotSpec.style.colorIntent) {
+    summary.push(`Color: ${displayLearningKey(shotSpec.style.colorIntent)}`);
+  }
+
+  const promptSummary = compactPromptQuery(prompt);
+  if (promptSummary) {
+    summary.push(`Prompt: ${promptSummary}`);
+  }
+
+  if (includeLearnedSignals) {
+    const topSignal = makePersonalVisualLearningInsight(profile, 1).topSignals[0];
+    if (topSignal) {
+      summary.push(`Learned: ${topSignal.label}`);
+    }
+  }
+
+  if (includePublicReferences) {
+    summary.push("References: Public inspiration summaries");
+  }
+
+  return uniqueNonEmpty(summary);
+}
+
+function creativeSuggestions(
+  shotSpec: ShotSpec,
+  prompt: string,
+  profile: PersonalVisualPreferenceProfile,
+  includeLearnedSignals: boolean,
+  includePublicReferences: boolean
+): CreativeInterpretationPlan["suggestions"] {
+  const suggestions: CreativeInterpretationPlan["suggestions"] = [];
+  const append = (suggestion: CreativeInterpretationPlan["suggestions"][number]) => {
+    if (!suggestions.some((existing) => existing.id === suggestion.id)) {
+      suggestions.push(suggestion);
+    }
+  };
+
+  switch (shotSpec.style.name) {
+    case "cinematic":
+      append({
+        id: "cinematic_side_light",
+        category: "lighting",
+        title: "Shape the Light",
+        instruction: "Favor side light or backlight, then keep face detail readable.",
+      });
+      append({
+        id: "cinematic_color_separation",
+        category: "color",
+        title: "Separate Color",
+        instruction: "Look for warm highlights with cooler shadow separation.",
+      });
+      break;
+    case "professional":
+      append({
+        id: "professional_clean_lines",
+        category: "composition",
+        title: "Clean the Frame",
+        instruction: "Keep the background simple and vertical lines straight.",
+      });
+      break;
+    case "travel":
+      append({
+        id: "travel_place_cue",
+        category: "composition",
+        title: "Keep the Place Cue",
+        instruction: "Include one recognizable location detail without crowding the subject.",
+      });
+      break;
+    case "night":
+      append({
+        id: "night_stability",
+        category: "lighting",
+        title: "Stabilize the Shot",
+        instruction: "Use bright edges or signage, then hold the phone steady before capture.",
+      });
+      break;
+    case "sky":
+      append({
+        id: "sky_highlight_guard",
+        category: "composition",
+        title: "Protect the Sky",
+        instruction: "Place the horizon low enough for sky drama while protecting highlights.",
+      });
+      break;
+    case "portrait":
+    case "lifestyle":
+      append({
+        id: "portrait_subject_space",
+        category: "lens",
+        title: "Give Subject Space",
+        instruction: "Step back slightly for flattering perspective and cleaner separation.",
+      });
+      break;
+    case "natural":
+    case "custom":
+      break;
+  }
+
+  switch (shotSpec.style.mood) {
+    case "dramatic":
+    case "moody":
+      append({
+        id: "mood_shadow_control",
+        category: "lighting",
+        title: "Use Shadows",
+        instruction: "Let shadows add shape, but keep the main subject easy to read.",
+      });
+      break;
+    case "luxury":
+      append({
+        id: "mood_luxury_polish",
+        category: "color",
+        title: "Polish the Palette",
+        instruction: "Choose clean textures, warm highlights, and fewer background colors.",
+      });
+      break;
+    case "bright":
+    case "soft":
+      append({
+        id: "mood_soft_light",
+        category: "lighting",
+        title: "Soften Contrast",
+        instruction: "Find open shade or window light so skin and highlights stay gentle.",
+      });
+      break;
+    case "documentary":
+      append({
+        id: "mood_documentary_context",
+        category: "composition",
+        title: "Keep Context",
+        instruction: "Leave enough environment in frame to explain the moment.",
+      });
+      break;
+    default:
+      break;
+  }
+
+  if (shotSpec.subject.primary === "person" || shotSpec.subject.primary === "people") {
+    append({
+      id: "person_face_priority",
+      category: "lighting",
+      title: "Prioritize Face Light",
+      instruction: "Turn the subject toward cleaner light before refining background.",
+    });
+  }
+
+  if (shotSpec.composition.skyPriority === "high") {
+    append({
+      id: "composition_more_sky",
+      category: "composition",
+      title: "Leave Sky Room",
+      instruction: "Tilt just enough to add sky while keeping the subject anchored.",
+    });
+  }
+
+  if (includePublicReferences || containsAny(prompt, ["reference", "inspiration", "online", "trend"])) {
+    append({
+      id: "reference_compare_public_sources",
+      category: "reference",
+      title: "Compare References",
+      instruction: "Use public references for light, angle, and framing cues only.",
+    });
+  }
+
+  if (includeLearnedSignals) {
+    const topSignal = makePersonalVisualLearningInsight(profile, 1).topSignals[0];
+    if (topSignal) {
+      append({
+        id: `learned_preference_${topSignal.id}`,
+        category: "composition",
+        title: "Respect Learned Taste",
+        instruction: `Blend the learned ${topSignal.label.toLowerCase()} preference into this shot.`,
+      });
+    }
+  }
+
+  append({
+    id: "capture_realistic_boundary",
+    category: "safety",
+    title: "Stay Capture-Realistic",
+    instruction: "Treat this as a camera brief; avoid promising generated edits in preview.",
+  });
+
+  return suggestions.slice(0, 6);
 }
 
 function canLearnLocally(event: PersonalLearningEvent): boolean {

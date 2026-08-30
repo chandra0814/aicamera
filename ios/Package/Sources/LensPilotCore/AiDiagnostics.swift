@@ -22,6 +22,7 @@ public struct SinglePhoneAiDiagnosticsReport: Codable, Equatable, Sendable {
         hasShotPlan: Bool,
         referencePhoto: ReferencePhotoState?,
         onlineReferencePlan: OnlineReferencePlan?,
+        creativeInterpretationPlan: CreativeInterpretationPlan? = nil,
         onlineInspirationHealthSnapshot: OnlineInspirationHealthSnapshot?,
         calibrationReadinessReport: TargetMatchCalibrationManifest.CalibrationReadinessReport? = nil,
         personalProfile: PersonalVisualPreferenceProfile,
@@ -35,12 +36,31 @@ public struct SinglePhoneAiDiagnosticsReport: Codable, Equatable, Sendable {
                 shotPlanningCheck(hasShotPlan: hasShotPlan),
                 referencePopupCheck(referencePhoto: referencePhoto),
                 onlineReferencePlanCheck(onlineReferencePlan),
+                creativeInterpretationCheck(creativeInterpretationPlan),
                 onlineProviderHealthCheck(onlineInspirationHealthSnapshot),
                 calibrationReadinessCheck(calibrationReadinessReport),
                 localLearningCheck(profile: personalProfile),
                 learningStoreCheck(profile: personalProfile, protection: personalProfileStoreProtection),
                 captureCoachingCheck(captureCoachingSummary)
             ]
+        )
+    }
+
+    private static func creativeInterpretationCheck(_ plan: CreativeInterpretationPlan?) -> Check {
+        guard let plan else {
+            return Check(
+                id: "creative_interpretation",
+                title: "Creative Plan",
+                status: .attention,
+                detail: "Not triggered"
+            )
+        }
+
+        return Check(
+            id: "creative_interpretation",
+            title: "Creative Plan",
+            status: plan.privacy.isSafeForSinglePhoneCreativeReasoning ? .passed : .blocked,
+            detail: "\(plan.suggestions.count) suggestions"
         )
     }
 

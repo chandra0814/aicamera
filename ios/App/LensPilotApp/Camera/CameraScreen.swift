@@ -572,6 +572,10 @@ private struct AiDiagnosticsSheet: View {
                     }
                 }
 
+                if let plan = viewModel.creativeInterpretationPlan {
+                    CreativeInterpretationPlanSection(plan: plan)
+                }
+
                 if let calibrationReadiness = viewModel.targetMatchCalibrationReadiness {
                     CalibrationReadinessDiagnosticsSection(report: calibrationReadiness) { scenario in
                         viewModel.selectCalibrationScenario(scenario)
@@ -833,6 +837,10 @@ private struct PersonalVisualAiSettingsSheet: View {
 
                 PersonalLearningInsightSection(insight: viewModel.personalLearningInsight)
 
+                if let plan = viewModel.creativeInterpretationPlan {
+                    CreativeInterpretationPlanSection(plan: plan)
+                }
+
                 if let plan = viewModel.onlineReferencePlan {
                     Section("Online Plan") {
                         LabeledContent("Reason", value: plan.reason.title)
@@ -995,6 +1003,52 @@ private struct PersonalLearningInsightSignalRow: View {
         }
         .padding(.vertical, 2)
         .accessibilityLabel("\(signal.category.title): \(signal.label)")
+    }
+}
+
+private struct CreativeInterpretationPlanSection: View {
+    let plan: CreativeInterpretationPlan
+
+    var body: some View {
+        Section("Creative Plan") {
+            LabeledContent("Reason", value: plan.reason.title)
+            LabeledContent("Inputs", value: plan.allowedInputs.map(\.title).joined(separator: ", "))
+
+            ForEach(plan.inputSummary.prefix(4), id: \.self) { item in
+                Label(item, systemImage: "text.badge.checkmark")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+
+            ForEach(plan.suggestions.prefix(5)) { suggestion in
+                CreativeInterpretationSuggestionRow(suggestion: suggestion)
+            }
+        }
+    }
+}
+
+private struct CreativeInterpretationSuggestionRow: View {
+    let suggestion: CreativeInterpretationPlan.Suggestion
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: suggestion.category.iconName)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 24)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(suggestion.title)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                Text(suggestion.instruction)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+        }
+        .padding(.vertical, 2)
+        .accessibilityLabel("\(suggestion.category.title): \(suggestion.title)")
     }
 }
 
@@ -1431,6 +1485,74 @@ private extension OnlineReferencePlan.AllowedInput {
             return "Shot Plan"
         case .deviceCapabilitySummary:
             return "Device"
+        }
+    }
+}
+
+private extension CreativeInterpretationPlan.Reason {
+    var title: String {
+        switch self {
+        case .explicitUserRequest:
+            return "Requested Brief"
+        case .specializedStyle:
+            return "Style Brief"
+        case .onlineInspiration:
+            return "Public Inspiration"
+        case .learnedPreference:
+            return "Learned Taste"
+        }
+    }
+}
+
+private extension CreativeInterpretationPlan.AllowedInput {
+    var title: String {
+        switch self {
+        case .promptText:
+            return "Prompt"
+        case .shotSpecSummary:
+            return "Shot Plan"
+        case .learnedPreferenceSummary:
+            return "Learning"
+        case .publicReferenceSummary:
+            return "References"
+        case .deviceCapabilitySummary:
+            return "Device"
+        }
+    }
+}
+
+private extension CreativeInterpretationPlan.Category {
+    var title: String {
+        switch self {
+        case .lighting:
+            return "Lighting"
+        case .composition:
+            return "Composition"
+        case .lens:
+            return "Lens"
+        case .color:
+            return "Color"
+        case .reference:
+            return "Reference"
+        case .safety:
+            return "Safety"
+        }
+    }
+
+    var iconName: String {
+        switch self {
+        case .lighting:
+            return "light.max"
+        case .composition:
+            return "viewfinder"
+        case .lens:
+            return "camera.aperture"
+        case .color:
+            return "camera.filters"
+        case .reference:
+            return "photo.on.rectangle"
+        case .safety:
+            return "checkmark.shield"
         }
     }
 }

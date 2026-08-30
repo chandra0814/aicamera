@@ -440,6 +440,119 @@ public extension OnlineReferencePlan {
     }
 }
 
+public struct CreativeInterpretationPlan: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let reason: Reason
+    public let inputSummary: [String]
+    public let suggestions: [Suggestion]
+    public let allowedInputs: [AllowedInput]
+    public let mustNotSend: [String]
+    public let userDisclosure: String
+    public let privacy: Privacy
+
+    public init(
+        id: String,
+        reason: Reason,
+        inputSummary: [String],
+        suggestions: [Suggestion],
+        allowedInputs: [AllowedInput],
+        mustNotSend: [String],
+        userDisclosure: String,
+        privacy: Privacy = Privacy()
+    ) {
+        self.id = id
+        self.reason = reason
+        self.inputSummary = inputSummary
+        self.suggestions = suggestions
+        self.allowedInputs = allowedInputs
+        self.mustNotSend = mustNotSend
+        self.userDisclosure = userDisclosure
+        self.privacy = privacy
+    }
+}
+
+public extension CreativeInterpretationPlan {
+    enum Reason: String, Codable, Equatable, Sendable {
+        case explicitUserRequest = "explicit_user_request"
+        case specializedStyle = "specialized_style"
+        case onlineInspiration = "online_inspiration"
+        case learnedPreference = "learned_preference"
+    }
+
+    enum AllowedInput: String, Codable, Equatable, Sendable {
+        case promptText = "prompt_text"
+        case shotSpecSummary = "shot_spec_summary"
+        case learnedPreferenceSummary = "learned_preference_summary"
+        case publicReferenceSummary = "public_reference_summary"
+        case deviceCapabilitySummary = "device_capability_summary"
+    }
+
+    enum Category: String, Codable, Equatable, Sendable {
+        case lighting
+        case composition
+        case lens
+        case color
+        case reference
+        case safety
+    }
+
+    struct Suggestion: Codable, Equatable, Sendable, Identifiable {
+        public let id: String
+        public let category: Category
+        public let title: String
+        public let instruction: String
+
+        public init(id: String, category: Category, title: String, instruction: String) {
+            self.id = id
+            self.category = category
+            self.title = title
+            self.instruction = instruction
+        }
+    }
+
+    struct Privacy: Codable, Equatable, Sendable {
+        public let singlePhoneOnly: Bool
+        public let requiresUserConsent: Bool
+        public let sendsRawCameraFrame: Bool
+        public let sendsPrivatePhoto: Bool
+        public let sendsIdentityData: Bool
+        public let sendsPreciseLocation: Bool
+        public let sendsRawLearningEvents: Bool
+        public let allowsGenerativeOutput: Bool
+
+        public init(
+            singlePhoneOnly: Bool = true,
+            requiresUserConsent: Bool = true,
+            sendsRawCameraFrame: Bool = false,
+            sendsPrivatePhoto: Bool = false,
+            sendsIdentityData: Bool = false,
+            sendsPreciseLocation: Bool = false,
+            sendsRawLearningEvents: Bool = false,
+            allowsGenerativeOutput: Bool = false
+        ) {
+            self.singlePhoneOnly = singlePhoneOnly
+            self.requiresUserConsent = requiresUserConsent
+            self.sendsRawCameraFrame = sendsRawCameraFrame
+            self.sendsPrivatePhoto = sendsPrivatePhoto
+            self.sendsIdentityData = sendsIdentityData
+            self.sendsPreciseLocation = sendsPreciseLocation
+            self.sendsRawLearningEvents = sendsRawLearningEvents
+            self.allowsGenerativeOutput = allowsGenerativeOutput
+        }
+
+        public var isSafeForSinglePhoneCreativeReasoning: Bool {
+            singlePhoneOnly
+                && requiresUserConsent
+                && !sendsRawCameraFrame
+                && !sendsPrivatePhoto
+                && !sendsIdentityData
+                && !sendsPreciseLocation
+                && !sendsRawLearningEvents
+                && !allowsGenerativeOutput
+        }
+    }
+}
+
 public struct PersonalVisualLearningEngine: Sendable {
     public init() {}
 
@@ -519,6 +632,85 @@ public struct PersonalVisualLearningEngine: Sendable {
         )
     }
 
+    public func makeCreativeInterpretationPlan(
+        for shotSpec: ShotSpec,
+        prompt: String,
+        profile: PersonalVisualPreferenceProfile,
+        onlineReferencePlan: OnlineReferencePlan? = nil,
+        consent: PersonalizationConsent? = nil
+    ) -> CreativeInterpretationPlan? {
+        let activeConsent = consent ?? profile.consent
+        guard activeConsent.onlineReferencesAllowed else { return nil }
+
+        let normalizedPrompt = prompt.lowercased()
+        let explicitCreativeRequest = containsAny(
+            normalizedPrompt,
+            terms: ["creative", "interpret", "brief", "inspiration", "reference", "online", "trend", "make it look", "style"]
+        )
+        let specializedStyle = shotSpec.style.name != .natural
+            || shotSpec.style.mood != nil
+            || containsAny(normalizedPrompt, terms: ["cinematic", "professional", "luxury", "dramatic", "moody", "instagram"])
+        let hasLearnedSignals = activeConsent.learningEnabled
+            && profile.totalEvents >= 3
+            && !profile.learningInsight(maxSignals: 3).topSignals.isEmpty
+
+        guard explicitCreativeRequest || specializedStyle || onlineReferencePlan != nil || hasLearnedSignals else {
+            return nil
+        }
+
+        let reason: CreativeInterpretationPlan.Reason
+        if explicitCreativeRequest {
+            reason = .explicitUserRequest
+        } else if onlineReferencePlan != nil {
+            reason = .onlineInspiration
+        } else if hasLearnedSignals {
+            reason = .learnedPreference
+        } else {
+            reason = .specializedStyle
+        }
+
+        var allowedInputs: [CreativeInterpretationPlan.AllowedInput] = [
+            .promptText,
+            .shotSpecSummary,
+            .deviceCapabilitySummary
+        ]
+        if hasLearnedSignals {
+            allowedInputs.append(.learnedPreferenceSummary)
+        }
+        if onlineReferencePlan != nil {
+            allowedInputs.append(.publicReferenceSummary)
+        }
+
+        return CreativeInterpretationPlan(
+            id: "creative_interpretation_\(shotSpec.id)",
+            reason: reason,
+            inputSummary: creativeInputSummary(
+                for: shotSpec,
+                prompt: normalizedPrompt,
+                profile: profile,
+                includeLearnedSignals: hasLearnedSignals,
+                includePublicReferences: onlineReferencePlan != nil
+            ),
+            suggestions: creativeSuggestions(
+                for: shotSpec,
+                prompt: normalizedPrompt,
+                profile: profile,
+                includeLearnedSignals: hasLearnedSignals,
+                includePublicReferences: onlineReferencePlan != nil
+            ),
+            allowedInputs: allowedInputs,
+            mustNotSend: [
+                "raw_live_camera_feed",
+                "private_photo",
+                "face_identity",
+                "precise_location_without_consent",
+                "raw_learning_events"
+            ],
+            userDisclosure: "LensPilot can interpret the shot using prompt, plan, learned aggregate preferences, and public-reference summaries only. It will not upload your live camera feed or private photos.",
+            privacy: .init()
+        )
+    }
+
     public func makeOnlineReferencePlan(
         for shotSpec: ShotSpec,
         prompt: String,
@@ -587,6 +779,187 @@ public struct PersonalVisualLearningEngine: Sendable {
         return min(1, max(-1, signal))
     }
 
+    private func creativeInputSummary(
+        for shotSpec: ShotSpec,
+        prompt: String,
+        profile: PersonalVisualPreferenceProfile,
+        includeLearnedSignals: Bool,
+        includePublicReferences: Bool
+    ) -> [String] {
+        var summary = [
+            "Scene: \(displayLabel(for: shotSpec.domain.rawValue))",
+            "Style: \(displayLabel(for: shotSpec.style.name.rawValue))",
+            "Framing: \(displayLabel(for: shotSpec.composition.framing.rawValue))"
+        ]
+
+        if let colorIntent = shotSpec.style.colorIntent {
+            summary.append("Color: \(displayLabel(for: colorIntent.rawValue))")
+        }
+
+        let promptSummary = compactPromptQuery(from: prompt)
+        if !promptSummary.isEmpty {
+            summary.append("Prompt: \(promptSummary)")
+        }
+
+        if includeLearnedSignals,
+           let topSignal = profile.learningInsight(maxSignals: 1).topSignals.first {
+            summary.append("Learned: \(topSignal.label)")
+        }
+
+        if includePublicReferences {
+            summary.append("References: Public inspiration summaries")
+        }
+
+        return uniqueNonEmpty(summary)
+    }
+
+    private func creativeSuggestions(
+        for shotSpec: ShotSpec,
+        prompt: String,
+        profile: PersonalVisualPreferenceProfile,
+        includeLearnedSignals: Bool,
+        includePublicReferences: Bool
+    ) -> [CreativeInterpretationPlan.Suggestion] {
+        var suggestions: [CreativeInterpretationPlan.Suggestion] = []
+
+        func append(_ suggestion: CreativeInterpretationPlan.Suggestion) {
+            guard !suggestions.contains(where: { $0.id == suggestion.id }) else { return }
+            suggestions.append(suggestion)
+        }
+
+        switch shotSpec.style.name {
+        case .cinematic:
+            append(CreativeInterpretationPlan.Suggestion(
+                id: "cinematic_side_light",
+                category: .lighting,
+                title: "Shape the Light",
+                instruction: "Favor side light or backlight, then keep face detail readable."
+            ))
+            append(CreativeInterpretationPlan.Suggestion(
+                id: "cinematic_color_separation",
+                category: .color,
+                title: "Separate Color",
+                instruction: "Look for warm highlights with cooler shadow separation."
+            ))
+        case .professional:
+            append(CreativeInterpretationPlan.Suggestion(
+                id: "professional_clean_lines",
+                category: .composition,
+                title: "Clean the Frame",
+                instruction: "Keep the background simple and vertical lines straight."
+            ))
+        case .travel:
+            append(CreativeInterpretationPlan.Suggestion(
+                id: "travel_place_cue",
+                category: .composition,
+                title: "Keep the Place Cue",
+                instruction: "Include one recognizable location detail without crowding the subject."
+            ))
+        case .night:
+            append(CreativeInterpretationPlan.Suggestion(
+                id: "night_stability",
+                category: .lighting,
+                title: "Stabilize the Shot",
+                instruction: "Use bright edges or signage, then hold the phone steady before capture."
+            ))
+        case .sky:
+            append(CreativeInterpretationPlan.Suggestion(
+                id: "sky_highlight_guard",
+                category: .composition,
+                title: "Protect the Sky",
+                instruction: "Place the horizon low enough for sky drama while protecting highlights."
+            ))
+        case .portrait, .lifestyle:
+            append(CreativeInterpretationPlan.Suggestion(
+                id: "portrait_subject_space",
+                category: .lens,
+                title: "Give Subject Space",
+                instruction: "Step back slightly for flattering perspective and cleaner separation."
+            ))
+        case .natural, .custom:
+            break
+        }
+
+        if let mood = shotSpec.style.mood {
+            switch mood {
+            case .dramatic, .moody:
+                append(CreativeInterpretationPlan.Suggestion(
+                    id: "mood_shadow_control",
+                    category: .lighting,
+                    title: "Use Shadows",
+                    instruction: "Let shadows add shape, but keep the main subject easy to read."
+                ))
+            case .luxury:
+                append(CreativeInterpretationPlan.Suggestion(
+                    id: "mood_luxury_polish",
+                    category: .color,
+                    title: "Polish the Palette",
+                    instruction: "Choose clean textures, warm highlights, and fewer background colors."
+                ))
+            case .bright, .soft:
+                append(CreativeInterpretationPlan.Suggestion(
+                    id: "mood_soft_light",
+                    category: .lighting,
+                    title: "Soften Contrast",
+                    instruction: "Find open shade or window light so skin and highlights stay gentle."
+                ))
+            case .documentary:
+                append(CreativeInterpretationPlan.Suggestion(
+                    id: "mood_documentary_context",
+                    category: .composition,
+                    title: "Keep Context",
+                    instruction: "Leave enough environment in frame to explain the moment."
+                ))
+            }
+        }
+
+        if shotSpec.subject.primary == .person || shotSpec.subject.primary == .people {
+            append(CreativeInterpretationPlan.Suggestion(
+                id: "person_face_priority",
+                category: .lighting,
+                title: "Prioritize Face Light",
+                instruction: "Turn the subject toward cleaner light before refining background."
+            ))
+        }
+
+        if shotSpec.composition.skyPriority == .high {
+            append(CreativeInterpretationPlan.Suggestion(
+                id: "composition_more_sky",
+                category: .composition,
+                title: "Leave Sky Room",
+                instruction: "Tilt just enough to add sky while keeping the subject anchored."
+            ))
+        }
+
+        if includePublicReferences || containsAny(prompt, terms: ["reference", "inspiration", "online", "trend"]) {
+            append(CreativeInterpretationPlan.Suggestion(
+                id: "reference_compare_public_sources",
+                category: .reference,
+                title: "Compare References",
+                instruction: "Use public references for light, angle, and framing cues only."
+            ))
+        }
+
+        if includeLearnedSignals,
+           let topSignal = profile.learningInsight(maxSignals: 1).topSignals.first {
+            append(CreativeInterpretationPlan.Suggestion(
+                id: "learned_preference_\(topSignal.id)",
+                category: .composition,
+                title: "Respect Learned Taste",
+                instruction: "Blend the learned \(topSignal.label.lowercased()) preference into this shot."
+            ))
+        }
+
+        append(CreativeInterpretationPlan.Suggestion(
+            id: "capture_realistic_boundary",
+            category: .safety,
+            title: "Stay Capture-Realistic",
+            instruction: "Treat this as a camera brief; avoid promising generated edits in preview."
+        ))
+
+        return Array(suggestions.prefix(6))
+    }
+
     private func bump(_ values: inout [String: Double], key: String, amount: Double) {
         guard !key.isEmpty, amount.isFinite else { return }
         values[key] = PersonalVisualPreferenceProfile.clampAffinity((values[key] ?? 0) + amount)
@@ -616,5 +989,11 @@ public struct PersonalVisualLearningEngine: Sendable {
         }
 
         return result
+    }
+
+    private func displayLabel(for key: String) -> String {
+        key
+            .replacingOccurrences(of: "_", with: " ")
+            .capitalized
     }
 }

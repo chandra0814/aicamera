@@ -35,8 +35,9 @@ const personalVisualProfileStoragePolicy = {
 const shotSpec = {
   id: "shot_personalization_fixture",
   domain: "portrait",
-  style: { name: "cinematic", colorIntent: "warm_highlights_cool_shadows" },
-  composition: { framing: "environmental", backgroundPriority: "clean" },
+  subject: { primary: "person" },
+  style: { name: "cinematic", mood: "dramatic", colorIntent: "warm_highlights_cool_shadows" },
+  composition: { framing: "environmental", skyPriority: "high", backgroundPriority: "clean" },
 };
 
 const event = {
@@ -187,6 +188,38 @@ assert(plan.allowedInputs.includes("prompt_text"), "Online inspiration may use p
 assert(plan.mustNotSend.includes("raw_live_camera_feed"), "Online inspiration must block live camera upload.");
 assert(plan.searchQueries.some((query) => query.includes("cinematic")), "Online inspiration should preserve the requested style.");
 
+const blockedCreativePlan = makeCreativeInterpretationPlan(
+  shotSpec,
+  "Give me a cinematic portrait with online inspiration",
+  profile,
+  undefined,
+  localLearningConsent
+);
+assert(blockedCreativePlan === undefined, "Creative interpretation requires online/reference consent.");
+
+const creativePlan = makeCreativeInterpretationPlan(
+  shotSpec,
+  "Give me a cinematic portrait with online inspiration",
+  insightProfile,
+  plan,
+  onlineReferenceConsent
+);
+assert(creativePlan, "Creative interpretation should be created for consented creative prompts.");
+assert(creativePlan.reason === "explicit_user_request", "Creative interpretation should preserve explicit user intent.");
+assert(creativePlan.allowedInputs.includes("learned_preference_summary"), "Creative interpretation may use aggregate learned preference summaries.");
+assert(creativePlan.allowedInputs.includes("public_reference_summary"), "Creative interpretation may use public-reference summaries.");
+assert(creativePlan.suggestions.some((suggestion) => suggestion.category === "reference"), "Creative interpretation should include reference guidance.");
+assert(creativePlan.suggestions.some((suggestion) => suggestion.category === "lighting"), "Creative interpretation should include lighting guidance.");
+assert(creativePlan.privacy.singlePhoneOnly === true, "Creative interpretation must stay single-phone.");
+assert(creativePlan.privacy.sendsRawCameraFrame === false, "Creative interpretation must not upload live frames.");
+assert(creativePlan.privacy.sendsPrivatePhoto === false, "Creative interpretation must not upload private photos.");
+assert(creativePlan.privacy.sendsIdentityData === false, "Creative interpretation must not send identity data.");
+assert(creativePlan.privacy.sendsPreciseLocation === false, "Creative interpretation must not send precise location.");
+assert(creativePlan.privacy.sendsRawLearningEvents === false, "Creative interpretation must not send raw learning events.");
+assert(creativePlan.privacy.allowsGenerativeOutput === false, "Creative interpretation must not imply generated output.");
+assert(creativePlan.mustNotSend.includes("raw_learning_events"), "Creative interpretation should block raw learning events.");
+assert(creativePlan.inputSummary.every((item) => !item.includes("raw_live_camera")), "Creative interpretation summaries must be sanitized.");
+
 const inspirationRequest = makeOnlineInspirationRequest(plan, 50);
 assert(inspirationRequest.perQueryLimit === 10, "Online provider limit should be clamped.");
 assert(inspirationRequest.source === "public_sources", "Online inspiration should request diverse public sources by default.");
@@ -316,6 +349,7 @@ const diagnosticsReport = makeSinglePhoneAiDiagnosticsReport({
   hasShotPlan: true,
   referencePhoto: referencePhotoFixture(false, true),
   onlineReferencePlan: plan,
+  creativeInterpretationPlan: creativePlan,
   onlineInspirationHealthSnapshot: availableProviderHealthSnapshot,
   calibrationReadinessReport: calibrationReadinessReportFixture(true),
   personalProfile: diagnosticProfile,
@@ -324,8 +358,9 @@ const diagnosticsReport = makeSinglePhoneAiDiagnosticsReport({
   generatedAt: "2026-08-29T00:00:00.000Z",
 });
 assert(diagnosticsReport.overallStatus === "passed", "Single-phone diagnostics should pass when every local flow is healthy.");
-assert(diagnosticsReport.checks.length === 8, "Single-phone diagnostics should cover the expected AI test cases.");
+assert(diagnosticsReport.checks.length === 9, "Single-phone diagnostics should cover the expected AI test cases.");
 assert(diagnosticsReport.checks.every((check) => check.status === "passed"), "Every healthy diagnostic check should pass.");
+assert(diagnosticsReport.checks.find((check) => check.id === "creative_interpretation").detail === `${creativePlan.suggestions.length} suggestions`, "Diagnostics should verify creative interpretation.");
 assert(diagnosticsReport.checks.find((check) => check.id === "calibration_readiness").detail === "24/24 captures", "Diagnostics should confirm real-capture calibration readiness.");
 assert(diagnosticsReport.checks.find((check) => check.id === "learning_store").detail === "Keychain encrypted", "Diagnostics should confirm encrypted learning storage.");
 assert(diagnosticsReport.privacy.singlePhoneOnly === true, "Diagnostics report must stay single-phone.");
@@ -342,6 +377,13 @@ const blockedDiagnosticsReport = makeSinglePhoneAiDiagnosticsReport({
   hasShotPlan: true,
   referencePhoto: referencePhotoFixture(true, true),
   onlineReferencePlan: plan,
+  creativeInterpretationPlan: {
+    ...creativePlan,
+    privacy: {
+      ...creativePlan.privacy,
+      sendsPrivatePhoto: true,
+    },
+  },
   onlineInspirationHealthSnapshot: unsafeHealthSnapshot,
   personalProfile: diagnosticProfile,
   captureCoachingSummary: captureCoachingSummaryFixture(),
@@ -349,6 +391,7 @@ const blockedDiagnosticsReport = makeSinglePhoneAiDiagnosticsReport({
 });
 assert(blockedDiagnosticsReport.overallStatus === "blocked", "Single-phone diagnostics should block unsafe payloads.");
 assert(blockedDiagnosticsReport.checks.find((check) => check.id === "reference_popup").status === "blocked", "Diagnostics should block cloud-analyzed references.");
+assert(blockedDiagnosticsReport.checks.find((check) => check.id === "creative_interpretation").status === "blocked", "Diagnostics should block creative plans that send private photos.");
 assert(blockedDiagnosticsReport.checks.find((check) => check.id === "online_provider_health").status === "blocked", "Diagnostics should block provider health that uploads camera frames.");
 
 const thumbnailCache = makeThumbnailMemoryCache(1);
@@ -363,6 +406,7 @@ console.log(JSON.stringify({
   correctiveFeedbackLearning: true,
   localProfileStorage: storageSnapshot.privacy,
   onlineReferencePlan: plan.reason,
+  creativeInterpretationPlan: creativePlan.reason,
   onlineSourceAdapter: [...new Set(rankedReferences.map((result) => result.source))].join("+"),
   onlineProviderHealth: providerHealthSnapshot.status,
   singlePhoneDiagnostics: diagnosticsReport.overallStatus,
@@ -627,6 +671,254 @@ function makeOnlineReferencePlan(shotSpec, prompt, profile, consent = profile.co
   };
 }
 
+function makeCreativeInterpretationPlan(shotSpec, prompt, profile, onlineReferencePlan, consent = profile.consent) {
+  if (!consent.onlineReferencesAllowed) return undefined;
+
+  const normalizedPrompt = prompt.toLowerCase();
+  const explicitCreativeRequest = containsAny(normalizedPrompt, [
+    "creative",
+    "interpret",
+    "brief",
+    "inspiration",
+    "reference",
+    "online",
+    "trend",
+    "make it look",
+    "style",
+  ]);
+  const specializedStyle = shotSpec.style.name !== "natural" ||
+    Boolean(shotSpec.style.mood) ||
+    containsAny(normalizedPrompt, ["cinematic", "professional", "luxury", "dramatic", "moody", "instagram"]);
+  const insight = makePersonalVisualLearningInsight(profile, 3);
+  const hasLearnedSignals = consent.learningEnabled && profile.totalEvents >= 3 && insight.topSignals.length > 0;
+
+  if (!explicitCreativeRequest && !specializedStyle && !onlineReferencePlan && !hasLearnedSignals) return undefined;
+
+  const reason = explicitCreativeRequest
+    ? "explicit_user_request"
+    : onlineReferencePlan
+      ? "online_inspiration"
+      : hasLearnedSignals
+        ? "learned_preference"
+        : "specialized_style";
+
+  const allowedInputs = [
+    "prompt_text",
+    "shot_spec_summary",
+    "device_capability_summary",
+  ];
+  if (hasLearnedSignals) allowedInputs.push("learned_preference_summary");
+  if (onlineReferencePlan) allowedInputs.push("public_reference_summary");
+
+  return {
+    id: `creative_interpretation_${shotSpec.id}`,
+    reason,
+    inputSummary: creativeInputSummary(shotSpec, normalizedPrompt, profile, hasLearnedSignals, Boolean(onlineReferencePlan)),
+    suggestions: creativeSuggestions(shotSpec, normalizedPrompt, profile, hasLearnedSignals, Boolean(onlineReferencePlan)),
+    allowedInputs,
+    mustNotSend: [
+      "raw_live_camera_feed",
+      "private_photo",
+      "face_identity",
+      "precise_location_without_consent",
+      "raw_learning_events",
+    ],
+    userDisclosure: "LensPilot can interpret the shot using prompt, plan, learned aggregate preferences, and public-reference summaries only. It will not upload your live camera feed or private photos.",
+    privacy: {
+      singlePhoneOnly: true,
+      requiresUserConsent: true,
+      sendsRawCameraFrame: false,
+      sendsPrivatePhoto: false,
+      sendsIdentityData: false,
+      sendsPreciseLocation: false,
+      sendsRawLearningEvents: false,
+      allowsGenerativeOutput: false,
+    },
+  };
+}
+
+function creativeInputSummary(shotSpec, prompt, profile, includeLearnedSignals, includePublicReferences) {
+  const summary = [
+    `Scene: ${displayLearningKey(shotSpec.domain)}`,
+    `Style: ${displayLearningKey(shotSpec.style.name)}`,
+    `Framing: ${displayLearningKey(shotSpec.composition.framing)}`,
+  ];
+
+  if (shotSpec.style.colorIntent) {
+    summary.push(`Color: ${displayLearningKey(shotSpec.style.colorIntent)}`);
+  }
+
+  const promptSummary = compactPromptQuery(prompt);
+  if (promptSummary) {
+    summary.push(`Prompt: ${promptSummary}`);
+  }
+
+  if (includeLearnedSignals) {
+    const topSignal = makePersonalVisualLearningInsight(profile, 1).topSignals[0];
+    if (topSignal) {
+      summary.push(`Learned: ${topSignal.label}`);
+    }
+  }
+
+  if (includePublicReferences) {
+    summary.push("References: Public inspiration summaries");
+  }
+
+  return uniqueNonEmpty(summary);
+}
+
+function creativeSuggestions(shotSpec, prompt, profile, includeLearnedSignals, includePublicReferences) {
+  const suggestions = [];
+  const append = (suggestion) => {
+    if (!suggestions.some((existing) => existing.id === suggestion.id)) {
+      suggestions.push(suggestion);
+    }
+  };
+
+  switch (shotSpec.style.name) {
+    case "cinematic":
+      append({
+        id: "cinematic_side_light",
+        category: "lighting",
+        title: "Shape the Light",
+        instruction: "Favor side light or backlight, then keep face detail readable.",
+      });
+      append({
+        id: "cinematic_color_separation",
+        category: "color",
+        title: "Separate Color",
+        instruction: "Look for warm highlights with cooler shadow separation.",
+      });
+      break;
+    case "professional":
+      append({
+        id: "professional_clean_lines",
+        category: "composition",
+        title: "Clean the Frame",
+        instruction: "Keep the background simple and vertical lines straight.",
+      });
+      break;
+    case "travel":
+      append({
+        id: "travel_place_cue",
+        category: "composition",
+        title: "Keep the Place Cue",
+        instruction: "Include one recognizable location detail without crowding the subject.",
+      });
+      break;
+    case "night":
+      append({
+        id: "night_stability",
+        category: "lighting",
+        title: "Stabilize the Shot",
+        instruction: "Use bright edges or signage, then hold the phone steady before capture.",
+      });
+      break;
+    case "sky":
+      append({
+        id: "sky_highlight_guard",
+        category: "composition",
+        title: "Protect the Sky",
+        instruction: "Place the horizon low enough for sky drama while protecting highlights.",
+      });
+      break;
+    case "portrait":
+    case "lifestyle":
+      append({
+        id: "portrait_subject_space",
+        category: "lens",
+        title: "Give Subject Space",
+        instruction: "Step back slightly for flattering perspective and cleaner separation.",
+      });
+      break;
+  }
+
+  switch (shotSpec.style.mood) {
+    case "dramatic":
+    case "moody":
+      append({
+        id: "mood_shadow_control",
+        category: "lighting",
+        title: "Use Shadows",
+        instruction: "Let shadows add shape, but keep the main subject easy to read.",
+      });
+      break;
+    case "luxury":
+      append({
+        id: "mood_luxury_polish",
+        category: "color",
+        title: "Polish the Palette",
+        instruction: "Choose clean textures, warm highlights, and fewer background colors.",
+      });
+      break;
+    case "bright":
+    case "soft":
+      append({
+        id: "mood_soft_light",
+        category: "lighting",
+        title: "Soften Contrast",
+        instruction: "Find open shade or window light so skin and highlights stay gentle.",
+      });
+      break;
+    case "documentary":
+      append({
+        id: "mood_documentary_context",
+        category: "composition",
+        title: "Keep Context",
+        instruction: "Leave enough environment in frame to explain the moment.",
+      });
+      break;
+  }
+
+  if (shotSpec.subject?.primary === "person" || shotSpec.subject?.primary === "people") {
+    append({
+      id: "person_face_priority",
+      category: "lighting",
+      title: "Prioritize Face Light",
+      instruction: "Turn the subject toward cleaner light before refining background.",
+    });
+  }
+
+  if (shotSpec.composition.skyPriority === "high") {
+    append({
+      id: "composition_more_sky",
+      category: "composition",
+      title: "Leave Sky Room",
+      instruction: "Tilt just enough to add sky while keeping the subject anchored.",
+    });
+  }
+
+  if (includePublicReferences || containsAny(prompt, ["reference", "inspiration", "online", "trend"])) {
+    append({
+      id: "reference_compare_public_sources",
+      category: "reference",
+      title: "Compare References",
+      instruction: "Use public references for light, angle, and framing cues only.",
+    });
+  }
+
+  if (includeLearnedSignals) {
+    const topSignal = makePersonalVisualLearningInsight(profile, 1).topSignals[0];
+    if (topSignal) {
+      append({
+        id: `learned_preference_${topSignal.id}`,
+        category: "composition",
+        title: "Respect Learned Taste",
+        instruction: `Blend the learned ${topSignal.label.toLowerCase()} preference into this shot.`,
+      });
+    }
+  }
+
+  append({
+    id: "capture_realistic_boundary",
+    category: "safety",
+    title: "Stay Capture-Realistic",
+    instruction: "Treat this as a camera brief; avoid promising generated edits in preview.",
+  });
+
+  return suggestions.slice(0, 6);
+}
+
 function makeOnlineInspirationRequest(plan, perQueryLimit = 4) {
   if (
     !plan.privacy.singlePhoneOnly ||
@@ -718,6 +1010,7 @@ function makeSinglePhoneAiDiagnosticsReport({
   hasShotPlan,
   referencePhoto,
   onlineReferencePlan,
+  creativeInterpretationPlan,
   onlineInspirationHealthSnapshot,
   calibrationReadinessReport,
   personalProfile,
@@ -734,6 +1027,7 @@ function makeSinglePhoneAiDiagnosticsReport({
     },
     referencePopupDiagnosticCheck(referencePhoto),
     onlineReferencePlanDiagnosticCheck(onlineReferencePlan),
+    creativeInterpretationDiagnosticCheck(creativeInterpretationPlan),
     onlineProviderHealthDiagnosticCheck(onlineInspirationHealthSnapshot),
     calibrationReadinessDiagnosticCheck(calibrationReadinessReport),
     localLearningDiagnosticCheck(personalProfile),
@@ -752,6 +1046,33 @@ function makeSinglePhoneAiDiagnosticsReport({
       sendsIdentityData: false,
       sendsPreciseLocation: false,
     },
+  };
+}
+
+function creativeInterpretationDiagnosticCheck(plan) {
+  if (!plan) {
+    return {
+      id: "creative_interpretation",
+      title: "Creative Plan",
+      status: "attention",
+      detail: "Not triggered",
+    };
+  }
+
+  const isSafe = plan.privacy.singlePhoneOnly &&
+    plan.privacy.requiresUserConsent &&
+    !plan.privacy.sendsRawCameraFrame &&
+    !plan.privacy.sendsPrivatePhoto &&
+    !plan.privacy.sendsIdentityData &&
+    !plan.privacy.sendsPreciseLocation &&
+    !plan.privacy.sendsRawLearningEvents &&
+    !plan.privacy.allowsGenerativeOutput;
+
+  return {
+    id: "creative_interpretation",
+    title: "Creative Plan",
+    status: isSafe ? "passed" : "blocked",
+    detail: `${plan.suggestions.length} suggestions`,
   };
 }
 

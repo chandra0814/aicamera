@@ -106,6 +106,7 @@ final class CameraScreenViewModel: ObservableObject {
     @Published private(set) var personalizationConsent: PersonalizationConsent
     @Published private(set) var personalProfile: PersonalVisualPreferenceProfile
     @Published private(set) var onlineReferencePlan: OnlineReferencePlan?
+    @Published private(set) var creativeInterpretationPlan: CreativeInterpretationPlan?
     @Published private(set) var onlineInspirationResults: [OnlineInspirationResult] = []
     @Published private(set) var onlineInspirationThumbnailData: [String: Data] = [:]
     @Published private(set) var onlineInspirationHealthSnapshot: OnlineInspirationHealthSnapshot?
@@ -392,6 +393,7 @@ final class CameraScreenViewModel: ObservableObject {
             hasShotPlan: currentShotPlan != nil,
             referencePhoto: directorState.referencePhoto,
             onlineReferencePlan: onlineReferencePlan,
+            creativeInterpretationPlan: creativeInterpretationPlan,
             onlineInspirationHealthSnapshot: onlineInspirationHealthSnapshot,
             calibrationReadinessReport: calibrationReadinessReport,
             personalProfile: personalProfile,
@@ -780,6 +782,7 @@ final class CameraScreenViewModel: ObservableObject {
     private func refreshOnlineReferencePlan(for shotSpec: ShotSpec?) {
         guard let shotSpec else {
             onlineReferencePlan = nil
+            creativeInterpretationPlan = nil
             onlineInspirationResults = []
             onlineInspirationThumbnailData = [:]
             onlineInspirationHealthSnapshot = nil
@@ -794,6 +797,13 @@ final class CameraScreenViewModel: ObservableObject {
             profile: personalProfile,
             consent: personalizationConsent
         )
+        let nextCreativePlan = personalLearningEngine.makeCreativeInterpretationPlan(
+            for: shotSpec,
+            prompt: intentText,
+            profile: personalProfile,
+            onlineReferencePlan: nextPlan,
+            consent: personalizationConsent
+        )
         if nextPlan != onlineReferencePlan {
             onlineInspirationResults = []
             onlineInspirationThumbnailData = [:]
@@ -802,6 +812,7 @@ final class CameraScreenViewModel: ObservableObject {
             hasLoadedOnlineInspiration = false
         }
         onlineReferencePlan = nextPlan
+        creativeInterpretationPlan = nextCreativePlan
     }
 
     private func warmOnlineInspirationThumbnailCache(for results: [OnlineInspirationResult], planId: String) {
