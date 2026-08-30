@@ -53,6 +53,9 @@ export interface TargetMatchCalibrationManifest {
     id: string;
     sampleKind: string;
     domain?: string;
+    captureMetadata?: {
+      calibrationScenarioId?: string;
+    };
     blindPreference?: {
       reviewCount: number;
       preferredGuidanceReason: string;
@@ -61,6 +64,32 @@ export interface TargetMatchCalibrationManifest {
     };
   }>;
 }
+
+export type TargetMatchCalibrationReadinessStatus = "ready" | "needs_more_samples";
+
+export interface TargetMatchCalibrationReadinessReport {
+  status: TargetMatchCalibrationReadinessStatus;
+  reviewedSampleCount: number;
+  targetRealCaptureCount: number;
+  missingSampleCount: number;
+  reviewedDomains: string[];
+  missingDomains: string[];
+  scenarioTargetCount: number;
+  scenarioCounts: Record<string, number>;
+  missingScenarios: string[];
+  isReadyForProductionCalibration: boolean;
+}
+
+const calibrationScenarioDomains: Record<string, CaptureDomain> = {
+  portrait: "portrait",
+  landscape: "landscape",
+  sky: "landscape",
+  clutter: "portrait",
+  backlight: "portrait",
+  horizon: "landscape",
+  motion: "lifestyle",
+  night: "night",
+};
 
 export const defaultTargetMatchCalibration: TargetMatchCalibration = {
   horizonRollFullPenaltyDegrees: 12,
@@ -133,6 +162,54 @@ export function aiCoreFromCalibrationManifest(manifest: TargetMatchCalibrationMa
     targetMatchCalibrationFromManifest(manifest),
     guidanceCalibrationFromManifest(manifest)
   );
+}
+
+export function targetMatchCalibrationReadinessFromManifest(
+  manifest: TargetMatchCalibrationManifest
+): TargetMatchCalibrationReadinessReport {
+  const minimumReviewers = Math.max(1, manifest.collectionPlan.minimumBlindReviewers);
+  const requiredDomains = [...manifest.collectionPlan.requiredDomains];
+  const requiredScenarios = manifest.collectionPlan.requiredScenarios ?? [];
+  const reviewedSamples = manifest.samples.filter((sample) =>
+    sample.sampleKind === "iphone_capture" &&
+    (sample.blindPreference?.reviewCount ?? 0) >= minimumReviewers &&
+    typeof sample.domain === "string" &&
+    requiredDomains.includes(sample.domain)
+  );
+  const reviewedDomains = [...new Set(reviewedSamples.flatMap((sample) => sample.domain ? [sample.domain] : []))].sort();
+  const missingDomains = requiredDomains.filter((domain) => !reviewedDomains.includes(domain)).sort();
+  const scenarioTargetCount = requiredScenarios.length > 0
+    ? Math.max(1, Math.floor(manifest.collectionPlan.realCaptureTargetCount / requiredScenarios.length))
+    : 0;
+  const scenarioCounts = Object.fromEntries(requiredScenarios.map((scenarioId) => [scenarioId, 0]));
+
+  for (const sample of reviewedSamples) {
+    const scenarioId = sample.captureMetadata?.calibrationScenarioId;
+    if (!scenarioId || !(scenarioId in scenarioCounts)) continue;
+    if (sample.domain !== calibrationScenarioDomains[scenarioId]) continue;
+    scenarioCounts[scenarioId] += 1;
+  }
+
+  const missingScenarios = requiredScenarios.filter((scenarioId) => scenarioCounts[scenarioId] < scenarioTargetCount);
+  const missingSampleCount = Math.max(0, manifest.collectionPlan.realCaptureTargetCount - reviewedSamples.length);
+  const isReadyForProductionCalibration =
+    manifest.collectionPlan.singlePhoneOnly &&
+    missingSampleCount === 0 &&
+    missingDomains.length === 0 &&
+    missingScenarios.length === 0;
+
+  return {
+    status: isReadyForProductionCalibration ? "ready" : "needs_more_samples",
+    reviewedSampleCount: reviewedSamples.length,
+    targetRealCaptureCount: manifest.collectionPlan.realCaptureTargetCount,
+    missingSampleCount,
+    reviewedDomains,
+    missingDomains,
+    scenarioTargetCount,
+    scenarioCounts,
+    missingScenarios,
+    isReadyForProductionCalibration,
+  };
 }
 
 export interface TargetMatchScore {

@@ -1,6 +1,6 @@
 import type { CaptureDomain, ReferencePhotoState, ShotSpec } from "./contracts";
 import type { GuidanceAction } from "./planning";
-import { defaultGuidanceCalibration, type CaptureCoachingSummary, type GuidanceCalibration } from "./ai-core";
+import { defaultGuidanceCalibration, type CaptureCoachingSummary, type GuidanceCalibration, type TargetMatchCalibrationReadinessReport } from "./ai-core";
 
 export interface PersonalizationConsent {
   learningEnabled: boolean;
@@ -581,6 +581,7 @@ export function makeSinglePhoneAiDiagnosticsReport({
   referencePhoto,
   onlineReferencePlan,
   onlineInspirationHealthSnapshot,
+  calibrationReadinessReport,
   personalProfile,
   personalProfileStoreProtection = personalVisualProfileStoragePolicy.preferredProtection,
   captureCoachingSummary,
@@ -590,6 +591,7 @@ export function makeSinglePhoneAiDiagnosticsReport({
   referencePhoto?: ReferencePhotoState;
   onlineReferencePlan?: OnlineReferencePlan;
   onlineInspirationHealthSnapshot?: OnlineInspirationHealthSnapshot;
+  calibrationReadinessReport?: TargetMatchCalibrationReadinessReport;
   personalProfile: PersonalVisualPreferenceProfile;
   personalProfileStoreProtection?: PersonalVisualProfileStorageProtection;
   captureCoachingSummary?: CaptureCoachingSummary;
@@ -605,6 +607,7 @@ export function makeSinglePhoneAiDiagnosticsReport({
     referencePopupDiagnosticCheck(referencePhoto),
     onlineReferencePlanDiagnosticCheck(onlineReferencePlan),
     onlineProviderHealthDiagnosticCheck(onlineInspirationHealthSnapshot),
+    calibrationReadinessDiagnosticCheck(calibrationReadinessReport),
     localLearningDiagnosticCheck(personalProfile),
     learningStoreDiagnosticCheck(personalProfile, personalProfileStoreProtection),
     captureCoachingDiagnosticCheck(captureCoachingSummary),
@@ -1036,6 +1039,41 @@ function localLearningDiagnosticCheck(profile: PersonalVisualPreferenceProfile):
     title: "Local Learning",
     status: profile.totalEvents > 0 ? "passed" : "attention",
     detail: `${profile.totalEvents} events`,
+  };
+}
+
+function calibrationReadinessDiagnosticCheck(
+  report?: TargetMatchCalibrationReadinessReport
+): SinglePhoneAiDiagnosticCheck {
+  if (!report) {
+    return {
+      id: "calibration_readiness",
+      title: "Calibration Data",
+      status: "attention",
+      detail: "Manifest unavailable",
+    };
+  }
+
+  if (report.isReadyForProductionCalibration) {
+    return {
+      id: "calibration_readiness",
+      title: "Calibration Data",
+      status: "passed",
+      detail: `${report.reviewedSampleCount}/${report.targetRealCaptureCount} captures`,
+    };
+  }
+
+  const detail = report.missingSampleCount > 0
+    ? `Need ${report.missingSampleCount} captures`
+    : report.missingScenarios.length > 0
+      ? `Missing ${report.missingScenarios.length} scenarios`
+      : `Missing ${report.missingDomains.length} domains`;
+
+  return {
+    id: "calibration_readiness",
+    title: "Calibration Data",
+    status: "attention",
+    detail,
   };
 }
 

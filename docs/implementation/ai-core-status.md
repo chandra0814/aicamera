@@ -45,11 +45,13 @@ This implementation completes the MVP AI control skeleton, not the final product
 - Online inspiration now supports multiple public providers, starting with Wikimedia Commons and Openverse-style public image search, with deduplication and source-diverse ranking so one provider does not dominate the first results.
 - Calibration queue progress is stored as local counts and the active scenario only; it does not store photos, live frames, identity labels, or cloud state.
 - Personal Visual AI learned-profile storage now prefers Keychain encrypted, this-device-only storage on iOS, migrates legacy local profile bytes out of UserDefaults, and reports storage protection in AI Diagnostics.
+- Target Match calibration readiness now reports whether reviewed same-phone captures satisfy the required sample count, domain coverage, scenario coverage, and blind-review minimum before production calibration is considered ready.
+- AI Diagnostics now surfaces that calibration readiness signal from the bundled manifest alongside shot planning, reference popup, online source health, local learning, encrypted learning storage, and capture coaching.
 
 ## Not Yet Production AI
 
 - No trained aesthetic model yet.
-- No completed real iPhone target-match calibration dataset yet.
+- No completed real iPhone target-match calibration dataset yet; the bundled seed manifest currently reports `needs_more_samples` until 24 reviewed real captures are imported.
 - No Core ML/TFLite production model bundle yet.
 - No cloud VLM/LLM adapter yet.
 - No generative preview engine yet.
@@ -64,5 +66,6 @@ LensPilot must remain a reliable camera first. A deterministic AI core lets us p
 ## Required Next AI Work
 
 1. Collect real portrait, landscape, sky, clutter, backlight, horizon, motion, and night samples from iPhone captures.
-2. Tune benchmark thresholds, sub-score weights, and guidance-priority boosts against blind preference tests now that the app can load the manifest at runtime.
-3. Add optional cloud or online reasoning only for event-triggered creative interpretation and inspiration lookup.
+2. Use the calibration readiness report and AI Diagnostics to confirm all 24 reviewed captures satisfy the required domains, scenarios, and blind-review minimum.
+3. Tune benchmark thresholds, sub-score weights, and guidance-priority boosts against blind preference tests now that the app can load the manifest at runtime.
+4. Add optional cloud or online reasoning only for event-triggered creative interpretation and inspiration lookup.

@@ -36,6 +36,8 @@ const calibrationScenarios = {
 };
 
 assert(manifest.collectionPlan?.singlePhoneOnly === true, "Calibration plan must stay single-phone only.");
+assert(Number.isInteger(manifest.collectionPlan?.realCaptureTargetCount) && manifest.collectionPlan.realCaptureTargetCount > 0, "Calibration plan must set a positive realCaptureTargetCount.");
+assert(Number.isInteger(manifest.collectionPlan?.minimumBlindReviewers) && manifest.collectionPlan.minimumBlindReviewers > 0, "Calibration plan must set a positive minimumBlindReviewers count.");
 assert(Array.isArray(requiredDomains) && requiredDomains.length > 0, "Calibration plan must list required domains.");
 assert(Array.isArray(requiredScenarios), "Calibration plan requiredScenarios must be an array when present.");
 assert(Array.isArray(manifest.samples) && manifest.samples.length > 0, "Calibration manifest needs at least one seed or capture sample.");
@@ -116,6 +118,13 @@ for (const sample of manifest.samples) {
   }
 }
 
+const readinessReport = makeCalibrationReadinessReport(
+  manifest,
+  realCaptureSamples,
+  [...realCaptureDomains],
+  realCaptureScenarioCounts
+);
+
 console.log(JSON.stringify({
   calibrationVersion: manifest.version,
   samples: manifest.samples.length,
@@ -123,6 +132,10 @@ console.log(JSON.stringify({
   realCaptureDomains: [...realCaptureDomains].sort(),
   realCaptureScenarios: Object.fromEntries(Object.entries(realCaptureScenarioCounts).filter(([, count]) => count > 0)),
   targetRealCaptureSamples: manifest.collectionPlan.realCaptureTargetCount,
+  calibrationReadiness: readinessReport.status,
+  missingRealCaptureSamples: readinessReport.missingSampleCount,
+  missingRealCaptureDomains: readinessReport.missingDomains,
+  missingRealCaptureScenarios: readinessReport.missingScenarios,
   status: "passed",
 }, null, 2));
 
@@ -159,6 +172,37 @@ function readSampleJson(relativePath, inlineValue, sampleId, label) {
 function validateCalibrationScenarioId(scenarioId, sampleId) {
   if (scenarioId === undefined) return;
   assert(Object.hasOwn(calibrationScenarios, scenarioId), `${sampleId}: unsupported calibrationScenarioId ${scenarioId}.`);
+}
+
+function makeCalibrationReadinessReport(manifest, realCaptureSamples, realCaptureDomains, realCaptureScenarioCounts) {
+  const missingSampleCount = Math.max(0, manifest.collectionPlan.realCaptureTargetCount - realCaptureSamples);
+  const reviewedDomains = [...realCaptureDomains].sort();
+  const missingDomains = requiredDomains
+    .filter((domain) => !reviewedDomains.includes(domain))
+    .sort();
+  const scenarioTargetCount = requiredScenarios.length > 0
+    ? Math.max(1, Math.floor(manifest.collectionPlan.realCaptureTargetCount / requiredScenarios.length))
+    : 0;
+  const missingScenarios = requiredScenarios
+    .filter((scenarioId) => realCaptureScenarioCounts[scenarioId] < scenarioTargetCount);
+  const isReadyForProductionCalibration =
+    manifest.collectionPlan.singlePhoneOnly &&
+    missingSampleCount === 0 &&
+    missingDomains.length === 0 &&
+    missingScenarios.length === 0;
+
+  return {
+    status: isReadyForProductionCalibration ? "ready" : "needs_more_samples",
+    reviewedSampleCount: realCaptureSamples,
+    targetRealCaptureCount: manifest.collectionPlan.realCaptureTargetCount,
+    missingSampleCount,
+    reviewedDomains,
+    missingDomains,
+    scenarioTargetCount,
+    scenarioCounts: realCaptureScenarioCounts,
+    missingScenarios,
+    isReadyForProductionCalibration,
+  };
 }
 
 function parseIntent(intent) {

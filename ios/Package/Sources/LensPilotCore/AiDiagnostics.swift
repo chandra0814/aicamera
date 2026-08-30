@@ -23,6 +23,7 @@ public struct SinglePhoneAiDiagnosticsReport: Codable, Equatable, Sendable {
         referencePhoto: ReferencePhotoState?,
         onlineReferencePlan: OnlineReferencePlan?,
         onlineInspirationHealthSnapshot: OnlineInspirationHealthSnapshot?,
+        calibrationReadinessReport: TargetMatchCalibrationManifest.CalibrationReadinessReport? = nil,
         personalProfile: PersonalVisualPreferenceProfile,
         personalProfileStoreProtection: PersonalVisualProfileStorageProtection = .localFile,
         captureCoachingSummary: CaptureCoachingSummary?,
@@ -35,6 +36,7 @@ public struct SinglePhoneAiDiagnosticsReport: Codable, Equatable, Sendable {
                 referencePopupCheck(referencePhoto: referencePhoto),
                 onlineReferencePlanCheck(onlineReferencePlan),
                 onlineProviderHealthCheck(onlineInspirationHealthSnapshot),
+                calibrationReadinessCheck(calibrationReadinessReport),
                 localLearningCheck(profile: personalProfile),
                 learningStoreCheck(profile: personalProfile, protection: personalProfileStoreProtection),
                 captureCoachingCheck(captureCoachingSummary)
@@ -185,6 +187,44 @@ public struct SinglePhoneAiDiagnosticsReport: Codable, Equatable, Sendable {
             title: "Local Learning",
             status: profile.totalEvents > 0 ? .passed : .attention,
             detail: "\(profile.totalEvents) events"
+        )
+    }
+
+    private static func calibrationReadinessCheck(
+        _ report: TargetMatchCalibrationManifest.CalibrationReadinessReport?
+    ) -> Check {
+        guard let report else {
+            return Check(
+                id: "calibration_readiness",
+                title: "Calibration Data",
+                status: .attention,
+                detail: "Manifest unavailable"
+            )
+        }
+
+        if report.isReadyForProductionCalibration {
+            return Check(
+                id: "calibration_readiness",
+                title: "Calibration Data",
+                status: .passed,
+                detail: "\(report.reviewedSampleCount)/\(report.targetRealCaptureCount) captures"
+            )
+        }
+
+        let detail: String
+        if report.missingSampleCount > 0 {
+            detail = "Need \(report.missingSampleCount) captures"
+        } else if !report.missingScenarios.isEmpty {
+            detail = "Missing \(report.missingScenarios.count) scenarios"
+        } else {
+            detail = "Missing \(report.missingDomains.count) domains"
+        }
+
+        return Check(
+            id: "calibration_readiness",
+            title: "Calibration Data",
+            status: .attention,
+            detail: detail
         )
     }
 

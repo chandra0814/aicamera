@@ -118,6 +118,17 @@ final class AiCoreTests: XCTestCase {
         XCTAssertEqual(manifest.reviewedSampleCount, 1)
         XCTAssertEqual(manifest.reviewedDomains, ["portrait"])
         XCTAssertEqual(manifest.collectionPlan.requiredScenarios, CalibrationCaptureScenario.allCases.map(\.rawValue))
+        let readinessReport = manifest.makeCalibrationReadinessReport()
+        XCTAssertEqual(readinessReport.status, .needsMoreSamples)
+        XCTAssertEqual(readinessReport.reviewedSampleCount, 1)
+        XCTAssertEqual(readinessReport.targetRealCaptureCount, 24)
+        XCTAssertEqual(readinessReport.missingSampleCount, 23)
+        XCTAssertEqual(readinessReport.reviewedDomains, ["portrait"])
+        XCTAssertTrue(readinessReport.missingDomains.contains("landscape"))
+        XCTAssertEqual(readinessReport.scenarioTargetCount, 3)
+        XCTAssertEqual(readinessReport.scenarioCounts["clutter"], 1)
+        XCTAssertTrue(readinessReport.missingScenarios.contains("clutter"))
+        XCTAssertFalse(readinessReport.isReadyForProductionCalibration)
         XCTAssertEqual(manifest.targetMatchCalibration.backgroundClutterPenalty, 0.25, accuracy: 0.0001)
         XCTAssertGreaterThan(calibratedResult.targetMatch.background, defaultResult.targetMatch.background)
         XCTAssertGreaterThan(calibratedResult.targetMatch.intentMatch, defaultResult.targetMatch.intentMatch)
@@ -129,6 +140,47 @@ final class AiCoreTests: XCTestCase {
         XCTAssertEqual(guidanceCalibration.scoreBoost(for: clutterAction, domain: .landscape), 0, accuracy: 0.0001)
         XCTAssertNotEqual(defaultResult.guidanceAction?.reason, calibratedResult.guidanceAction?.reason)
         XCTAssertEqual(calibratedResult.guidanceAction?.reason, .reduceClutter)
+    }
+
+    func testTargetMatchCalibrationReadinessPassesCompleteReviewedScenarioSet() throws {
+        let samples = CalibrationCaptureScenario.allCases.flatMap { scenario in
+            (0..<scenario.targetSampleCount).map { index in
+                TargetMatchCalibrationManifest.SampleSummary(
+                    id: "iphone_capture_\(scenario.rawValue)_\(index)",
+                    sampleKind: "iphone_capture",
+                    domain: scenario.domain.rawValue,
+                    captureMetadata: .init(calibrationScenarioId: scenario.rawValue),
+                    blindPreference: .init(
+                        reviewCount: 2,
+                        preferredGuidanceReason: scenario.preferredGuidanceReason.rawValue,
+                        rankedWeaknesses: scenario.rankedWeaknesses.map(\.rawValue),
+                        notes: "Reviewed \(scenario.title) calibration sample."
+                    )
+                )
+            }
+        }
+        let manifest = try TargetMatchCalibrationManifest(
+            version: "2026.08.30",
+            collectionPlan: .init(
+                singlePhoneOnly: true,
+                realCaptureTargetCount: 24,
+                minimumBlindReviewers: 2,
+                requiredDomains: ["portrait", "landscape", "lifestyle", "night"],
+                requiredScenarios: CalibrationCaptureScenario.allCases.map(\.rawValue)
+            ),
+            targetMatchCalibration: .standard,
+            samples: samples
+        )
+
+        let readinessReport = manifest.makeCalibrationReadinessReport()
+
+        XCTAssertEqual(readinessReport.status, .ready)
+        XCTAssertEqual(readinessReport.reviewedSampleCount, 24)
+        XCTAssertEqual(readinessReport.missingSampleCount, 0)
+        XCTAssertEqual(readinessReport.missingDomains, [])
+        XCTAssertEqual(readinessReport.missingScenarios, [])
+        XCTAssertEqual(readinessReport.scenarioCounts["night"], 3)
+        XCTAssertTrue(readinessReport.isReadyForProductionCalibration)
     }
 
     func testTargetMatchCalibrationManifestRejectsNonSinglePhonePlan() {
@@ -313,6 +365,7 @@ final class AiCoreTests: XCTestCase {
             referencePhoto: Self.referencePhoto(cloudAnalysisUsed: false, showCameraPopup: true),
             onlineReferencePlan: plan,
             onlineInspirationHealthSnapshot: healthSnapshot,
+            calibrationReadinessReport: Self.readyCalibrationReadinessReport(),
             personalProfile: profile,
             personalProfileStoreProtection: .keychainEncryptedThisDeviceOnly,
             captureCoachingSummary: captureReview.coachingSummary,
@@ -325,6 +378,7 @@ final class AiCoreTests: XCTestCase {
             "reference_popup",
             "online_reference_plan",
             "online_provider_health",
+            "calibration_readiness",
             "local_learning",
             "learning_store",
             "capture_coaching"
@@ -1080,6 +1134,23 @@ final class AiCoreTests: XCTestCase {
         )
     }
 
+    private static func readyCalibrationReadinessReport() -> TargetMatchCalibrationManifest.CalibrationReadinessReport {
+        TargetMatchCalibrationManifest.CalibrationReadinessReport(
+            status: .ready,
+            reviewedSampleCount: 24,
+            targetRealCaptureCount: 24,
+            missingSampleCount: 0,
+            reviewedDomains: ["landscape", "lifestyle", "night", "portrait"],
+            missingDomains: [],
+            scenarioTargetCount: 3,
+            scenarioCounts: Dictionary(
+                uniqueKeysWithValues: CalibrationCaptureScenario.allCases.map { ($0.rawValue, $0.targetSampleCount) }
+            ),
+            missingScenarios: [],
+            isReadyForProductionCalibration: true
+        )
+    }
+
     private static func portraitScene() -> SceneState {
         SceneState(
             timestamp: Date(timeIntervalSince1970: 0),
@@ -1196,6 +1267,9 @@ final class AiCoreTests: XCTestCase {
               "id": "iphone_capture_unit_test",
               "sampleKind": "iphone_capture",
               "domain": "portrait",
+              "captureMetadata": {
+                "calibrationScenarioId": "clutter"
+              },
               "blindPreference": {
                 "reviewCount": 2,
                 "preferredGuidanceReason": "reduce_clutter",

@@ -294,14 +294,16 @@ const diagnosticsReport = makeSinglePhoneAiDiagnosticsReport({
   referencePhoto: referencePhotoFixture(false, true),
   onlineReferencePlan: plan,
   onlineInspirationHealthSnapshot: availableProviderHealthSnapshot,
+  calibrationReadinessReport: calibrationReadinessReportFixture(true),
   personalProfile: diagnosticProfile,
   personalProfileStoreProtection: "keychain_encrypted_this_device_only",
   captureCoachingSummary: captureCoachingSummaryFixture(),
   generatedAt: "2026-08-29T00:00:00.000Z",
 });
 assert(diagnosticsReport.overallStatus === "passed", "Single-phone diagnostics should pass when every local flow is healthy.");
-assert(diagnosticsReport.checks.length === 7, "Single-phone diagnostics should cover the expected AI test cases.");
+assert(diagnosticsReport.checks.length === 8, "Single-phone diagnostics should cover the expected AI test cases.");
 assert(diagnosticsReport.checks.every((check) => check.status === "passed"), "Every healthy diagnostic check should pass.");
+assert(diagnosticsReport.checks.find((check) => check.id === "calibration_readiness").detail === "24/24 captures", "Diagnostics should confirm real-capture calibration readiness.");
 assert(diagnosticsReport.checks.find((check) => check.id === "learning_store").detail === "Keychain encrypted", "Diagnostics should confirm encrypted learning storage.");
 assert(diagnosticsReport.privacy.singlePhoneOnly === true, "Diagnostics report must stay single-phone.");
 assert(diagnosticsReport.privacy.uploadsLiveCameraFrame === false, "Diagnostics report must not upload live camera frames.");
@@ -593,6 +595,7 @@ function makeSinglePhoneAiDiagnosticsReport({
   referencePhoto,
   onlineReferencePlan,
   onlineInspirationHealthSnapshot,
+  calibrationReadinessReport,
   personalProfile,
   personalProfileStoreProtection = personalVisualProfileStoragePolicy.preferredProtection,
   captureCoachingSummary,
@@ -608,6 +611,7 @@ function makeSinglePhoneAiDiagnosticsReport({
     referencePopupDiagnosticCheck(referencePhoto),
     onlineReferencePlanDiagnosticCheck(onlineReferencePlan),
     onlineProviderHealthDiagnosticCheck(onlineInspirationHealthSnapshot),
+    calibrationReadinessDiagnosticCheck(calibrationReadinessReport),
     localLearningDiagnosticCheck(personalProfile),
     learningStoreDiagnosticCheck(personalProfile, personalProfileStoreProtection),
     captureCoachingDiagnosticCheck(captureCoachingSummary),
@@ -682,6 +686,30 @@ function captureCoachingSummaryFixture() {
       uploadsLiveCameraFrame: false,
       identityRecognitionAllowed: false,
     },
+  };
+}
+
+function calibrationReadinessReportFixture(isReady) {
+  return {
+    status: isReady ? "ready" : "needs_more_samples",
+    reviewedSampleCount: isReady ? 24 : 1,
+    targetRealCaptureCount: 24,
+    missingSampleCount: isReady ? 0 : 23,
+    reviewedDomains: isReady ? ["landscape", "lifestyle", "night", "portrait"] : ["portrait"],
+    missingDomains: isReady ? [] : ["landscape", "lifestyle", "night"],
+    scenarioTargetCount: 3,
+    scenarioCounts: {
+      portrait: isReady ? 3 : 1,
+      landscape: isReady ? 3 : 0,
+      sky: isReady ? 3 : 0,
+      clutter: isReady ? 3 : 0,
+      backlight: isReady ? 3 : 0,
+      horizon: isReady ? 3 : 0,
+      motion: isReady ? 3 : 0,
+      night: isReady ? 3 : 0,
+    },
+    missingScenarios: isReady ? [] : ["portrait", "landscape", "sky", "clutter", "backlight", "horizon", "motion", "night"],
+    isReadyForProductionCalibration: isReady,
   };
 }
 
@@ -821,6 +849,39 @@ function localLearningDiagnosticCheck(profile) {
     title: "Local Learning",
     status: profile.totalEvents > 0 ? "passed" : "attention",
     detail: `${profile.totalEvents} events`,
+  };
+}
+
+function calibrationReadinessDiagnosticCheck(report) {
+  if (!report) {
+    return {
+      id: "calibration_readiness",
+      title: "Calibration Data",
+      status: "attention",
+      detail: "Manifest unavailable",
+    };
+  }
+
+  if (report.isReadyForProductionCalibration) {
+    return {
+      id: "calibration_readiness",
+      title: "Calibration Data",
+      status: "passed",
+      detail: `${report.reviewedSampleCount}/${report.targetRealCaptureCount} captures`,
+    };
+  }
+
+  const detail = report.missingSampleCount > 0
+    ? `Need ${report.missingSampleCount} captures`
+    : report.missingScenarios.length > 0
+      ? `Missing ${report.missingScenarios.length} scenarios`
+      : `Missing ${report.missingDomains.length} domains`;
+
+  return {
+    id: "calibration_readiness",
+    title: "Calibration Data",
+    status: "attention",
+    detail,
   };
 }
 

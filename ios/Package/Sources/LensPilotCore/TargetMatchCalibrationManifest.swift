@@ -109,6 +109,58 @@ public struct TargetMatchCalibrationManifest: Codable, Equatable, Sendable {
         })).sorted()
     }
 
+    public func makeCalibrationReadinessReport() -> CalibrationReadinessReport {
+        let minimumReviewers = max(1, collectionPlan.minimumBlindReviewers)
+        let reviewedSamples = samples.filter { sample in
+            sample.sampleKind == "iphone_capture"
+                && (sample.blindPreference?.reviewCount ?? 0) >= minimumReviewers
+                && sample.domain.map { collectionPlan.requiredDomains.contains($0) } == true
+        }
+        let reviewedDomains = Array(Set(reviewedSamples.compactMap(\.domain))).sorted()
+        let missingDomains = collectionPlan.requiredDomains
+            .filter { !reviewedDomains.contains($0) }
+            .sorted()
+        let scenarioTargetCount = collectionPlan.requiredScenarios.isEmpty
+            ? 0
+            : max(1, collectionPlan.realCaptureTargetCount / collectionPlan.requiredScenarios.count)
+        var scenarioCounts = Dictionary(
+            uniqueKeysWithValues: collectionPlan.requiredScenarios.map { ($0, 0) }
+        )
+
+        for sample in reviewedSamples {
+            guard let scenarioId = sample.captureMetadata?.calibrationScenarioId,
+                  let scenario = CalibrationCaptureScenario(rawValue: scenarioId),
+                  scenarioCounts[scenarioId] != nil,
+                  sample.domain == scenario.domain.rawValue
+            else {
+                continue
+            }
+
+            scenarioCounts[scenarioId, default: 0] += 1
+        }
+
+        let missingScenarios = collectionPlan.requiredScenarios
+            .filter { scenarioCounts[$0, default: 0] < scenarioTargetCount }
+        let missingSampleCount = max(0, collectionPlan.realCaptureTargetCount - reviewedSamples.count)
+        let isReady = collectionPlan.singlePhoneOnly
+            && missingSampleCount == 0
+            && missingDomains.isEmpty
+            && missingScenarios.isEmpty
+
+        return CalibrationReadinessReport(
+            status: isReady ? .ready : .needsMoreSamples,
+            reviewedSampleCount: reviewedSamples.count,
+            targetRealCaptureCount: collectionPlan.realCaptureTargetCount,
+            missingSampleCount: missingSampleCount,
+            reviewedDomains: reviewedDomains,
+            missingDomains: missingDomains,
+            scenarioTargetCount: scenarioTargetCount,
+            scenarioCounts: scenarioCounts,
+            missingScenarios: missingScenarios,
+            isReadyForProductionCalibration: isReady
+        )
+    }
+
     private static func validate(
         collectionPlan: CollectionPlan,
         targetMatchCalibration: TargetMatchCalibration,
@@ -124,6 +176,12 @@ public struct TargetMatchCalibrationManifest: Codable, Equatable, Sendable {
             throw TargetMatchCalibrationManifestError.samplesMissing
         }
         for scenarioId in collectionPlan.requiredScenarios {
+            guard CalibrationCaptureScenario(rawValue: scenarioId) != nil else {
+                throw TargetMatchCalibrationManifestError.invalidScenario(scenarioId)
+            }
+        }
+        for sample in samples {
+            guard let scenarioId = sample.captureMetadata?.calibrationScenarioId else { continue }
             guard CalibrationCaptureScenario(rawValue: scenarioId) != nil else {
                 throw TargetMatchCalibrationManifestError.invalidScenario(scenarioId)
             }
@@ -248,18 +306,71 @@ public extension TargetMatchCalibrationManifest {
         public let id: String
         public let sampleKind: String
         public let domain: String?
+        public let captureMetadata: CaptureMetadata?
         public let blindPreference: BlindPreference?
 
         public init(
             id: String,
             sampleKind: String,
             domain: String?,
+            captureMetadata: CaptureMetadata? = nil,
             blindPreference: BlindPreference?
         ) {
             self.id = id
             self.sampleKind = sampleKind
             self.domain = domain
+            self.captureMetadata = captureMetadata
             self.blindPreference = blindPreference
+        }
+    }
+
+    struct CaptureMetadata: Codable, Equatable, Sendable {
+        public let calibrationScenarioId: String?
+
+        public init(calibrationScenarioId: String? = nil) {
+            self.calibrationScenarioId = calibrationScenarioId
+        }
+    }
+
+    enum CalibrationReadinessStatus: String, Codable, Equatable, Sendable {
+        case ready
+        case needsMoreSamples = "needs_more_samples"
+    }
+
+    struct CalibrationReadinessReport: Codable, Equatable, Sendable {
+        public let status: CalibrationReadinessStatus
+        public let reviewedSampleCount: Int
+        public let targetRealCaptureCount: Int
+        public let missingSampleCount: Int
+        public let reviewedDomains: [String]
+        public let missingDomains: [String]
+        public let scenarioTargetCount: Int
+        public let scenarioCounts: [String: Int]
+        public let missingScenarios: [String]
+        public let isReadyForProductionCalibration: Bool
+
+        public init(
+            status: CalibrationReadinessStatus,
+            reviewedSampleCount: Int,
+            targetRealCaptureCount: Int,
+            missingSampleCount: Int,
+            reviewedDomains: [String],
+            missingDomains: [String],
+            scenarioTargetCount: Int,
+            scenarioCounts: [String: Int],
+            missingScenarios: [String],
+            isReadyForProductionCalibration: Bool
+        ) {
+            self.status = status
+            self.reviewedSampleCount = reviewedSampleCount
+            self.targetRealCaptureCount = targetRealCaptureCount
+            self.missingSampleCount = missingSampleCount
+            self.reviewedDomains = reviewedDomains
+            self.missingDomains = missingDomains
+            self.scenarioTargetCount = scenarioTargetCount
+            self.scenarioCounts = scenarioCounts
+            self.missingScenarios = missingScenarios
+            self.isReadyForProductionCalibration = isReadyForProductionCalibration
         }
     }
 

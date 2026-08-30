@@ -11,6 +11,7 @@
   - safety-qualified movement guidance
   - deterministic AI guidance benchmarks with manifest-derived guidance calibration
   - Target Match calibration manifest validation, including candidate-sample privacy checks
+  - Target Match calibration readiness reporting for missing real-capture counts, domains, and scenarios
   - reviewed candidate promotion into labeled `iphone_capture` calibration samples
   - guided calibration queue validation for eight real-capture scenarios, 24 target captures, supported domains, manifest `requiredScenarios` alignment, and sanitized local progress
   - reviewed app export normalization before manifest import
@@ -23,7 +24,7 @@
   - deterministic Target Preview privacy, safety label, achievability, and composition-overlay validation
   - same-phone Target Preview adjustment validation for brighter, more sky, less background blur, and natural-color commands
   - after-capture coaching validation for strong signals, next-shot corrections, and single-phone privacy flags
-  - single-phone AI diagnostics validation for shot planning, reference popup, online source health, local learning, encrypted learning storage, and capture coaching
+  - single-phone AI diagnostics validation for shot planning, reference popup, online source health, calibration readiness, local learning, encrypted learning storage, and capture coaching
 - `LensPilotVisionTests` on macOS CI, covering the `SceneDebugState` to native `SceneState` bridge and on-device quality metric mapping.
 - `LensPilotCoreTests` on macOS CI, covering burst capture review ranking, after-capture coaching summaries, empty-burst handling, guided calibration queue progress, calibration weight tuning, reviewed guidance-priority calibration, guidance stabilization, Personal Visual AI learning including customer correction reasons, local profile storage protection metadata, online-reference privacy policy, Wikimedia Commons and Openverse online-inspiration parsing, source-diverse online-result ranking, thumbnail cache eviction, calibration sample export, and reviewed calibration sample promotion.
 - `LensPilotDirectorTests` on macOS CI, covering same-phone reference popup activation, popup selection into the full reference viewer, and returning from full reference view back to the popup.
@@ -32,8 +33,8 @@
 
 ## Latest Verification
 
-- GitHub Actions run #39 passed AI fixture validation, Swift package tests, and the iOS app build for commit `c594694`.
-- Local `.\scripts\test-all.ps1` passed JSON validation, TypeScript AI fixture validation, deterministic Target Preview validation, preview adjustment validation, after-capture coaching validation, six deterministic AI guidance benchmarks, Target Match calibration validation, calibration promotion validation, guided calibration queue validation, reviewed import normalization, Personal Visual AI validation, local profile storage validation, capture-feedback correction learning validation, and multi-provider public inspiration validation on Windows after result coaching wiring.
+- GitHub Actions run #47 passed AI fixture validation, Swift package tests, and the iOS app build for commit `14ed576`.
+- Local `.\scripts\test-all.ps1` passed JSON validation, TypeScript AI fixture validation, deterministic Target Preview validation, preview adjustment validation, after-capture coaching validation, six deterministic AI guidance benchmarks, Target Match calibration validation with readiness reporting, calibration promotion validation, guided calibration queue validation, reviewed import normalization, Personal Visual AI validation, local profile storage validation, capture-feedback correction learning validation, single-phone AI diagnostics, and multi-provider public inspiration validation on Windows after calibration readiness wiring.
 - Swift package tests still need GitHub/macOS CI for this workspace because Windows does not have Swift/Xcode installed.
 
 ## Not Runnable Here

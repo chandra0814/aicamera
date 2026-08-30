@@ -20,6 +20,7 @@ struct CaptureReviewPresentation: Identifiable {
 private struct AiCoreConfiguration: Sendable {
     let targetMatchCalibration: TargetMatchCalibration
     let guidanceCalibration: GuidanceCalibration
+    let calibrationReadinessReport: TargetMatchCalibrationManifest.CalibrationReadinessReport?
 }
 
 enum OnlineInspirationLoadState: Equatable {
@@ -123,6 +124,7 @@ final class CameraScreenViewModel: ObservableObject {
     private let capabilityProfiler = DeviceCapabilityProfiler()
     private let targetMatchCalibration: TargetMatchCalibration
     private let reviewedGuidanceCalibration: GuidanceCalibration
+    private let calibrationReadinessReport: TargetMatchCalibrationManifest.CalibrationReadinessReport?
     private let sceneStateBuilder = SceneStateBuilder()
     private let frameAnalyzer = FrameAnalyzer()
     private let photoCaptureController = PhotoCaptureController()
@@ -150,6 +152,7 @@ final class CameraScreenViewModel: ObservableObject {
         let storedCalibrationQueueProgress = CameraScreenViewModel.loadCalibrationQueueProgress()
         self.targetMatchCalibration = configuration.targetMatchCalibration
         self.reviewedGuidanceCalibration = configuration.guidanceCalibration
+        self.calibrationReadinessReport = configuration.calibrationReadinessReport
         self.calibrationQueueProgress = storedCalibrationQueueProgress
         self.activeCalibrationScenario = storedCalibrationQueueProgress.activeScenario
         self.personalizationConsent = storedProfile?.consent ?? .disabled
@@ -188,17 +191,26 @@ final class CameraScreenViewModel: ObservableObject {
 
     nonisolated private static func makeAiCoreConfiguration(calibrationData: Data?) -> AiCoreConfiguration {
         guard let calibrationData else {
-            return AiCoreConfiguration(targetMatchCalibration: .standard, guidanceCalibration: .standard)
+            return AiCoreConfiguration(
+                targetMatchCalibration: .standard,
+                guidanceCalibration: .standard,
+                calibrationReadinessReport: nil
+            )
         }
 
         do {
             let manifest = try TargetMatchCalibrationManifest.decode(from: calibrationData)
             return AiCoreConfiguration(
                 targetMatchCalibration: manifest.targetMatchCalibration,
-                guidanceCalibration: manifest.makeGuidanceCalibration()
+                guidanceCalibration: manifest.makeGuidanceCalibration(),
+                calibrationReadinessReport: manifest.makeCalibrationReadinessReport()
             )
         } catch {
-            return AiCoreConfiguration(targetMatchCalibration: .standard, guidanceCalibration: .standard)
+            return AiCoreConfiguration(
+                targetMatchCalibration: .standard,
+                guidanceCalibration: .standard,
+                calibrationReadinessReport: nil
+            )
         }
     }
 
@@ -373,6 +385,7 @@ final class CameraScreenViewModel: ObservableObject {
             referencePhoto: directorState.referencePhoto,
             onlineReferencePlan: onlineReferencePlan,
             onlineInspirationHealthSnapshot: onlineInspirationHealthSnapshot,
+            calibrationReadinessReport: calibrationReadinessReport,
             personalProfile: personalProfile,
             personalProfileStoreProtection: Self.personalProfileStore().protection,
             captureCoachingSummary: diagnosticCaptureReview?.coachingSummary

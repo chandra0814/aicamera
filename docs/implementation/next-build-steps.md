@@ -3,7 +3,7 @@
 ## Immediate iOS Work
 
 1. Open `ios/Package` from Xcode on macOS and run the `LensPilotCoreTests` test target.
-2. Use the in-app calibration queue to collect 24 guided real captures across portrait, landscape, sky, clutter, backlight, horizon, motion, and night scenarios.
+2. Use the in-app calibration queue to collect 24 guided real captures across portrait, landscape, sky, clutter, backlight, horizon, motion, and night scenarios; AI Diagnostics now reports calibration readiness until this coverage is complete.
 3. Use the in-app share control to export each selected `iphone_capture_candidate` JSON, then add blind preference labels from the in-app tag control.
 4. Import reviewed app exports with `npm run calibration:import-reviewed -- --sample <reviewed-sample.json> --write`.
 5. Calibrate the on-device metric weights and guidance priorities against those reviewed samples; the app now loads the bundled manifest into `LensPilotAiCore`.
@@ -45,7 +45,8 @@
 - Personal Visual AI now persists the learned aggregate profile locally through a sanitized profile store that strips cloud-sync state, caps stored JSON size, drops unknown keys, and never stores raw photos, live frames, or identity data.
 - Capture review now lets the user mark a result as Keep or Needs Work, including specific correction reasons that feed same-phone feedback into the local learned profile.
 - Learned Personal Visual AI profile data now prefers Keychain encrypted, this-device-only storage on iOS and migrates older UserDefaults profile bytes into the secure store.
-- The in-app AI Diagnostics sheet now checks shot planning, reference popup, online plan, provider health, local learning, encrypted learning storage, and capture coaching from the same phone.
+- The in-app AI Diagnostics sheet now checks shot planning, reference popup, online plan, provider health, calibration readiness, local learning, encrypted learning storage, and capture coaching from the same phone.
+- Target Match calibration readiness now reports reviewed real-capture counts, missing domains, and missing scenarios so production calibration cannot be mistaken for seed-fixture coverage.
 
 ## Single-Phone Verification Checklist
 
@@ -66,6 +67,7 @@
 - After-capture coaching uses score summaries and ranked-shot metadata only; it does not store or upload raw photos.
 - Calibration queue progress stores selected scenario IDs and counts only; photos remain outside the queue state and exports stay user-triggered.
 - Calibration export metadata may include the selected queue scenario id, but it still excludes raw photos, live frames, identity labels, and online-source data.
+- Calibration readiness only passes after same-phone real captures meet the required review count, domain coverage, and scenario coverage.
 
 ## MVP Boundary
 
