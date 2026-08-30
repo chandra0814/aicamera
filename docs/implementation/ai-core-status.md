@@ -47,6 +47,7 @@ This implementation completes the MVP AI control skeleton, not the final product
 - Personal Visual AI learned-profile storage now prefers Keychain encrypted, this-device-only storage on iOS, migrates legacy local profile bytes out of UserDefaults, and reports storage protection in AI Diagnostics.
 - Target Match calibration readiness now reports whether reviewed same-phone captures satisfy the required sample count, domain coverage, scenario coverage, and blind-review minimum before production calibration is considered ready.
 - AI Diagnostics now surfaces that calibration readiness signal from the bundled manifest alongside shot planning, reference popup, online source health, local learning, encrypted learning storage, and capture coaching.
+- AI Diagnostics now shows the missing calibration domains and scenarios in the app and can select the next missing capture scenario directly in the single-phone camera flow.
 
 ## Not Yet Production AI
 

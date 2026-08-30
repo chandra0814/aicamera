@@ -49,6 +49,7 @@
 - Learned Personal Visual AI profile data now prefers Keychain encrypted, this-device-only storage on iOS and migrates older UserDefaults profile bytes into the secure store.
 - The in-app AI Diagnostics sheet now checks shot planning, reference popup, online plan, provider health, calibration readiness, local learning, encrypted learning storage, and capture coaching from the same phone.
 - Target Match calibration readiness now reports reviewed real-capture counts, missing domains, and missing scenarios so production calibration cannot be mistaken for seed-fixture coverage.
+- AI Diagnostics now includes an in-app calibration readiness checklist with missing domains, missing scenarios, and a one-tap action that selects the next capture scenario on the same phone.
 
 ## Single-Phone Verification Checklist
 
@@ -70,6 +71,7 @@
 - Calibration queue progress stores selected scenario IDs and counts only; photos remain outside the queue state and exports stay user-triggered.
 - Calibration export metadata may include the selected queue scenario id, but it still excludes raw photos, live frames, identity labels, and online-source data.
 - Calibration readiness only passes after same-phone real captures meet the required review count, domain coverage, and scenario coverage.
+- The diagnostics checklist can select the next missing calibration scenario without leaving the single-phone app flow.
 
 ## MVP Boundary
 

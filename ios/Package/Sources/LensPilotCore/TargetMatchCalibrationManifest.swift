@@ -349,6 +349,10 @@ public extension TargetMatchCalibrationManifest {
         public let missingScenarios: [String]
         public let isReadyForProductionCalibration: Bool
 
+        public var nextMissingScenario: CalibrationCaptureScenario? {
+            missingScenarios.compactMap(CalibrationCaptureScenario.init(rawValue:)).first
+        }
+
         public init(
             status: CalibrationReadinessStatus,
             reviewedSampleCount: Int,

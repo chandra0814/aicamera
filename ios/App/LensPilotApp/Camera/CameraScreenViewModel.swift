@@ -379,6 +379,10 @@ final class CameraScreenViewModel: ObservableObject {
         onlineInspirationThumbnailData[result.id]
     }
 
+    var targetMatchCalibrationReadiness: TargetMatchCalibrationManifest.CalibrationReadinessReport? {
+        calibrationReadinessReport
+    }
+
     var aiDiagnosticsReport: SinglePhoneAiDiagnosticsReport {
         SinglePhoneAiDiagnosticsReport.make(
             hasShotPlan: currentShotPlan != nil,

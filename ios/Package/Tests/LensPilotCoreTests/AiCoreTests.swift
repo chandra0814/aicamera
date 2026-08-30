@@ -128,6 +128,7 @@ final class AiCoreTests: XCTestCase {
         XCTAssertEqual(readinessReport.scenarioTargetCount, 3)
         XCTAssertEqual(readinessReport.scenarioCounts["clutter"], 1)
         XCTAssertTrue(readinessReport.missingScenarios.contains("clutter"))
+        XCTAssertEqual(readinessReport.nextMissingScenario, .portrait)
         XCTAssertFalse(readinessReport.isReadyForProductionCalibration)
         XCTAssertEqual(manifest.targetMatchCalibration.backgroundClutterPenalty, 0.25, accuracy: 0.0001)
         XCTAssertGreaterThan(calibratedResult.targetMatch.background, defaultResult.targetMatch.background)
@@ -180,6 +181,7 @@ final class AiCoreTests: XCTestCase {
         XCTAssertEqual(readinessReport.missingDomains, [])
         XCTAssertEqual(readinessReport.missingScenarios, [])
         XCTAssertEqual(readinessReport.scenarioCounts["night"], 3)
+        XCTAssertNil(readinessReport.nextMissingScenario)
         XCTAssertTrue(readinessReport.isReadyForProductionCalibration)
     }
 

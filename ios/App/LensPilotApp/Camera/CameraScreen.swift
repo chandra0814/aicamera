@@ -572,6 +572,13 @@ private struct AiDiagnosticsSheet: View {
                     }
                 }
 
+                if let calibrationReadiness = viewModel.targetMatchCalibrationReadiness {
+                    CalibrationReadinessDiagnosticsSection(report: calibrationReadiness) { scenario in
+                        viewModel.selectCalibrationScenario(scenario)
+                        dismiss()
+                    }
+                }
+
                 if let healthSnapshot = viewModel.onlineInspirationHealthSnapshot {
                     Section("Source Health") {
                         LabeledContent("Status", value: healthSnapshot.status.title)
@@ -637,6 +644,89 @@ private struct AiDiagnosticsSheet: View {
             }
         }
         .presentationDetents([.medium, .large])
+    }
+}
+
+private struct CalibrationReadinessDiagnosticsSection: View {
+    let report: TargetMatchCalibrationManifest.CalibrationReadinessReport
+    let onSelectScenario: (CalibrationCaptureScenario) -> Void
+
+    private var missingScenarioList: [CalibrationCaptureScenario] {
+        report.missingScenarios.compactMap(CalibrationCaptureScenario.init(rawValue:))
+    }
+
+    var body: some View {
+        Section("Calibration Readiness") {
+            LabeledContent("Status", value: report.status.title)
+            LabeledContent("Captures", value: "\(report.reviewedSampleCount)/\(report.targetRealCaptureCount)")
+
+            if report.missingSampleCount > 0 {
+                LabeledContent("Missing", value: "\(report.missingSampleCount)")
+            }
+
+            if !report.missingDomains.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Missing Domains")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+
+                    ForEach(report.missingDomains, id: \.self) { domain in
+                        Label(domain.capitalized, systemImage: "exclamationmark.circle")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.vertical, 2)
+            }
+
+            ForEach(missingScenarioList) { scenario in
+                CalibrationReadinessScenarioRow(
+                    scenario: scenario,
+                    reviewedCount: report.scenarioCounts[scenario.rawValue] ?? 0,
+                    targetCount: report.scenarioTargetCount
+                )
+            }
+
+            if let nextScenario = report.nextMissingScenario {
+                Button {
+                    onSelectScenario(nextScenario)
+                } label: {
+                    Label("Select Next Capture", systemImage: nextScenario.symbolName)
+                }
+            }
+        }
+    }
+}
+
+private struct CalibrationReadinessScenarioRow: View {
+    let scenario: CalibrationCaptureScenario
+    let reviewedCount: Int
+    let targetCount: Int
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: scenario.symbolName)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.orange)
+                .frame(width: 24)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(scenario.title)
+                    .font(.subheadline.weight(.semibold))
+                Text(scenario.prompt)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+
+            Spacer(minLength: 8)
+
+            Text("\(reviewedCount)/\(targetCount)")
+                .font(.caption.monospacedDigit().weight(.semibold))
+                .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 2)
+        .accessibilityLabel("\(scenario.title) calibration readiness")
     }
 }
 
@@ -1253,6 +1343,17 @@ private extension SinglePhoneAiDiagnosticsReport.Status {
             return .orange
         case .blocked:
             return .red
+        }
+    }
+}
+
+private extension TargetMatchCalibrationManifest.CalibrationReadinessStatus {
+    var title: String {
+        switch self {
+        case .ready:
+            return "Ready"
+        case .needsMoreSamples:
+            return "Needs Samples"
         }
     }
 }
