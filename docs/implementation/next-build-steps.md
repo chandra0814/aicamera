@@ -5,7 +5,7 @@
 1. Open `ios/Package` from Xcode on macOS and run the `LensPilotCoreTests` test target.
 2. Use the in-app calibration queue to collect 24 guided real captures across portrait, landscape, sky, clutter, backlight, horizon, motion, and night scenarios; AI Diagnostics now reports calibration readiness until this coverage is complete.
 3. Use the in-app share control to export each selected `iphone_capture_candidate` JSON, then add blind preference labels from the in-app tag control.
-4. Import reviewed app exports with `npm run calibration:import-reviewed -- --sample <reviewed-sample.json> --write`.
+4. Check collection gaps with `npm run calibration:readiness`, then import reviewed app exports with `npm run calibration:import-reviewed -- --sample <reviewed-sample.json> --write`.
 5. Calibrate the on-device metric weights and guidance priorities against those reviewed samples; the app now loads the bundled manifest into `LensPilotAiCore`.
 
 ## Completed Single-Phone Runtime Work
@@ -30,6 +30,7 @@
 - The single-phone app can label the latest captured sample in a score-free blind review sheet and export reviewed calibration JSON.
 - Reviewed app exports can now be normalized and appended to the calibration manifest with a validated import command.
 - Reviewed-sample imports now print the updated calibration readiness, including remaining capture count, missing domains, and missing scenarios.
+- `npm run calibration:readiness` now prints a collector-friendly readiness checklist with per-domain counts, per-scenario counts, and the next missing capture prompt.
 - The app target bundles `target-match-calibration.json`, validates its single-phone invariants, and applies its Target Match weights to the live on-device AI core with a safe fallback to defaults.
 - Reviewed `iphone_capture` labels now produce small domain-aware guidance boosts, so blind preferences can influence the next selected action without bypassing safety or confidence gates.
 - `scripts/test-all.ps1` now fails on external command failures instead of continuing after a broken `npm` or Swift run.
