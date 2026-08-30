@@ -75,6 +75,29 @@ const calibration = guidanceCalibration(profile);
 assert((calibration.globalReasonBoosts.reduce_clutter ?? 0) > 0, "Positive guidance affinity should become a small boost.");
 assert((calibration.globalReasonBoosts.reduce_clutter ?? 0) <= 0.04, "Personal boosts must stay secondary.");
 
+let insightProfile = emptyProfile(localLearningConsent);
+for (let index = 0; index < 3; index += 1) {
+  insightProfile = updatedProfile(insightProfile, {
+    ...event,
+    id: `learning_insight_${index}`,
+    onlineReferenceUsed: index === 0,
+  }, localLearningConsent);
+}
+const learningInsight = makePersonalVisualLearningInsight(insightProfile, 8);
+const disabledLearningInsight = makePersonalVisualLearningInsight(emptyProfile(disabledConsent));
+assert(disabledLearningInsight.status === "disabled", "Learning insight should report disabled consent.");
+assert(learningInsight.status === "personalized", "Learning insight should become personalized after enough local events.");
+assert(learningInsight.eventCount === 3, "Learning insight should expose the aggregate local event count.");
+assert(learningInsight.topSignals.some((signal) => signal.category === "style" && signal.label === "Cinematic"), "Learning insight should show learned style preference.");
+assert(learningInsight.topSignals.some((signal) => signal.category === "guidance" && signal.label === "Reduce Clutter"), "Learning insight should show learned guidance preference.");
+assert(learningInsight.topSignals.some((signal) => signal.category === "requirement"), "Learning insight should include learned prompt requirements.");
+assert((learningInsight.guidanceBoosts.reduce_clutter ?? 0) > 0, "Learning insight should expose the small personal guidance boost.");
+assert(learningInsight.privacy.singlePhoneOnly === true, "Learning insight should remain single-phone.");
+assert(learningInsight.privacy.storesRawPhoto === false, "Learning insight must not store raw photos.");
+assert(learningInsight.privacy.uploadsLiveCameraFrame === false, "Learning insight must not upload live frames.");
+assert(learningInsight.privacy.storesIdentityData === false, "Learning insight must not store identity data.");
+assert(learningInsight.privacy.cloudPersonalizationSyncAllowed === false, "Learning insight must not enable cloud personalization sync.");
+
 const rejectedProfile = updatedProfile(emptyProfile(localLearningConsent), {
   ...event,
   id: "learn_rejected_result",
@@ -336,6 +359,7 @@ assert(thumbnailCache.get("https://example.test/second.jpg")[0] === 2, "Thumbnai
 
 console.log(JSON.stringify({
   personalLearning: true,
+  learningInsight: learningInsight.status,
   correctiveFeedbackLearning: true,
   localProfileStorage: storageSnapshot.privacy,
   onlineReferencePlan: plan.reason,
@@ -465,6 +489,106 @@ function guidanceCalibration(profile) {
     ),
     domainReasonBoosts: {},
   };
+}
+
+function makePersonalVisualLearningInsight(profile, maxSignals = 8) {
+  const guidanceBoosts = guidanceCalibration(profile).globalReasonBoosts;
+  const topSignals = learningSignals(profile).slice(0, Math.max(0, maxSignals));
+  const status = learningInsightStatus(profile, topSignals.length > 0);
+
+  return {
+    status,
+    headline: learningInsightHeadline(profile, status),
+    eventCount: Math.max(0, profile.totalEvents ?? 0),
+    topSignals,
+    guidanceBoosts: Object.fromEntries(
+      Object.entries(guidanceBoosts).filter(([, boost]) => Number.isFinite(boost) && boost > 0)
+    ),
+    onlineReferenceUsageCount: Math.max(0, profile.onlineReferenceUsageCount ?? 0),
+    privacy: {
+      singlePhoneOnly: true,
+      storesRawPhoto: false,
+      uploadsLiveCameraFrame: false,
+      storesIdentityData: false,
+      cloudPersonalizationSyncAllowed: false,
+    },
+  };
+}
+
+function learningInsightStatus(profile, hasSignals) {
+  if (!profile.consent.learningEnabled) return "disabled";
+  if ((profile.totalEvents ?? 0) < 3 || !hasSignals) return "warming_up";
+  return "personalized";
+}
+
+function learningInsightHeadline(profile, status) {
+  if (status === "disabled") return "Local learning is off";
+  if (status === "warming_up") {
+    return (profile.totalEvents ?? 0) === 0
+      ? "Ready to learn from local choices"
+      : `Learning from ${profile.totalEvents} local events`;
+  }
+  return `Personalized from ${profile.totalEvents} local events`;
+}
+
+function learningSignals(profile) {
+  const signals = [];
+  const domainSignal = topCountSignal(profile.domainCounts, "domain", profile.totalEvents);
+  if (domainSignal) signals.push(domainSignal);
+
+  appendTopAffinitySignal(signals, profile.styleAffinities, "style");
+  appendTopAffinitySignal(signals, profile.colorAffinities, "color");
+  appendTopAffinitySignal(signals, profile.framingAffinities, "framing");
+  appendTopAffinitySignal(signals, profile.guidanceReasonAffinities, "guidance");
+  appendTopAffinitySignal(signals, profile.requirementAffinities, "requirement");
+
+  if ((profile.onlineReferenceUsageCount ?? 0) > 0) {
+    signals.push({
+      id: "online_reference_public_inspiration",
+      category: "online_reference",
+      label: "Public Inspiration",
+      score: Math.min(1, profile.onlineReferenceUsageCount / Math.max(1, profile.totalEvents ?? 0)),
+    });
+  }
+
+  return signals.sort((a, b) => b.score === a.score ? a.label.localeCompare(b.label) : b.score - a.score);
+}
+
+function topCountSignal(values, category, eventCount) {
+  const top = Object.entries(values ?? {})
+    .filter(([, value]) => value > 0)
+    .sort(([lhsKey, lhsValue], [rhsKey, rhsValue]) => rhsValue === lhsValue ? lhsKey.localeCompare(rhsKey) : rhsValue - lhsValue)[0];
+  if (!top) return undefined;
+
+  const [key, value] = top;
+  return {
+    id: `${category}_${key}`,
+    category,
+    label: displayLearningKey(key),
+    score: Math.min(1, value / Math.max(1, eventCount ?? 0)),
+  };
+}
+
+function appendTopAffinitySignal(signals, values, category) {
+  const top = Object.entries(values ?? {})
+    .filter(([, value]) => value > 0)
+    .sort(([lhsKey, lhsValue], [rhsKey, rhsValue]) => rhsValue === lhsValue ? lhsKey.localeCompare(rhsKey) : rhsValue - lhsValue)[0];
+  if (!top) return;
+
+  const [key, value] = top;
+  signals.push({
+    id: `${category}_${key}`,
+    category,
+    label: displayLearningKey(key),
+    score: Math.min(1, Math.max(0, Number.isFinite(value) ? value : 0)),
+  });
+}
+
+function displayLearningKey(key) {
+  return String(key)
+    .replace(/^customer_correction_/, "")
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function makeOnlineReferencePlan(shotSpec, prompt, profile, consent = profile.consent) {

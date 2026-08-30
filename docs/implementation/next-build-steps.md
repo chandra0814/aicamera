@@ -47,6 +47,7 @@
 - Personal Visual AI now persists the learned aggregate profile locally through a sanitized profile store that strips cloud-sync state, caps stored JSON size, drops unknown keys, and never stores raw photos, live frames, or identity data.
 - Capture review now lets the user mark a result as Keep or Needs Work, including specific correction reasons that feed same-phone feedback into the local learned profile.
 - Learned Personal Visual AI profile data now prefers Keychain encrypted, this-device-only storage on iOS and migrates older UserDefaults profile bytes into the secure store.
+- Personal Visual AI settings now show a local learning insight with the current personalization state, top learned aggregate signals, and small guidance boosts.
 - The in-app AI Diagnostics sheet now checks shot planning, reference popup, online plan, provider health, calibration readiness, local learning, encrypted learning storage, and capture coaching from the same phone.
 - Target Match calibration readiness now reports reviewed real-capture counts, missing domains, and missing scenarios so production calibration cannot be mistaken for seed-fixture coverage.
 - AI Diagnostics now includes an in-app calibration readiness checklist with missing domains, missing scenarios, and a one-tap action that selects the next capture scenario on the same phone.
@@ -65,6 +66,7 @@
 - AI Shot Preview V1 is capture-realistic by default, uses the ShotPlan composition target, and explicitly marks previews that would require AI enhancement after capture.
 - Preview adjustment controls run locally, preserve the single-phone privacy invariant, and do not upload raw camera frames or private reference photos.
 - Learned profile persistence stores only sanitized aggregate preference signals on the same phone and strips cloud personalization sync.
+- Learning insight displays aggregate usage, requirement, action, and public-reference signals only; it does not expose raw photos, live frames, identity data, or cloud personalization state.
 - On iOS, learned profile persistence prefers Keychain encrypted, this-device-only storage and removes legacy UserDefaults bytes after migration or save.
 - Capture feedback records structured ratings, guidance outcomes, and selected correction reasons only; it does not store the captured photo as a learning event.
 - After-capture coaching uses score summaries and ranked-shot metadata only; it does not store or upload raw photos.

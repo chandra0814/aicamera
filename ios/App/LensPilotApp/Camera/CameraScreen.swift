@@ -831,6 +831,8 @@ private struct PersonalVisualAiSettingsSheet: View {
                     LabeledContent("Online References", value: "\(viewModel.personalProfile.onlineReferenceUsageCount)")
                 }
 
+                PersonalLearningInsightSection(insight: viewModel.personalLearningInsight)
+
                 if let plan = viewModel.onlineReferencePlan {
                     Section("Online Plan") {
                         LabeledContent("Reason", value: plan.reason.title)
@@ -933,6 +935,66 @@ private struct PersonalVisualAiSettingsSheet: View {
         #else
         return nil
         #endif
+    }
+}
+
+private struct PersonalLearningInsightSection: View {
+    let insight: PersonalVisualLearningInsight
+
+    private var sortedGuidanceBoosts: [(key: String, value: Double)] {
+        Array(insight.guidanceBoosts
+            .sorted { lhs, rhs in
+                lhs.value == rhs.value ? lhs.key < rhs.key : lhs.value > rhs.value
+            }
+            .prefix(3))
+    }
+
+    var body: some View {
+        Section("Learning Insight") {
+            LabeledContent("Status", value: insight.status.title)
+            LabeledContent("Source", value: "\(insight.eventCount) local events")
+            Text(insight.headline)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            ForEach(insight.topSignals) { signal in
+                PersonalLearningInsightSignalRow(signal: signal)
+            }
+
+            ForEach(sortedGuidanceBoosts, id: \.key) { boost in
+                LabeledContent(boost.key.learnedSignalLabel, value: "+\(Int((boost.value * 100).rounded()))%")
+            }
+        }
+    }
+}
+
+private struct PersonalLearningInsightSignalRow: View {
+    let signal: PersonalVisualLearningInsight.Signal
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: signal.category.iconName)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 24)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(signal.label)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                Text(signal.category.title)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: 8)
+
+            Text("\(Int((signal.score * 100).rounded()))%")
+                .font(.caption.monospacedDigit().weight(.semibold))
+                .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 2)
+        .accessibilityLabel("\(signal.category.title): \(signal.label)")
     }
 }
 
@@ -1283,6 +1345,67 @@ private extension PersonalVisualPreferenceProfile {
         }
 
         return key.replacingOccurrences(of: "_", with: " ").capitalized
+    }
+}
+
+private extension PersonalVisualLearningInsight.Status {
+    var title: String {
+        switch self {
+        case .disabled:
+            return "Off"
+        case .warmingUp:
+            return "Learning"
+        case .personalized:
+            return "Personalized"
+        }
+    }
+}
+
+private extension PersonalVisualLearningInsight.Category {
+    var title: String {
+        switch self {
+        case .domain:
+            return "Scene"
+        case .style:
+            return "Style"
+        case .color:
+            return "Color"
+        case .framing:
+            return "Framing"
+        case .guidance:
+            return "Action"
+        case .requirement:
+            return "Requirement"
+        case .onlineReference:
+            return "Online Reference"
+        }
+    }
+
+    var iconName: String {
+        switch self {
+        case .domain:
+            return "camera.metering.matrix"
+        case .style:
+            return "sparkles"
+        case .color:
+            return "camera.filters"
+        case .framing:
+            return "viewfinder"
+        case .guidance:
+            return "location.north.line"
+        case .requirement:
+            return "checklist"
+        case .onlineReference:
+            return "globe"
+        }
+    }
+}
+
+private extension String {
+    var learnedSignalLabel: String {
+        replacingOccurrences(of: "customer_correction_", with: "")
+            .replacingOccurrences(of: "_", with: " ")
+            .capitalized
     }
 }
 

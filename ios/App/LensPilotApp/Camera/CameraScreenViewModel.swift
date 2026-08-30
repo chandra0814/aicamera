@@ -383,6 +383,10 @@ final class CameraScreenViewModel: ObservableObject {
         calibrationReadinessReport
     }
 
+    var personalLearningInsight: PersonalVisualLearningInsight {
+        personalProfile.learningInsight()
+    }
+
     var aiDiagnosticsReport: SinglePhoneAiDiagnosticsReport {
         SinglePhoneAiDiagnosticsReport.make(
             hasShotPlan: currentShotPlan != nil,

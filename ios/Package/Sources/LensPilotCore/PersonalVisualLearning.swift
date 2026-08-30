@@ -163,6 +163,219 @@ public struct PersonalVisualPreferenceProfile: Codable, Equatable, Sendable {
     }
 }
 
+public struct PersonalVisualLearningInsight: Codable, Equatable, Sendable {
+    public let status: Status
+    public let headline: String
+    public let eventCount: Int
+    public let topSignals: [Signal]
+    public let guidanceBoosts: [String: Double]
+    public let onlineReferenceUsageCount: Int
+    public let privacy: Privacy
+
+    public init(
+        status: Status,
+        headline: String,
+        eventCount: Int,
+        topSignals: [Signal],
+        guidanceBoosts: [String: Double],
+        onlineReferenceUsageCount: Int,
+        privacy: Privacy = Privacy()
+    ) {
+        self.status = status
+        self.headline = headline
+        self.eventCount = max(0, eventCount)
+        self.topSignals = topSignals
+        self.guidanceBoosts = guidanceBoosts.compactMapValues { boost in
+            guard boost.isFinite, boost > 0 else { return nil }
+            return min(0.08, boost)
+        }
+        self.onlineReferenceUsageCount = max(0, onlineReferenceUsageCount)
+        self.privacy = privacy
+    }
+}
+
+public extension PersonalVisualLearningInsight {
+    enum Status: String, Codable, Equatable, Sendable {
+        case disabled
+        case warmingUp = "warming_up"
+        case personalized
+    }
+
+    enum Category: String, Codable, Equatable, Sendable {
+        case domain
+        case style
+        case color
+        case framing
+        case guidance
+        case requirement
+        case onlineReference = "online_reference"
+    }
+
+    struct Signal: Codable, Equatable, Sendable, Identifiable {
+        public let id: String
+        public let category: Category
+        public let label: String
+        public let score: Double
+
+        public init(id: String, category: Category, label: String, score: Double) {
+            self.id = id
+            self.category = category
+            self.label = label
+            self.score = min(1, max(0, score.isFinite ? score : 0))
+        }
+    }
+
+    struct Privacy: Codable, Equatable, Sendable {
+        public let singlePhoneOnly: Bool
+        public let storesRawPhoto: Bool
+        public let uploadsLiveCameraFrame: Bool
+        public let storesIdentityData: Bool
+        public let cloudPersonalizationSyncAllowed: Bool
+
+        public init(
+            singlePhoneOnly: Bool = true,
+            storesRawPhoto: Bool = false,
+            uploadsLiveCameraFrame: Bool = false,
+            storesIdentityData: Bool = false,
+            cloudPersonalizationSyncAllowed: Bool = false
+        ) {
+            self.singlePhoneOnly = singlePhoneOnly
+            self.storesRawPhoto = storesRawPhoto
+            self.uploadsLiveCameraFrame = uploadsLiveCameraFrame
+            self.storesIdentityData = storesIdentityData
+            self.cloudPersonalizationSyncAllowed = cloudPersonalizationSyncAllowed
+        }
+    }
+}
+
+public extension PersonalVisualPreferenceProfile {
+    func learningInsight(maxSignals: Int = 8) -> PersonalVisualLearningInsight {
+        let guidanceBoosts = guidanceCalibration().globalReasonBoosts
+        let signals = Array(learningSignals().prefix(max(0, maxSignals)))
+        let status = learningInsightStatus(hasSignals: !signals.isEmpty)
+
+        return PersonalVisualLearningInsight(
+            status: status,
+            headline: learningInsightHeadline(for: status),
+            eventCount: totalEvents,
+            topSignals: signals,
+            guidanceBoosts: guidanceBoosts,
+            onlineReferenceUsageCount: onlineReferenceUsageCount
+        )
+    }
+
+    private func learningInsightStatus(hasSignals: Bool) -> PersonalVisualLearningInsight.Status {
+        guard consent.learningEnabled else { return .disabled }
+        guard totalEvents >= 3, hasSignals else { return .warmingUp }
+        return .personalized
+    }
+
+    private func learningInsightHeadline(for status: PersonalVisualLearningInsight.Status) -> String {
+        switch status {
+        case .disabled:
+            return "Local learning is off"
+        case .warmingUp:
+            return totalEvents == 0
+                ? "Ready to learn from local choices"
+                : "Learning from \(totalEvents) local events"
+        case .personalized:
+            return "Personalized from \(totalEvents) local events"
+        }
+    }
+
+    private func learningSignals() -> [PersonalVisualLearningInsight.Signal] {
+        var signals: [PersonalVisualLearningInsight.Signal] = []
+
+        if let domainSignal = topCountSignal(
+            in: domainCounts,
+            category: .domain,
+            eventCount: totalEvents
+        ) {
+            signals.append(domainSignal)
+        }
+
+        appendTopAffinitySignal(from: styleAffinities, category: .style, to: &signals)
+        appendTopAffinitySignal(from: colorAffinities, category: .color, to: &signals)
+        appendTopAffinitySignal(from: framingAffinities, category: .framing, to: &signals)
+        appendTopAffinitySignal(from: guidanceReasonAffinities, category: .guidance, to: &signals)
+        appendTopAffinitySignal(from: requirementAffinities, category: .requirement, to: &signals)
+
+        if onlineReferenceUsageCount > 0 {
+            signals.append(PersonalVisualLearningInsight.Signal(
+                id: "online_reference_public_inspiration",
+                category: .onlineReference,
+                label: "Public Inspiration",
+                score: min(1, Double(onlineReferenceUsageCount) / Double(max(1, totalEvents)))
+            ))
+        }
+
+        return signals.sorted { lhs, rhs in
+            if lhs.score == rhs.score {
+                return lhs.label < rhs.label
+            }
+
+            return lhs.score > rhs.score
+        }
+    }
+
+    private func topCountSignal(
+        in values: [String: Int],
+        category: PersonalVisualLearningInsight.Category,
+        eventCount: Int
+    ) -> PersonalVisualLearningInsight.Signal? {
+        guard let topValue = values
+            .filter({ $0.value > 0 })
+            .max(by: { lhs, rhs in
+                lhs.value == rhs.value ? lhs.key > rhs.key : lhs.value < rhs.value
+            })
+        else {
+            return nil
+        }
+
+        return PersonalVisualLearningInsight.Signal(
+            id: "\(category.rawValue)_\(topValue.key)",
+            category: category,
+            label: Self.displayLabel(for: topValue.key),
+            score: min(1, Double(topValue.value) / Double(max(1, eventCount)))
+        )
+    }
+
+    private func appendTopAffinitySignal(
+        from affinities: [String: Double],
+        category: PersonalVisualLearningInsight.Category,
+        to signals: inout [PersonalVisualLearningInsight.Signal]
+    ) {
+        guard let topAffinity = affinities
+            .filter({ $0.value > 0 })
+            .max(by: { lhs, rhs in
+                lhs.value == rhs.value ? lhs.key > rhs.key : lhs.value < rhs.value
+            })
+        else {
+            return
+        }
+
+        signals.append(PersonalVisualLearningInsight.Signal(
+            id: "\(category.rawValue)_\(topAffinity.key)",
+            category: category,
+            label: Self.displayLabel(for: topAffinity.key),
+            score: topAffinity.value
+        ))
+    }
+
+    private static func displayLabel(for key: String) -> String {
+        let normalizedKey: String
+        if key.hasPrefix("customer_correction_") {
+            normalizedKey = String(key.dropFirst("customer_correction_".count))
+        } else {
+            normalizedKey = key
+        }
+
+        return normalizedKey
+            .replacingOccurrences(of: "_", with: " ")
+            .capitalized
+    }
+}
+
 public struct OnlineReferencePlan: Codable, Equatable, Sendable, Identifiable {
     public let id: String
     public let reason: Reason

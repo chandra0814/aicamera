@@ -15,6 +15,7 @@ This implementation completes the MVP AI control skeleton, not the final product
 - Best-Shot Ranker: ranks burst candidates by sharpness, exposure, face quality, pose, composition, background, and intent match.
 - Personal Visual Learning Engine: converts consented customer usage, requirements, accepted/rejected guidance, selected corrections, selected results, ratings, and online-reference usage into a local preference profile with small guidance boosts.
 - Capture feedback learning: the same-phone result review can record good/bad customer feedback and specific correction reasons as structured local Personal Visual AI signals.
+- Personal Visual Learning Insight: summarizes aggregate learned style, framing, requirements, guidance actions, and public-inspiration usage so the user can see what the AI is adapting from.
 - Online Reference Policy: can produce a consent-gated public-inspiration request plan from prompt and ShotSpec only, while explicitly blocking raw live camera frames, private photos, identity data, and precise location without consent.
 - Single-phone invariant: `ShotSpec.constraints.singlePhoneOnly` is required and true.
 - Native Swift AI core: iOS now has on-device `SceneState`, `LensPilotAiCore`, `TargetMatchEngine`, `GuidancePolicy`, `PreviewSafetyEngine`, and `BestShotRanker` equivalents.
@@ -45,6 +46,7 @@ This implementation completes the MVP AI control skeleton, not the final product
 - Online inspiration now supports multiple public providers, starting with Wikimedia Commons and Openverse-style public image search, with deduplication and source-diverse ranking so one provider does not dominate the first results.
 - Calibration queue progress is stored as local counts and the active scenario only; it does not store photos, live frames, identity labels, or cloud state.
 - Personal Visual AI learned-profile storage now prefers Keychain encrypted, this-device-only storage on iOS, migrates legacy local profile bytes out of UserDefaults, and reports storage protection in AI Diagnostics.
+- Personal Visual AI settings now show the local learning insight, including the current personalization state, top aggregate signals, and small guidance boosts.
 - Target Match calibration readiness now reports whether reviewed same-phone captures satisfy the required sample count, domain coverage, scenario coverage, and blind-review minimum before production calibration is considered ready.
 - AI Diagnostics now surfaces that calibration readiness signal from the bundled manifest alongside shot planning, reference popup, online source health, local learning, encrypted learning storage, and capture coaching.
 - AI Diagnostics now shows the missing calibration domains and scenarios in the app and can select the next missing capture scenario directly in the single-phone camera flow.

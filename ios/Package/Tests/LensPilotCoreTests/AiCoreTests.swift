@@ -593,6 +593,51 @@ final class AiCoreTests: XCTestCase {
         XCTAssertLessThanOrEqual(boost, 0.04)
     }
 
+    func testPersonalVisualLearningInsightSummarizesAggregateCustomerSignals() {
+        let engine = PersonalVisualLearningEngine()
+        var profile = PersonalVisualPreferenceProfile.empty(consent: .localLearningEnabled)
+
+        for index in 0..<3 {
+            let event = PersonalLearningEvent(
+                id: "learning_insight_\(index)",
+                timestamp: Date(timeIntervalSince1970: TimeInterval(index)),
+                domain: .portrait,
+                outcome: .savedResult,
+                promptRequirements: ["cinematic", "clean_background", "natural_skin"],
+                acceptedGuidanceReason: .reduceClutter,
+                selectedStyle: .cinematic,
+                selectedColorIntent: .warmHighlightsCoolShadows,
+                selectedFraming: .environmental,
+                selectedTargetMatch: 0.91,
+                userRating: 5,
+                onlineReferenceUsed: index == 0
+            )
+
+            profile = engine.updatedProfile(
+                from: profile,
+                with: event,
+                consent: .localLearningEnabled
+            )
+        }
+
+        let insight = profile.learningInsight()
+        let disabledInsight = PersonalVisualPreferenceProfile.empty(consent: .disabled).learningInsight()
+
+        XCTAssertEqual(disabledInsight.status, .disabled)
+        XCTAssertEqual(insight.status, .personalized)
+        XCTAssertEqual(insight.eventCount, 3)
+        XCTAssertEqual(insight.onlineReferenceUsageCount, 1)
+        XCTAssertTrue(insight.topSignals.contains { $0.category == .style && $0.label == "Cinematic" })
+        XCTAssertTrue(insight.topSignals.contains { $0.category == .guidance && $0.label == "Reduce Clutter" })
+        XCTAssertTrue(insight.topSignals.contains { $0.category == .requirement })
+        XCTAssertGreaterThan(insight.guidanceBoosts["reduce_clutter"] ?? 0, 0)
+        XCTAssertTrue(insight.privacy.singlePhoneOnly)
+        XCTAssertFalse(insight.privacy.storesRawPhoto)
+        XCTAssertFalse(insight.privacy.uploadsLiveCameraFrame)
+        XCTAssertFalse(insight.privacy.storesIdentityData)
+        XCTAssertFalse(insight.privacy.cloudPersonalizationSyncAllowed)
+    }
+
     func testPersonalVisualLearningUsesRejectedCustomerFeedbackAsNegativeSignal() {
         let engine = PersonalVisualLearningEngine()
         let event = PersonalLearningEvent(
