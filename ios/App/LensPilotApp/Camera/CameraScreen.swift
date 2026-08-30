@@ -1009,10 +1009,15 @@ private struct PersonalLearningInsightSignalRow: View {
 private struct CreativeInterpretationPlanSection: View {
     let plan: CreativeInterpretationPlan
 
+    private var payloadAudit: CreativeInterpretationPayloadAudit {
+        CreativeInterpretationPayloadAudit.make(for: plan)
+    }
+
     var body: some View {
         Section("Creative Plan") {
             LabeledContent("Reason", value: plan.reason.title)
             LabeledContent("Inputs", value: plan.allowedInputs.map(\.title).joined(separator: ", "))
+            LabeledContent("Payload", value: payloadAudit.safeToSend ? "Safe" : "Blocked")
 
             ForEach(plan.inputSummary.prefix(4), id: \.self) { item in
                 Label(item, systemImage: "text.badge.checkmark")

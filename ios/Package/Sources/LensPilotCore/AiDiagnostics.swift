@@ -56,11 +56,20 @@ public struct SinglePhoneAiDiagnosticsReport: Codable, Equatable, Sendable {
             )
         }
 
+        let payloadAudit = CreativeInterpretationPayloadAudit.make(for: plan)
+        let detail: String
+        if payloadAudit.safeToSend {
+            detail = "\(payloadAudit.suggestionCount) suggestions"
+        } else {
+            detail = payloadAudit.deniedReasons.first?.rawValue.replacingOccurrences(of: "_", with: " ")
+                ?? "Unsafe payload"
+        }
+
         return Check(
             id: "creative_interpretation",
             title: "Creative Plan",
-            status: plan.privacy.isSafeForSinglePhoneCreativeReasoning ? .passed : .blocked,
-            detail: "\(plan.suggestions.count) suggestions"
+            status: payloadAudit.safeToSend ? .passed : .blocked,
+            detail: detail
         )
     }
 

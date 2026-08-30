@@ -114,6 +114,36 @@ export interface CreativeInterpretationPlan {
   };
 }
 
+export type CreativeInterpretationDeniedReason =
+  | "unsafe_privacy"
+  | "missing_required_blocklist"
+  | "empty_allowed_inputs"
+  | "empty_safe_summary"
+  | "empty_suggestions"
+  | "blocked_term_detected";
+
+export interface CreativeInterpretationPayloadAudit {
+  safeToSend: boolean;
+  deniedReasons: CreativeInterpretationDeniedReason[];
+  blockedTermsDetected: string[];
+  allowedInputCount: number;
+  summaryCount: number;
+  suggestionCount: number;
+}
+
+export type CreativeInterpretationProvider = "local_heuristic" | "online_reasoning";
+
+export interface CreativeInterpretationRequest {
+  planId: string;
+  provider: CreativeInterpretationProvider;
+  inputSummary: string[];
+  suggestionBriefs: string[];
+  allowedInputs: CreativeInterpretationPlan["allowedInputs"];
+  maxResponseWords: number;
+  payloadAudit: CreativeInterpretationPayloadAudit;
+  privacy: CreativeInterpretationPlan["privacy"];
+}
+
 export type OnlineInspirationSource = "public_sources" | "wikimedia_commons" | "openverse";
 
 export interface OnlineInspirationRequest {
@@ -595,6 +625,70 @@ export function makeOnlineInspirationRequest(
   };
 }
 
+export function makeCreativeInterpretationPayloadAudit(
+  plan: CreativeInterpretationPlan
+): CreativeInterpretationPayloadAudit {
+  const blockedTermsDetected = blockedCreativeInterpretationPayloadTerms(plan);
+  const deniedReasons: CreativeInterpretationDeniedReason[] = [];
+
+  if (!isCreativeInterpretationPrivacySafe(plan.privacy)) {
+    deniedReasons.push("unsafe_privacy");
+  }
+
+  if (!requiredCreativeInterpretationMustNotSendTerms.every((term) => plan.mustNotSend.includes(term))) {
+    deniedReasons.push("missing_required_blocklist");
+  }
+
+  if (plan.allowedInputs.length === 0) {
+    deniedReasons.push("empty_allowed_inputs");
+  }
+
+  if (plan.inputSummary.length === 0) {
+    deniedReasons.push("empty_safe_summary");
+  }
+
+  if (plan.suggestions.length === 0) {
+    deniedReasons.push("empty_suggestions");
+  }
+
+  if (blockedTermsDetected.length > 0) {
+    deniedReasons.push("blocked_term_detected");
+  }
+
+  const uniqueDeniedReasons = [...new Set(deniedReasons)].sort();
+
+  return {
+    safeToSend: uniqueDeniedReasons.length === 0,
+    deniedReasons: uniqueDeniedReasons,
+    blockedTermsDetected,
+    allowedInputCount: Math.max(0, plan.allowedInputs.length),
+    summaryCount: Math.max(0, plan.inputSummary.length),
+    suggestionCount: Math.max(0, plan.suggestions.length),
+  };
+}
+
+export function makeCreativeInterpretationRequest(
+  plan: CreativeInterpretationPlan,
+  provider: CreativeInterpretationProvider = "online_reasoning",
+  maxResponseWords = 120
+): CreativeInterpretationRequest {
+  const payloadAudit = makeCreativeInterpretationPayloadAudit(plan);
+  if (!payloadAudit.safeToSend) {
+    throw new Error(`unsafe_creative_interpretation_plan:${payloadAudit.deniedReasons.join(",")}`);
+  }
+
+  return {
+    planId: plan.id,
+    provider,
+    inputSummary: plan.inputSummary,
+    suggestionBriefs: plan.suggestions.map((suggestion) => `${suggestion.title}: ${suggestion.instruction}`),
+    allowedInputs: plan.allowedInputs,
+    maxResponseWords: Math.min(240, Math.max(40, Math.trunc(maxResponseWords))),
+    payloadAudit,
+    privacy: plan.privacy,
+  };
+}
+
 export const onlineInspirationProviderHealthPrivacy = {
   publicSourceOnly: true,
   derivedFromPromptOnly: true,
@@ -739,20 +833,15 @@ function creativeInterpretationDiagnosticCheck(
     };
   }
 
-  const isSafe = plan.privacy.singlePhoneOnly &&
-    plan.privacy.requiresUserConsent &&
-    !plan.privacy.sendsRawCameraFrame &&
-    !plan.privacy.sendsPrivatePhoto &&
-    !plan.privacy.sendsIdentityData &&
-    !plan.privacy.sendsPreciseLocation &&
-    !plan.privacy.sendsRawLearningEvents &&
-    !plan.privacy.allowsGenerativeOutput;
+  const payloadAudit = makeCreativeInterpretationPayloadAudit(plan);
 
   return {
     id: "creative_interpretation",
     title: "Creative Plan",
-    status: isSafe ? "passed" : "blocked",
-    detail: `${plan.suggestions.length} suggestions`,
+    status: payloadAudit.safeToSend ? "passed" : "blocked",
+    detail: payloadAudit.safeToSend
+      ? `${payloadAudit.suggestionCount} suggestions`
+      : payloadAudit.deniedReasons[0]?.replace(/_/g, " ") ?? "Unsafe payload",
   };
 }
 
@@ -1237,6 +1326,54 @@ function compactPromptQuery(prompt: string): string {
 
 function uniqueNonEmpty(values: string[]): string[] {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+}
+
+const requiredCreativeInterpretationMustNotSendTerms = [
+  "raw_live_camera_feed",
+  "private_photo",
+  "face_identity",
+  "precise_location_without_consent",
+  "raw_learning_events",
+] as const;
+
+const creativeInterpretationBlockedPayloadTerms = [
+  "raw_live_camera",
+  "private_photo",
+  "face_identity",
+  "identity_recognition",
+  "precise_location",
+  "gps",
+  "latitude",
+  "longitude",
+  "exif",
+  "raw_learning_event",
+  "base64",
+  "image_data",
+  "photo_bytes",
+] as const;
+
+function isCreativeInterpretationPrivacySafe(
+  privacy: CreativeInterpretationPlan["privacy"]
+): boolean {
+  return privacy.singlePhoneOnly &&
+    privacy.requiresUserConsent &&
+    !privacy.sendsRawCameraFrame &&
+    !privacy.sendsPrivatePhoto &&
+    !privacy.sendsIdentityData &&
+    !privacy.sendsPreciseLocation &&
+    !privacy.sendsRawLearningEvents &&
+    !privacy.allowsGenerativeOutput;
+}
+
+function blockedCreativeInterpretationPayloadTerms(
+  plan: CreativeInterpretationPlan
+): string[] {
+  const inspectedText = [
+    ...plan.inputSummary,
+    ...plan.suggestions.flatMap((suggestion) => [suggestion.title, suggestion.instruction]),
+  ].join(" ").toLowerCase();
+
+  return creativeInterpretationBlockedPayloadTerms.filter((term) => inspectedText.includes(term));
 }
 
 function uniqueSources(

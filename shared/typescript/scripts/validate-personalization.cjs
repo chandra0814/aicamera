@@ -32,6 +32,30 @@ const personalVisualProfileStoragePolicy = {
   },
 };
 
+const requiredCreativeInterpretationMustNotSendTerms = [
+  "raw_live_camera_feed",
+  "private_photo",
+  "face_identity",
+  "precise_location_without_consent",
+  "raw_learning_events",
+];
+
+const creativeInterpretationBlockedPayloadTerms = [
+  "raw_live_camera",
+  "private_photo",
+  "face_identity",
+  "identity_recognition",
+  "precise_location",
+  "gps",
+  "latitude",
+  "longitude",
+  "exif",
+  "raw_learning_event",
+  "base64",
+  "image_data",
+  "photo_bytes",
+];
+
 const shotSpec = {
   id: "shot_personalization_fixture",
   domain: "portrait",
@@ -220,6 +244,35 @@ assert(creativePlan.privacy.allowsGenerativeOutput === false, "Creative interpre
 assert(creativePlan.mustNotSend.includes("raw_learning_events"), "Creative interpretation should block raw learning events.");
 assert(creativePlan.inputSummary.every((item) => !item.includes("raw_live_camera")), "Creative interpretation summaries must be sanitized.");
 
+const creativePayloadAudit = makeCreativeInterpretationPayloadAudit(creativePlan);
+assert(creativePayloadAudit.safeToSend === true, "Creative interpretation payload audit should pass safe plans.");
+assert(creativePayloadAudit.deniedReasons.length === 0, "Safe creative payload audit should have no denied reasons.");
+assert(creativePayloadAudit.allowedInputCount === creativePlan.allowedInputs.length, "Creative payload audit should count allowed inputs.");
+assert(creativePayloadAudit.suggestionCount === creativePlan.suggestions.length, "Creative payload audit should count suggestions.");
+
+const creativeRequest = makeCreativeInterpretationRequest(creativePlan, "online_reasoning", 999);
+assert(creativeRequest.planId === creativePlan.id, "Creative interpretation request should target the selected plan.");
+assert(creativeRequest.provider === "online_reasoning", "Creative interpretation request should support online reasoning providers.");
+assert(creativeRequest.maxResponseWords === 240, "Creative interpretation request response length should be clamped.");
+assert(creativeRequest.payloadAudit.safeToSend === true, "Creative interpretation request should include a passing payload audit.");
+assert(creativeRequest.suggestionBriefs.some((brief) => brief.includes("Stay Capture-Realistic")), "Creative interpretation request should preserve safety guidance.");
+assert(creativeRequest.privacy.sendsPrivatePhoto === false, "Creative interpretation request must not send private photos.");
+
+const unsafeCreativePayloadPlan = {
+  ...creativePlan,
+  inputSummary: [...creativePlan.inputSummary, "Prompt: raw_live_camera_feed base64 image_data"],
+  mustNotSend: ["private_photo"],
+};
+const unsafeCreativePayloadAudit = makeCreativeInterpretationPayloadAudit(unsafeCreativePayloadPlan);
+assert(unsafeCreativePayloadAudit.safeToSend === false, "Creative payload audit should fail unsafe summaries.");
+assert(unsafeCreativePayloadAudit.blockedTermsDetected.includes("raw_live_camera"), "Creative payload audit should detect raw camera terms.");
+assert(unsafeCreativePayloadAudit.deniedReasons.includes("blocked_term_detected"), "Creative payload audit should report blocked terms.");
+assert(unsafeCreativePayloadAudit.deniedReasons.includes("missing_required_blocklist"), "Creative payload audit should require the full blocklist.");
+assertThrows(
+  () => makeCreativeInterpretationRequest(unsafeCreativePayloadPlan),
+  "Unsafe creative interpretation requests should be rejected before provider calls."
+);
+
 const inspirationRequest = makeOnlineInspirationRequest(plan, 50);
 assert(inspirationRequest.perQueryLimit === 10, "Online provider limit should be clamped.");
 assert(inspirationRequest.source === "public_sources", "Online inspiration should request diverse public sources by default.");
@@ -379,6 +432,7 @@ const blockedDiagnosticsReport = makeSinglePhoneAiDiagnosticsReport({
   onlineReferencePlan: plan,
   creativeInterpretationPlan: {
     ...creativePlan,
+    inputSummary: [...creativePlan.inputSummary, "Prompt: private_photo"],
     privacy: {
       ...creativePlan.privacy,
       sendsPrivatePhoto: true,
@@ -407,6 +461,7 @@ console.log(JSON.stringify({
   localProfileStorage: storageSnapshot.privacy,
   onlineReferencePlan: plan.reason,
   creativeInterpretationPlan: creativePlan.reason,
+  creativePayloadAudit: creativePayloadAudit.safeToSend,
   onlineSourceAdapter: [...new Set(rankedReferences.map((result) => result.source))].join("+"),
   onlineProviderHealth: providerHealthSnapshot.status,
   singlePhoneDiagnostics: diagnosticsReport.overallStatus,
@@ -953,6 +1008,64 @@ function makeOnlineInspirationRequest(plan, perQueryLimit = 4) {
   };
 }
 
+function makeCreativeInterpretationPayloadAudit(plan) {
+  const blockedTermsDetected = blockedCreativeInterpretationPayloadTerms(plan);
+  const deniedReasons = [];
+
+  if (!isCreativeInterpretationPrivacySafe(plan.privacy)) {
+    deniedReasons.push("unsafe_privacy");
+  }
+
+  if (!requiredCreativeInterpretationMustNotSendTerms.every((term) => plan.mustNotSend.includes(term))) {
+    deniedReasons.push("missing_required_blocklist");
+  }
+
+  if (plan.allowedInputs.length === 0) {
+    deniedReasons.push("empty_allowed_inputs");
+  }
+
+  if (plan.inputSummary.length === 0) {
+    deniedReasons.push("empty_safe_summary");
+  }
+
+  if (plan.suggestions.length === 0) {
+    deniedReasons.push("empty_suggestions");
+  }
+
+  if (blockedTermsDetected.length > 0) {
+    deniedReasons.push("blocked_term_detected");
+  }
+
+  const uniqueDeniedReasons = [...new Set(deniedReasons)].sort();
+
+  return {
+    safeToSend: uniqueDeniedReasons.length === 0,
+    deniedReasons: uniqueDeniedReasons,
+    blockedTermsDetected,
+    allowedInputCount: Math.max(0, plan.allowedInputs.length),
+    summaryCount: Math.max(0, plan.inputSummary.length),
+    suggestionCount: Math.max(0, plan.suggestions.length),
+  };
+}
+
+function makeCreativeInterpretationRequest(plan, provider = "online_reasoning", maxResponseWords = 120) {
+  const payloadAudit = makeCreativeInterpretationPayloadAudit(plan);
+  if (!payloadAudit.safeToSend) {
+    throw new Error(`unsafe_creative_interpretation_plan:${payloadAudit.deniedReasons.join(",")}`);
+  }
+
+  return {
+    planId: plan.id,
+    provider,
+    inputSummary: plan.inputSummary,
+    suggestionBriefs: plan.suggestions.map((suggestion) => `${suggestion.title}: ${suggestion.instruction}`),
+    allowedInputs: plan.allowedInputs,
+    maxResponseWords: Math.min(240, Math.max(40, Math.trunc(maxResponseWords))),
+    payloadAudit,
+    privacy: plan.privacy,
+  };
+}
+
 function makeOnlineInspirationProviderHealth(
   source,
   resultCount,
@@ -1066,20 +1179,15 @@ function creativeInterpretationDiagnosticCheck(plan) {
     };
   }
 
-  const isSafe = plan.privacy.singlePhoneOnly &&
-    plan.privacy.requiresUserConsent &&
-    !plan.privacy.sendsRawCameraFrame &&
-    !plan.privacy.sendsPrivatePhoto &&
-    !plan.privacy.sendsIdentityData &&
-    !plan.privacy.sendsPreciseLocation &&
-    !plan.privacy.sendsRawLearningEvents &&
-    !plan.privacy.allowsGenerativeOutput;
+  const payloadAudit = makeCreativeInterpretationPayloadAudit(plan);
 
   return {
     id: "creative_interpretation",
     title: "Creative Plan",
-    status: isSafe ? "passed" : "blocked",
-    detail: `${plan.suggestions.length} suggestions`,
+    status: payloadAudit.safeToSend ? "passed" : "blocked",
+    detail: payloadAudit.safeToSend
+      ? `${payloadAudit.suggestionCount} suggestions`
+      : payloadAudit.deniedReasons[0]?.replace(/_/g, " ") ?? "Unsafe payload",
   };
 }
 
@@ -1633,6 +1741,26 @@ function compactPromptQuery(prompt) {
 
 function uniqueNonEmpty(values) {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+}
+
+function isCreativeInterpretationPrivacySafe(privacy) {
+  return privacy.singlePhoneOnly &&
+    privacy.requiresUserConsent &&
+    !privacy.sendsRawCameraFrame &&
+    !privacy.sendsPrivatePhoto &&
+    !privacy.sendsIdentityData &&
+    !privacy.sendsPreciseLocation &&
+    !privacy.sendsRawLearningEvents &&
+    !privacy.allowsGenerativeOutput;
+}
+
+function blockedCreativeInterpretationPayloadTerms(plan) {
+  const inspectedText = [
+    ...plan.inputSummary,
+    ...plan.suggestions.flatMap((suggestion) => [suggestion.title, suggestion.instruction]),
+  ].join(" ").toLowerCase();
+
+  return creativeInterpretationBlockedPayloadTerms.filter((term) => inspectedText.includes(term));
 }
 
 function isRecord(value) {

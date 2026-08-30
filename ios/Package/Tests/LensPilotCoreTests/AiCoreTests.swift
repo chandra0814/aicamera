@@ -418,6 +418,32 @@ final class AiCoreTests: XCTestCase {
             hasShotPlan: true,
             referencePhoto: Self.referencePhoto(cloudAnalysisUsed: true, showCameraPopup: true),
             onlineReferencePlan: nil,
+            creativeInterpretationPlan: CreativeInterpretationPlan(
+                id: "unsafe_creative_plan",
+                reason: .explicitUserRequest,
+                inputSummary: ["Prompt: private_photo"],
+                suggestions: [
+                    CreativeInterpretationPlan.Suggestion(
+                        id: "unsafe_private_photo",
+                        category: .reference,
+                        title: "Upload Private Photo",
+                        instruction: "Send private_photo to the provider."
+                    )
+                ],
+                allowedInputs: [.promptText],
+                mustNotSend: ["private_photo"],
+                userDisclosure: "Unsafe",
+                privacy: .init(
+                    singlePhoneOnly: true,
+                    requiresUserConsent: true,
+                    sendsRawCameraFrame: false,
+                    sendsPrivatePhoto: true,
+                    sendsIdentityData: false,
+                    sendsPreciseLocation: false,
+                    sendsRawLearningEvents: false,
+                    allowsGenerativeOutput: false
+                )
+            ),
             onlineInspirationHealthSnapshot: unsafeHealthSnapshot,
             personalProfile: .empty(consent: .disabled),
             personalProfileStoreProtection: .localFile,
@@ -427,6 +453,7 @@ final class AiCoreTests: XCTestCase {
 
         XCTAssertEqual(report.overallStatus, .blocked)
         XCTAssertEqual(report.checks.first { $0.id == "reference_popup" }?.status, .blocked)
+        XCTAssertEqual(report.checks.first { $0.id == "creative_interpretation" }?.status, .blocked)
         XCTAssertEqual(report.checks.first { $0.id == "online_provider_health" }?.status, .blocked)
         XCTAssertTrue(report.privacy.singlePhoneOnly)
     }
@@ -921,6 +948,60 @@ final class AiCoreTests: XCTestCase {
         XCTAssertFalse(creativePlan.privacy.sendsPreciseLocation)
         XCTAssertFalse(creativePlan.privacy.sendsRawLearningEvents)
         XCTAssertFalse(creativePlan.privacy.allowsGenerativeOutput)
+
+        let payloadAudit = CreativeInterpretationPayloadAudit.make(for: creativePlan)
+        XCTAssertTrue(payloadAudit.safeToSend)
+        XCTAssertTrue(payloadAudit.deniedReasons.isEmpty)
+        XCTAssertEqual(payloadAudit.allowedInputCount, creativePlan.allowedInputs.count)
+        XCTAssertEqual(payloadAudit.suggestionCount, creativePlan.suggestions.count)
+
+        let request = try CreativeInterpretationRequest(
+            plan: creativePlan,
+            provider: .onlineReasoning,
+            maxResponseWords: 999
+        )
+        XCTAssertEqual(request.planId, creativePlan.id)
+        XCTAssertEqual(request.provider, .onlineReasoning)
+        XCTAssertEqual(request.maxResponseWords, 240)
+        XCTAssertTrue(request.payloadAudit.safeToSend)
+        XCTAssertTrue(request.suggestionBriefs.contains { $0.contains("Stay Capture-Realistic") })
+        XCTAssertFalse(request.privacy.sendsPrivatePhoto)
+    }
+
+    func testCreativeInterpretationRequestRejectsUnsafePayloads() {
+        let unsafePlan = CreativeInterpretationPlan(
+            id: "unsafe_creative_payload",
+            reason: .explicitUserRequest,
+            inputSummary: ["Prompt: raw_live_camera_feed base64 image_data"],
+            suggestions: [
+                CreativeInterpretationPlan.Suggestion(
+                    id: "unsafe_summary",
+                    category: .reference,
+                    title: "Unsafe Payload",
+                    instruction: "Use raw_live_camera_feed bytes."
+                )
+            ],
+            allowedInputs: [.promptText],
+            mustNotSend: ["private_photo"],
+            userDisclosure: "Unsafe",
+            privacy: .init()
+        )
+
+        let payloadAudit = CreativeInterpretationPayloadAudit.make(for: unsafePlan)
+        XCTAssertFalse(payloadAudit.safeToSend)
+        XCTAssertTrue(payloadAudit.blockedTermsDetected.contains("raw_live_camera"))
+        XCTAssertTrue(payloadAudit.deniedReasons.contains(.blockedTermDetected))
+        XCTAssertTrue(payloadAudit.deniedReasons.contains(.missingRequiredBlocklist))
+
+        XCTAssertThrowsError(try CreativeInterpretationRequest(plan: unsafePlan)) { error in
+            guard case let .unsafePlan(deniedReasons) = error as? CreativeInterpretationError else {
+                XCTFail("Expected unsafe creative interpretation plan.")
+                return
+            }
+
+            XCTAssertTrue(deniedReasons.contains(.blockedTermDetected))
+            XCTAssertTrue(deniedReasons.contains(.missingRequiredBlocklist))
+        }
     }
 
     func testWikimediaCommonsOnlineInspirationAdapterUsesSafePublicFileSearch() throws {

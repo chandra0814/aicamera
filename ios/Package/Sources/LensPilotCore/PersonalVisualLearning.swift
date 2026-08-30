@@ -553,6 +553,160 @@ public extension CreativeInterpretationPlan {
     }
 }
 
+public enum CreativeInterpretationError: Error, Equatable, Sendable {
+    case unsafePlan([CreativeInterpretationPayloadAudit.DeniedReason])
+}
+
+public struct CreativeInterpretationPayloadAudit: Codable, Equatable, Sendable {
+    public let safeToSend: Bool
+    public let deniedReasons: [DeniedReason]
+    public let blockedTermsDetected: [String]
+    public let allowedInputCount: Int
+    public let summaryCount: Int
+    public let suggestionCount: Int
+
+    public init(
+        safeToSend: Bool,
+        deniedReasons: [DeniedReason],
+        blockedTermsDetected: [String],
+        allowedInputCount: Int,
+        summaryCount: Int,
+        suggestionCount: Int
+    ) {
+        self.safeToSend = safeToSend
+        self.deniedReasons = deniedReasons
+        self.blockedTermsDetected = blockedTermsDetected
+        self.allowedInputCount = max(0, allowedInputCount)
+        self.summaryCount = max(0, summaryCount)
+        self.suggestionCount = max(0, suggestionCount)
+    }
+
+    public static func make(for plan: CreativeInterpretationPlan) -> CreativeInterpretationPayloadAudit {
+        let blockedTerms = blockedPayloadTerms(in: plan)
+        var deniedReasons: [DeniedReason] = []
+
+        if !plan.privacy.isSafeForSinglePhoneCreativeReasoning {
+            deniedReasons.append(.unsafePrivacy)
+        }
+
+        if !requiredMustNotSendTerms.allSatisfy({ plan.mustNotSend.contains($0) }) {
+            deniedReasons.append(.missingRequiredBlocklist)
+        }
+
+        if plan.allowedInputs.isEmpty {
+            deniedReasons.append(.emptyAllowedInputs)
+        }
+
+        if plan.inputSummary.isEmpty {
+            deniedReasons.append(.emptySafeSummary)
+        }
+
+        if plan.suggestions.isEmpty {
+            deniedReasons.append(.emptySuggestions)
+        }
+
+        if !blockedTerms.isEmpty {
+            deniedReasons.append(.blockedTermDetected)
+        }
+
+        let uniqueDeniedReasons = Array(Set(deniedReasons)).sorted { $0.rawValue < $1.rawValue }
+
+        return CreativeInterpretationPayloadAudit(
+            safeToSend: uniqueDeniedReasons.isEmpty,
+            deniedReasons: uniqueDeniedReasons,
+            blockedTermsDetected: blockedTerms,
+            allowedInputCount: plan.allowedInputs.count,
+            summaryCount: plan.inputSummary.count,
+            suggestionCount: plan.suggestions.count
+        )
+    }
+
+    private static func blockedPayloadTerms(in plan: CreativeInterpretationPlan) -> [String] {
+        let inspectedText = (
+            plan.inputSummary
+                + plan.suggestions.flatMap { [$0.title, $0.instruction] }
+        )
+        .joined(separator: " ")
+        .lowercased()
+
+        return blockedPayloadTermPatterns
+            .filter { inspectedText.contains($0) }
+    }
+
+    private static let requiredMustNotSendTerms = [
+        "raw_live_camera_feed",
+        "private_photo",
+        "face_identity",
+        "precise_location_without_consent",
+        "raw_learning_events"
+    ]
+
+    private static let blockedPayloadTermPatterns = [
+        "raw_live_camera",
+        "private_photo",
+        "face_identity",
+        "identity_recognition",
+        "precise_location",
+        "gps",
+        "latitude",
+        "longitude",
+        "exif",
+        "raw_learning_event",
+        "base64",
+        "image_data",
+        "photo_bytes"
+    ]
+}
+
+public extension CreativeInterpretationPayloadAudit {
+    enum DeniedReason: String, Codable, Equatable, Sendable, Hashable {
+        case unsafePrivacy = "unsafe_privacy"
+        case missingRequiredBlocklist = "missing_required_blocklist"
+        case emptyAllowedInputs = "empty_allowed_inputs"
+        case emptySafeSummary = "empty_safe_summary"
+        case emptySuggestions = "empty_suggestions"
+        case blockedTermDetected = "blocked_term_detected"
+    }
+}
+
+public struct CreativeInterpretationRequest: Codable, Equatable, Sendable {
+    public let planId: String
+    public let provider: Provider
+    public let inputSummary: [String]
+    public let suggestionBriefs: [String]
+    public let allowedInputs: [CreativeInterpretationPlan.AllowedInput]
+    public let maxResponseWords: Int
+    public let payloadAudit: CreativeInterpretationPayloadAudit
+    public let privacy: CreativeInterpretationPlan.Privacy
+
+    public init(
+        plan: CreativeInterpretationPlan,
+        provider: Provider = .onlineReasoning,
+        maxResponseWords: Int = 120
+    ) throws {
+        let audit = CreativeInterpretationPayloadAudit.make(for: plan)
+        guard audit.safeToSend else {
+            throw CreativeInterpretationError.unsafePlan(audit.deniedReasons)
+        }
+
+        self.planId = plan.id
+        self.provider = provider
+        self.inputSummary = plan.inputSummary
+        self.suggestionBriefs = plan.suggestions.map { "\($0.title): \($0.instruction)" }
+        self.allowedInputs = plan.allowedInputs
+        self.maxResponseWords = min(240, max(40, maxResponseWords))
+        self.payloadAudit = audit
+        self.privacy = plan.privacy
+    }
+}
+
+public extension CreativeInterpretationRequest {
+    enum Provider: String, Codable, Equatable, Sendable {
+        case localHeuristic = "local_heuristic"
+        case onlineReasoning = "online_reasoning"
+    }
+}
+
 public struct PersonalVisualLearningEngine: Sendable {
     public init() {}
 
