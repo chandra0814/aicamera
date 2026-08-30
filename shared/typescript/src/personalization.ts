@@ -1157,14 +1157,21 @@ function creativeSuggestions(
     }
   }
 
-  append({
+  const safetySuggestion: CreativeInterpretationPlan["suggestions"][number] = {
     id: "capture_realistic_boundary",
     category: "safety",
     title: "Stay Capture-Realistic",
     instruction: "Treat this as a camera brief; avoid promising generated edits in preview.",
-  });
+  };
+  append(safetySuggestion);
 
-  return suggestions.slice(0, 6);
+  const requiredSuggestionIds = new Set(["reference_compare_public_sources", safetySuggestion.id]);
+  const requiredSuggestions = suggestions.filter((suggestion) => requiredSuggestionIds.has(suggestion.id));
+  const optionalSuggestions = suggestions.filter((suggestion) => !requiredSuggestionIds.has(suggestion.id));
+  return [
+    ...optionalSuggestions.slice(0, Math.max(0, 6 - requiredSuggestions.length)),
+    ...requiredSuggestions,
+  ];
 }
 
 function canLearnLocally(event: PersonalLearningEvent): boolean {

@@ -950,14 +950,21 @@ public struct PersonalVisualLearningEngine: Sendable {
             ))
         }
 
-        append(CreativeInterpretationPlan.Suggestion(
+        let safetySuggestion = CreativeInterpretationPlan.Suggestion(
             id: "capture_realistic_boundary",
             category: .safety,
             title: "Stay Capture-Realistic",
             instruction: "Treat this as a camera brief; avoid promising generated edits in preview."
-        ))
+        )
+        append(safetySuggestion)
 
-        return Array(suggestions.prefix(6))
+        let requiredSuggestionIds: Set<String> = [
+            "reference_compare_public_sources",
+            safetySuggestion.id
+        ]
+        let requiredSuggestions = suggestions.filter { requiredSuggestionIds.contains($0.id) }
+        let optionalSuggestions = suggestions.filter { !requiredSuggestionIds.contains($0.id) }
+        return Array(optionalSuggestions.prefix(max(0, 6 - requiredSuggestions.count))) + requiredSuggestions
     }
 
     private func bump(_ values: inout [String: Double], key: String, amount: Double) {
