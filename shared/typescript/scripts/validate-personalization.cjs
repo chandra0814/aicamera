@@ -397,6 +397,59 @@ const availableProviderHealthSnapshot = makeOnlineInspirationHealthSnapshot({
   ],
   checkedAt: "2026-08-29T00:00:00.000Z",
 });
+const creativeProviderGate = makeCreativeInterpretationProviderHealthGate(creativeRequest, providerHealthSnapshot);
+assert(creativeProviderGate.canRunProvider === true, "Creative provider gate should allow degraded health with safe public references.");
+assert(creativeProviderGate.providerHealthStatus === "degraded", "Creative provider gate should preserve the public-source health status.");
+assert(creativeProviderGate.publicReferenceCount === providerHealthSnapshot.totalResultCount, "Creative provider gate should count public references.");
+assert(creativeProviderGate.privacy.sendsRawCameraFrame === false, "Creative provider gate must not allow raw live frames.");
+assert(creativeProviderGate.privacy.sendsPrivatePhoto === false, "Creative provider gate must not allow private photos.");
+assert(creativeProviderGate.privacy.sendsIdentityData === false, "Creative provider gate must not allow identity data.");
+assert(creativeProviderGate.privacy.sendsPreciseLocation === false, "Creative provider gate must not allow precise location.");
+assert(creativeProviderGate.privacy.sendsRawLearningEvents === false, "Creative provider gate must not allow raw learning events.");
+const creativeResponse = makeHealthGatedCreativeInterpretationResponse(
+  creativePlan,
+  providerHealthSnapshot,
+  "online_reasoning",
+  64,
+  "2026-08-29T00:00:00.000Z"
+);
+assert(creativeResponse.status === "completed", "Creative adapter should return a completed response when health and payload are safe.");
+assert(creativeResponse.provider === "online_reasoning", "Creative adapter should run against the requested provider type.");
+assert(creativeResponse.maxResponseWords === 64, "Creative adapter should preserve the clamped response budget.");
+assert(creativeResponse.payloadAudit.safeToSend === true, "Creative adapter response should retain the payload audit.");
+assert(creativeResponse.healthGate.canRunProvider === true, "Creative adapter response should retain the passing health gate.");
+assert(creativeResponse.guidance.some((item) => item.includes("Stay Capture-Realistic")), "Creative adapter should preserve safety guidance.");
+assert(creativeResponse.privacy.usesAuditedPayload === true, "Creative adapter must use the audited request path.");
+assert(creativeResponse.privacy.usesProviderHealthGate === true, "Creative adapter must use the provider health gate.");
+assert(creativeResponse.privacy.uploadsLiveCameraFrame === false, "Creative adapter must not upload live frames.");
+assert(creativeResponse.privacy.sendsPrivatePhoto === false, "Creative adapter must not send private photos.");
+assert(creativeResponse.privacy.sendsIdentityData === false, "Creative adapter must not send identity data.");
+assert(creativeResponse.privacy.sendsRawLearningEvents === false, "Creative adapter must not send raw learning events.");
+const missingCreativeHealthGate = makeCreativeInterpretationProviderHealthGate(creativeRequest);
+assert(missingCreativeHealthGate.canRunProvider === false, "Creative provider gate should require a provider health snapshot.");
+assert(missingCreativeHealthGate.deniedReasons.includes("missing_provider_health"), "Creative provider gate should explain missing health.");
+const unsafeCreativeHealthSnapshot = {
+  ...availableProviderHealthSnapshot,
+  privacy: {
+    ...availableProviderHealthSnapshot.privacy,
+    sendsRawCameraFrame: true,
+  },
+};
+assertThrows(
+  () => makeHealthGatedCreativeInterpretationResponse(creativePlan, unsafeCreativeHealthSnapshot),
+  "Creative adapter should block unsafe provider health."
+);
+assertThrows(
+  () => makeHealthGatedCreativeInterpretationResponse(creativePlan, {
+    ...availableProviderHealthSnapshot,
+    status: "failed",
+    totalResultCount: 0,
+    providers: [
+      makeOnlineInspirationProviderHealth("wikimedia_commons", 0, "failed", "2026-08-29T00:00:00.000Z", "Provider request failed"),
+    ],
+  }),
+  "Creative adapter should block failed provider health."
+);
 const diagnosticProfile = { ...profile, consent: onlineReferenceConsent, totalEvents: 1 };
 const diagnosticsReport = makeSinglePhoneAiDiagnosticsReport({
   hasShotPlan: true,
@@ -462,6 +515,7 @@ console.log(JSON.stringify({
   onlineReferencePlan: plan.reason,
   creativeInterpretationPlan: creativePlan.reason,
   creativePayloadAudit: creativePayloadAudit.safeToSend,
+  creativeProviderGate: creativeProviderGate.canRunProvider,
   onlineSourceAdapter: [...new Set(rankedReferences.map((result) => result.source))].join("+"),
   onlineProviderHealth: providerHealthSnapshot.status,
   singlePhoneDiagnostics: diagnosticsReport.overallStatus,
@@ -1126,6 +1180,121 @@ function aggregateOnlineInspirationHealthStatus(providers) {
   return "empty";
 }
 
+function makeCreativeInterpretationProviderHealthGate(request, healthSnapshot = undefined) {
+  const deniedReasons = [];
+  const privacy = {
+    singlePhoneOnly: request.privacy.singlePhoneOnly && (healthSnapshot?.privacy.singlePhoneOnly ?? true),
+    requiresUserConsent: request.privacy.requiresUserConsent && (healthSnapshot?.privacy.requiresUserConsent ?? true),
+    sendsRawCameraFrame: request.privacy.sendsRawCameraFrame || (healthSnapshot?.privacy.sendsRawCameraFrame ?? false),
+    sendsPrivatePhoto: request.privacy.sendsPrivatePhoto || (healthSnapshot?.privacy.sendsPrivatePhoto ?? false),
+    sendsIdentityData: request.privacy.sendsIdentityData || (healthSnapshot?.privacy.sendsIdentityData ?? false),
+    sendsPreciseLocation: request.privacy.sendsPreciseLocation || (healthSnapshot?.privacy.sendsPreciseLocation ?? false),
+    sendsRawLearningEvents: request.privacy.sendsRawLearningEvents,
+  };
+
+  if (!request.payloadAudit.safeToSend) {
+    deniedReasons.push("unsafe_request_payload");
+  }
+
+  if (!healthSnapshot) {
+    deniedReasons.push("missing_provider_health");
+    const uniqueDeniedReasons = [...new Set(deniedReasons)].sort();
+    return {
+      canRunProvider: false,
+      deniedReasons: uniqueDeniedReasons,
+      publicReferenceCount: 0,
+      payloadAudit: request.payloadAudit,
+      privacy,
+    };
+  }
+
+  const hasSafeSnapshotPrivacy =
+    privacy.singlePhoneOnly &&
+    privacy.requiresUserConsent &&
+    !privacy.sendsRawCameraFrame &&
+    !privacy.sendsPrivatePhoto &&
+    !privacy.sendsIdentityData &&
+    !privacy.sendsPreciseLocation &&
+    !privacy.sendsRawLearningEvents;
+  const hasSafeProviderPrivacy = healthSnapshot.providers.every((provider) =>
+    provider.privacy.publicSourceOnly &&
+    provider.privacy.derivedFromPromptOnly &&
+    !provider.privacy.storesRawPhoto &&
+    !provider.privacy.uploadsLiveCameraFrame &&
+    !provider.privacy.sendsIdentityData &&
+    !provider.privacy.sendsPreciseLocation
+  );
+
+  if (!hasSafeSnapshotPrivacy || !hasSafeProviderPrivacy) {
+    deniedReasons.push("unsafe_provider_health");
+  }
+
+  if (healthSnapshot.status === "failed") {
+    deniedReasons.push("provider_unavailable");
+  } else if (healthSnapshot.status === "empty") {
+    deniedReasons.push("no_public_references");
+  }
+
+  if (healthSnapshot.totalResultCount <= 0) {
+    deniedReasons.push("no_public_references");
+  }
+
+  const uniqueDeniedReasons = [...new Set(deniedReasons)].sort();
+  return {
+    canRunProvider: uniqueDeniedReasons.length === 0,
+    deniedReasons: uniqueDeniedReasons,
+    providerHealthStatus: healthSnapshot.status,
+    publicReferenceCount: Math.max(0, healthSnapshot.totalResultCount),
+    payloadAudit: request.payloadAudit,
+    privacy,
+  };
+}
+
+function makeHealthGatedCreativeInterpretationResponse(
+  plan,
+  healthSnapshot = undefined,
+  provider = "online_reasoning",
+  maxResponseWords = 120,
+  generatedAt = new Date().toISOString()
+) {
+  const request = makeCreativeInterpretationRequest(plan, provider, maxResponseWords);
+  const healthGate = makeCreativeInterpretationProviderHealthGate(request, healthSnapshot);
+
+  if (!healthGate.canRunProvider) {
+    throw new Error(`creative_interpretation_health_gate_blocked:${healthGate.deniedReasons.join(",")}`);
+  }
+
+  const guidance = creativeInterpretationGuidanceFromRequest(request);
+  if (guidance.length === 0) {
+    throw new Error("empty_creative_interpretation_provider_output");
+  }
+
+  return {
+    id: `creative_interpretation_response_${request.planId}_${request.provider}`,
+    planId: request.planId,
+    provider: request.provider,
+    status: "completed",
+    headline: provider === "online_reasoning" ? "Provider-Ready Creative Brief" : "Local Creative Brief",
+    guidance,
+    maxResponseWords: request.maxResponseWords,
+    generatedAt,
+    payloadAudit: request.payloadAudit,
+    healthGate,
+    privacy: {
+      singlePhoneOnly: true,
+      usesAuditedPayload: true,
+      usesProviderHealthGate: true,
+      storesRawPhoto: false,
+      uploadsLiveCameraFrame: false,
+      sendsPrivatePhoto: false,
+      sendsIdentityData: false,
+      sendsPreciseLocation: false,
+      sendsRawLearningEvents: false,
+      allowsGenerativeImageOutput: false,
+    },
+  };
+}
+
 function makeSinglePhoneAiDiagnosticsReport({
   hasShotPlan,
   referencePhoto,
@@ -1761,6 +1930,34 @@ function blockedCreativeInterpretationPayloadTerms(plan) {
   ].join(" ").toLowerCase();
 
   return creativeInterpretationBlockedPayloadTerms.filter((term) => inspectedText.includes(term));
+}
+
+function creativeInterpretationGuidanceFromRequest(request) {
+  let remainingWords = request.maxResponseWords;
+  const guidance = [];
+  const safetyBrief = request.suggestionBriefs.find((brief) => brief.toLowerCase().includes("capture-realistic"));
+  const briefs = safetyBrief
+    ? [
+      ...request.suggestionBriefs.filter((brief) => brief !== safetyBrief).slice(0, 3),
+      safetyBrief,
+    ]
+    : request.suggestionBriefs.slice(0, 4);
+
+  for (const brief of briefs) {
+    if (remainingWords <= 0) break;
+
+    const words = brief.trim().split(/\s+/).filter(Boolean);
+    if (words.length === 0) continue;
+
+    const selectedWords = words.slice(0, remainingWords);
+    const item = selectedWords.join(" ");
+    if (item) {
+      guidance.push(item);
+    }
+    remainingWords -= selectedWords.length;
+  }
+
+  return guidance;
 }
 
 function isRecord(value) {

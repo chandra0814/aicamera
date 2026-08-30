@@ -217,6 +217,55 @@ export interface OnlineInspirationHealthSnapshot {
   };
 }
 
+export type CreativeInterpretationProviderHealthGateDeniedReason =
+  | "unsafe_request_payload"
+  | "missing_provider_health"
+  | "unsafe_provider_health"
+  | "provider_unavailable"
+  | "no_public_references";
+
+export interface CreativeInterpretationProviderHealthGate {
+  canRunProvider: boolean;
+  deniedReasons: CreativeInterpretationProviderHealthGateDeniedReason[];
+  providerHealthStatus?: OnlineInspirationHealthStatus;
+  publicReferenceCount: number;
+  payloadAudit: CreativeInterpretationPayloadAudit;
+  privacy: {
+    singlePhoneOnly: boolean;
+    requiresUserConsent: boolean;
+    sendsRawCameraFrame: boolean;
+    sendsPrivatePhoto: boolean;
+    sendsIdentityData: boolean;
+    sendsPreciseLocation: boolean;
+    sendsRawLearningEvents: boolean;
+  };
+}
+
+export interface CreativeInterpretationResponse {
+  id: string;
+  planId: string;
+  provider: CreativeInterpretationProvider;
+  status: "completed";
+  headline: string;
+  guidance: string[];
+  maxResponseWords: number;
+  generatedAt: string;
+  payloadAudit: CreativeInterpretationPayloadAudit;
+  healthGate: CreativeInterpretationProviderHealthGate;
+  privacy: {
+    singlePhoneOnly: true;
+    usesAuditedPayload: true;
+    usesProviderHealthGate: true;
+    storesRawPhoto: false;
+    uploadsLiveCameraFrame: false;
+    sendsPrivatePhoto: false;
+    sendsIdentityData: false;
+    sendsPreciseLocation: false;
+    sendsRawLearningEvents: false;
+    allowsGenerativeImageOutput: false;
+  };
+}
+
 export interface OnlineInspirationResponse {
   planId: string;
   source: OnlineInspirationSource;
@@ -763,6 +812,128 @@ export function aggregateOnlineInspirationHealthStatus(
   if (hasAvailableProvider) return "available";
   if (hasFailedProvider) return "failed";
   return "empty";
+}
+
+export const creativeInterpretationResponsePrivacy = {
+  singlePhoneOnly: true,
+  usesAuditedPayload: true,
+  usesProviderHealthGate: true,
+  storesRawPhoto: false,
+  uploadsLiveCameraFrame: false,
+  sendsPrivatePhoto: false,
+  sendsIdentityData: false,
+  sendsPreciseLocation: false,
+  sendsRawLearningEvents: false,
+  allowsGenerativeImageOutput: false,
+} as const;
+
+export function makeCreativeInterpretationProviderHealthGate(
+  request: CreativeInterpretationRequest,
+  healthSnapshot?: OnlineInspirationHealthSnapshot
+): CreativeInterpretationProviderHealthGate {
+  const deniedReasons: CreativeInterpretationProviderHealthGateDeniedReason[] = [];
+  const privacy = {
+    singlePhoneOnly: request.privacy.singlePhoneOnly && (healthSnapshot?.privacy.singlePhoneOnly ?? true),
+    requiresUserConsent: request.privacy.requiresUserConsent && (healthSnapshot?.privacy.requiresUserConsent ?? true),
+    sendsRawCameraFrame: request.privacy.sendsRawCameraFrame || (healthSnapshot?.privacy.sendsRawCameraFrame ?? false),
+    sendsPrivatePhoto: request.privacy.sendsPrivatePhoto || (healthSnapshot?.privacy.sendsPrivatePhoto ?? false),
+    sendsIdentityData: request.privacy.sendsIdentityData || (healthSnapshot?.privacy.sendsIdentityData ?? false),
+    sendsPreciseLocation: request.privacy.sendsPreciseLocation || (healthSnapshot?.privacy.sendsPreciseLocation ?? false),
+    sendsRawLearningEvents: request.privacy.sendsRawLearningEvents,
+  };
+
+  if (!request.payloadAudit.safeToSend) {
+    deniedReasons.push("unsafe_request_payload");
+  }
+
+  if (!healthSnapshot) {
+    deniedReasons.push("missing_provider_health");
+    const uniqueDeniedReasons = [...new Set(deniedReasons)].sort() as CreativeInterpretationProviderHealthGateDeniedReason[];
+    return {
+      canRunProvider: false,
+      deniedReasons: uniqueDeniedReasons,
+      publicReferenceCount: 0,
+      payloadAudit: request.payloadAudit,
+      privacy,
+    };
+  }
+
+  const hasSafeSnapshotPrivacy =
+    privacy.singlePhoneOnly &&
+    privacy.requiresUserConsent &&
+    !privacy.sendsRawCameraFrame &&
+    !privacy.sendsPrivatePhoto &&
+    !privacy.sendsIdentityData &&
+    !privacy.sendsPreciseLocation &&
+    !privacy.sendsRawLearningEvents;
+  const hasSafeProviderPrivacy = healthSnapshot.providers.every(
+    (provider) =>
+      provider.privacy.publicSourceOnly &&
+      provider.privacy.derivedFromPromptOnly &&
+      !provider.privacy.storesRawPhoto &&
+      !provider.privacy.uploadsLiveCameraFrame &&
+      !provider.privacy.sendsIdentityData &&
+      !provider.privacy.sendsPreciseLocation
+  );
+
+  if (!hasSafeSnapshotPrivacy || !hasSafeProviderPrivacy) {
+    deniedReasons.push("unsafe_provider_health");
+  }
+
+  if (healthSnapshot.status === "failed") {
+    deniedReasons.push("provider_unavailable");
+  } else if (healthSnapshot.status === "empty") {
+    deniedReasons.push("no_public_references");
+  }
+
+  if (healthSnapshot.totalResultCount <= 0) {
+    deniedReasons.push("no_public_references");
+  }
+
+  const uniqueDeniedReasons = [...new Set(deniedReasons)].sort() as CreativeInterpretationProviderHealthGateDeniedReason[];
+
+  return {
+    canRunProvider: uniqueDeniedReasons.length === 0,
+    deniedReasons: uniqueDeniedReasons,
+    providerHealthStatus: healthSnapshot.status,
+    publicReferenceCount: Math.max(0, healthSnapshot.totalResultCount),
+    payloadAudit: request.payloadAudit,
+    privacy,
+  };
+}
+
+export function makeHealthGatedCreativeInterpretationResponse(
+  plan: CreativeInterpretationPlan,
+  healthSnapshot?: OnlineInspirationHealthSnapshot,
+  provider: CreativeInterpretationProvider = "online_reasoning",
+  maxResponseWords = 120,
+  generatedAt = new Date().toISOString()
+): CreativeInterpretationResponse {
+  const request = makeCreativeInterpretationRequest(plan, provider, maxResponseWords);
+  const healthGate = makeCreativeInterpretationProviderHealthGate(request, healthSnapshot);
+
+  if (!healthGate.canRunProvider) {
+    throw new Error(`creative_interpretation_health_gate_blocked:${healthGate.deniedReasons.join(",")}`);
+  }
+
+  const guidance = creativeInterpretationGuidanceFromRequest(request);
+  if (guidance.length === 0) {
+    throw new Error("empty_creative_interpretation_provider_output");
+  }
+
+  return {
+    id: `creative_interpretation_response_${request.planId}_${request.provider}`,
+    planId: request.planId,
+    provider: request.provider,
+    status: "completed",
+    headline: provider === "online_reasoning" ? "Provider-Ready Creative Brief" : "Local Creative Brief",
+    guidance,
+    maxResponseWords: request.maxResponseWords,
+    generatedAt,
+    payloadAudit: request.payloadAudit,
+    healthGate,
+    privacy: creativeInterpretationResponsePrivacy,
+  };
 }
 
 export const singlePhoneAiDiagnosticsPrivacy = {
@@ -1374,6 +1545,34 @@ function blockedCreativeInterpretationPayloadTerms(
   ].join(" ").toLowerCase();
 
   return creativeInterpretationBlockedPayloadTerms.filter((term) => inspectedText.includes(term));
+}
+
+function creativeInterpretationGuidanceFromRequest(request: CreativeInterpretationRequest): string[] {
+  let remainingWords = request.maxResponseWords;
+  const guidance: string[] = [];
+  const safetyBrief = request.suggestionBriefs.find((brief) => brief.toLowerCase().includes("capture-realistic"));
+  const briefs = safetyBrief
+    ? [
+      ...request.suggestionBriefs.filter((brief) => brief !== safetyBrief).slice(0, 3),
+      safetyBrief,
+    ]
+    : request.suggestionBriefs.slice(0, 4);
+
+  for (const brief of briefs) {
+    if (remainingWords <= 0) break;
+
+    const words = brief.trim().split(/\s+/).filter(Boolean);
+    if (words.length === 0) continue;
+
+    const selectedWords = words.slice(0, remainingWords);
+    const item = selectedWords.join(" ");
+    if (item) {
+      guidance.push(item);
+    }
+    remainingWords -= selectedWords.length;
+  }
+
+  return guidance;
 }
 
 function uniqueSources(

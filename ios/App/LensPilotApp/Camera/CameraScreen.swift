@@ -573,7 +573,12 @@ private struct AiDiagnosticsSheet: View {
                 }
 
                 if let plan = viewModel.creativeInterpretationPlan {
-                    CreativeInterpretationPlanSection(plan: plan)
+                    CreativeInterpretationPlanSection(
+                        plan: plan,
+                        response: viewModel.creativeInterpretationResponse,
+                        loadState: viewModel.creativeInterpretationLoadState,
+                        runAction: viewModel.runCreativeInterpretation
+                    )
                 }
 
                 if let calibrationReadiness = viewModel.targetMatchCalibrationReadiness {
@@ -838,7 +843,12 @@ private struct PersonalVisualAiSettingsSheet: View {
                 PersonalLearningInsightSection(insight: viewModel.personalLearningInsight)
 
                 if let plan = viewModel.creativeInterpretationPlan {
-                    CreativeInterpretationPlanSection(plan: plan)
+                    CreativeInterpretationPlanSection(
+                        plan: plan,
+                        response: viewModel.creativeInterpretationResponse,
+                        loadState: viewModel.creativeInterpretationLoadState,
+                        runAction: viewModel.runCreativeInterpretation
+                    )
                 }
 
                 if let plan = viewModel.onlineReferencePlan {
@@ -1008,6 +1018,9 @@ private struct PersonalLearningInsightSignalRow: View {
 
 private struct CreativeInterpretationPlanSection: View {
     let plan: CreativeInterpretationPlan
+    let response: CreativeInterpretationResponse?
+    let loadState: CreativeInterpretationLoadState
+    let runAction: () -> Void
 
     private var payloadAudit: CreativeInterpretationPayloadAudit {
         CreativeInterpretationPayloadAudit.make(for: plan)
@@ -1018,6 +1031,29 @@ private struct CreativeInterpretationPlanSection: View {
             LabeledContent("Reason", value: plan.reason.title)
             LabeledContent("Inputs", value: plan.allowedInputs.map(\.title).joined(separator: ", "))
             LabeledContent("Payload", value: payloadAudit.safeToSend ? "Safe" : "Blocked")
+
+            Button(action: runAction) {
+                Label(loadState.actionTitle, systemImage: loadState.actionIcon)
+            }
+            .disabled(loadState.isLoading)
+
+            if let response {
+                LabeledContent("Provider", value: response.provider.title)
+                LabeledContent("Gate", value: response.healthGate.canRunProvider ? "Ready" : "Blocked")
+
+                Label(response.headline, systemImage: response.status.iconName)
+                    .font(.subheadline.weight(.semibold))
+
+                ForEach(response.guidance.prefix(4), id: \.self) { item in
+                    Label(item, systemImage: "sparkles")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            } else if let message = loadState.message {
+                Label(message, systemImage: loadState.actionIcon)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
 
             ForEach(plan.inputSummary.prefix(4), id: \.self) { item in
                 Label(item, systemImage: "text.badge.checkmark")
@@ -1558,6 +1594,69 @@ private extension CreativeInterpretationPlan.Category {
             return "photo.on.rectangle"
         case .safety:
             return "checkmark.shield"
+        }
+    }
+}
+
+private extension CreativeInterpretationRequest.Provider {
+    var title: String {
+        switch self {
+        case .localHeuristic:
+            return "Local Heuristic"
+        case .onlineReasoning:
+            return "Online Reasoning"
+        }
+    }
+}
+
+private extension CreativeInterpretationResponse.Status {
+    var iconName: String {
+        switch self {
+        case .completed:
+            return "sparkles"
+        }
+    }
+}
+
+private extension CreativeInterpretationLoadState {
+    var actionTitle: String {
+        switch self {
+        case .idle:
+            return "Run Creative Brief"
+        case .loading:
+            return "Checking Brief"
+        case .ready:
+            return "Refresh Creative Brief"
+        case .blocked, .failed:
+            return "Try Creative Brief"
+        }
+    }
+
+    var actionIcon: String {
+        switch self {
+        case .idle:
+            return "sparkles"
+        case .loading:
+            return "hourglass"
+        case .ready:
+            return "arrow.clockwise"
+        case .blocked:
+            return "checkmark.shield"
+        case .failed:
+            return "exclamationmark.triangle"
+        }
+    }
+
+    var isLoading: Bool {
+        self == .loading
+    }
+
+    var message: String? {
+        switch self {
+        case let .blocked(message), let .failed(message):
+            return message
+        case .idle, .loading, .ready:
+            return nil
         }
     }
 }

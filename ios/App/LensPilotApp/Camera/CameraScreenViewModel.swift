@@ -30,6 +30,14 @@ enum OnlineInspirationLoadState: Equatable {
     case failed(String)
 }
 
+enum CreativeInterpretationLoadState: Equatable {
+    case idle
+    case loading
+    case ready
+    case blocked(String)
+    case failed(String)
+}
+
 enum PreviewAdjustmentCommand: String, CaseIterable, Identifiable {
     case brighter
     case moreSky
@@ -85,6 +93,23 @@ enum PreviewAdjustmentCommand: String, CaseIterable, Identifiable {
     }
 }
 
+private extension CreativeInterpretationProviderHealthGate.DeniedReason {
+    var title: String {
+        switch self {
+        case .unsafeRequestPayload:
+            return "Unsafe creative payload"
+        case .missingProviderHealth:
+            return "Fetch public references first"
+        case .unsafeProviderHealth:
+            return "Unsafe source health"
+        case .providerUnavailable:
+            return "Public source unavailable"
+        case .noPublicReferences:
+            return "No public references"
+        }
+    }
+}
+
 @MainActor
 final class CameraScreenViewModel: ObservableObject {
     let camera = CameraSessionController()
@@ -111,6 +136,8 @@ final class CameraScreenViewModel: ObservableObject {
     @Published private(set) var onlineInspirationThumbnailData: [String: Data] = [:]
     @Published private(set) var onlineInspirationHealthSnapshot: OnlineInspirationHealthSnapshot?
     @Published private(set) var onlineInspirationLoadState: OnlineInspirationLoadState = .idle
+    @Published private(set) var creativeInterpretationResponse: CreativeInterpretationResponse?
+    @Published private(set) var creativeInterpretationLoadState: CreativeInterpretationLoadState = .idle
     @Published private(set) var diagnosticCaptureReview: CaptureReviewResult?
     @Published private(set) var diagnosticMessage = "Ready"
     @Published private(set) var diagnosticLastRunAt: Date?
@@ -135,6 +162,7 @@ final class CameraScreenViewModel: ObservableObject {
     private let personalLearningEngine = PersonalVisualLearningEngine()
     private let onlineInspirationService = OnlineInspirationService()
     private let onlineInspirationThumbnailCache = OnlineInspirationThumbnailCache()
+    private let creativeInterpretationAdapter = HealthGatedCreativeInterpretationAdapter()
     private let speechIntentController = SpeechIntentController()
     private var guidanceStabilizer = GuidanceStabilizer()
     private lazy var frameAnalysisCoordinator = CameraFrameAnalysisCoordinator(analyzer: frameAnalyzer)
@@ -312,6 +340,8 @@ final class CameraScreenViewModel: ObservableObject {
             onlineInspirationResults = []
             onlineInspirationHealthSnapshot = nil
             onlineInspirationLoadState = .idle
+            creativeInterpretationResponse = nil
+            creativeInterpretationLoadState = .idle
             return
         }
 
@@ -320,6 +350,8 @@ final class CameraScreenViewModel: ObservableObject {
         let planId = plan.id
         onlineInspirationLoadState = .loading
         onlineInspirationHealthSnapshot = nil
+        creativeInterpretationResponse = nil
+        creativeInterpretationLoadState = creativeInterpretationPlan == nil ? .idle : .loading
         Task {
             do {
                 let response = try await onlineInspirationService.fetchReferences(for: plan, perQueryLimit: 3)
@@ -335,6 +367,7 @@ final class CameraScreenViewModel: ObservableObject {
                     onlineInspirationLoadState = .loaded(response.results.count)
                 }
                 warmOnlineInspirationThumbnailCache(for: response.results, planId: planId)
+                runCreativeInterpretation(providerHealthSnapshot: response.healthSnapshot)
             } catch {
                 guard onlineReferencePlan?.id == planId else { return }
                 onlineInspirationResults = []
@@ -342,9 +375,25 @@ final class CameraScreenViewModel: ObservableObject {
                 onlineInspirationHealthSnapshot = nil
                 hasLoadedOnlineInspiration = false
                 onlineInspirationLoadState = .failed("Public references unavailable")
+                creativeInterpretationResponse = nil
+                creativeInterpretationLoadState = creativeInterpretationPlan == nil
+                    ? .idle
+                    : .blocked("Source health unavailable")
                 errorMessage = "Online inspiration failed. Camera guidance still works offline."
             }
         }
+    }
+
+    func runCreativeInterpretation() {
+        guard let healthSnapshot = onlineInspirationHealthSnapshot else {
+            creativeInterpretationResponse = nil
+            creativeInterpretationLoadState = creativeInterpretationPlan == nil
+                ? .idle
+                : .blocked("Fetch public references first")
+            return
+        }
+
+        runCreativeInterpretation(providerHealthSnapshot: healthSnapshot)
     }
 
     func useOnlineInspirationReference(_ result: OnlineInspirationResult) {
@@ -787,6 +836,8 @@ final class CameraScreenViewModel: ObservableObject {
             onlineInspirationThumbnailData = [:]
             onlineInspirationHealthSnapshot = nil
             onlineInspirationLoadState = .idle
+            creativeInterpretationResponse = nil
+            creativeInterpretationLoadState = .idle
             hasLoadedOnlineInspiration = false
             return
         }
@@ -809,10 +860,66 @@ final class CameraScreenViewModel: ObservableObject {
             onlineInspirationThumbnailData = [:]
             onlineInspirationHealthSnapshot = nil
             onlineInspirationLoadState = .idle
+            creativeInterpretationResponse = nil
+            creativeInterpretationLoadState = .idle
             hasLoadedOnlineInspiration = false
+        }
+        if nextCreativePlan != creativeInterpretationPlan {
+            creativeInterpretationResponse = nil
+            creativeInterpretationLoadState = .idle
         }
         onlineReferencePlan = nextPlan
         creativeInterpretationPlan = nextCreativePlan
+    }
+
+    private func runCreativeInterpretation(providerHealthSnapshot: OnlineInspirationHealthSnapshot) {
+        guard let plan = creativeInterpretationPlan else {
+            creativeInterpretationResponse = nil
+            creativeInterpretationLoadState = .idle
+            return
+        }
+
+        let planId = plan.id
+        creativeInterpretationLoadState = .loading
+        Task {
+            do {
+                let response = try await creativeInterpretationAdapter.interpret(
+                    for: plan,
+                    providerHealthSnapshot: providerHealthSnapshot
+                )
+                guard creativeInterpretationPlan?.id == planId else { return }
+                creativeInterpretationResponse = response
+                creativeInterpretationLoadState = .ready
+                diagnosticMessage = "Creative interpretation is ready."
+            } catch {
+                guard creativeInterpretationPlan?.id == planId else { return }
+                creativeInterpretationResponse = nil
+                creativeInterpretationLoadState = .blocked(Self.creativeInterpretationMessage(for: error))
+                diagnosticMessage = "Creative interpretation is blocked by the safety gate."
+            }
+        }
+    }
+
+    private static func creativeInterpretationMessage(for error: Error) -> String {
+        if let adapterError = error as? CreativeInterpretationAdapterError {
+            switch adapterError {
+            case let .blockedByHealthGate(reasons):
+                return reasons.first.map { $0.title } ?? "Provider gate blocked"
+            case .emptyProviderOutput:
+                return "No creative guidance returned"
+            case .unsafeProviderResponse:
+                return "Unsafe provider response"
+            }
+        }
+
+        if let interpretationError = error as? CreativeInterpretationError {
+            switch interpretationError {
+            case .unsafePlan:
+                return "Unsafe creative payload"
+            }
+        }
+
+        return "Creative interpretation unavailable"
     }
 
     private func warmOnlineInspirationThumbnailCache(for results: [OnlineInspirationResult], planId: String) {

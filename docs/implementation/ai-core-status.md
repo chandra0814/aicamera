@@ -19,6 +19,7 @@ This implementation completes the MVP AI control skeleton, not the final product
 - Online Reference Policy: can produce a consent-gated public-inspiration request plan from prompt and ShotSpec only, while explicitly blocking raw live camera frames, private photos, identity data, and precise location without consent.
 - Creative Interpretation Plan: produces an event-triggered shot brief from prompt, ShotSpec, aggregate learned preferences, and public-reference summaries only; diagnostics block it if raw frames, private photos, identity data, precise location, raw learning events, or generative-output claims are included.
 - Creative Interpretation Request Audit: builds a bounded provider request only after a payload audit confirms safe summaries, required blocklists, privacy flags, and suggestion content.
+- Health-Gated Creative Interpretation Adapter: runs a creative brief only when the audited request and public-source health snapshot are both safe, available, and free of raw camera frames, private photos, identity data, precise location, and raw learning events.
 - Single-phone invariant: `ShotSpec.constraints.singlePhoneOnly` is required and true.
 - Native Swift AI core: iOS now has on-device `SceneState`, `LensPilotAiCore`, `TargetMatchEngine`, `GuidancePolicy`, `PreviewSafetyEngine`, and `BestShotRanker` equivalents.
 - App wiring: the iOS camera screen view model calls the native AI core and displays AI guidance plus Target Match from scene inputs.
@@ -60,7 +61,7 @@ This implementation completes the MVP AI control skeleton, not the final product
 - No trained aesthetic model yet.
 - No completed real iPhone target-match calibration dataset yet; the bundled seed manifest currently reports `needs_more_samples` until 24 reviewed real captures are imported.
 - No Core ML/TFLite production model bundle yet.
-- No production cloud VLM/LLM execution adapter yet; the app currently has the event-triggered privacy contract, audited provider request, and local creative brief only.
+- No production cloud VLM/LLM execution provider yet; the app currently has the event-triggered privacy contract, audited provider request, health-gated adapter, and deterministic creative brief only.
 - No generative preview engine yet.
 - No embedding sync or cloud personalization sync yet.
 - No live production monitoring, endpoint health checks, or provider-specific quality analytics for public inspiration yet.
@@ -75,4 +76,4 @@ LensPilot must remain a reliable camera first. A deterministic AI core lets us p
 1. Collect real portrait, landscape, sky, clutter, backlight, horizon, motion, and night samples from iPhone captures.
 2. Use the calibration readiness report and AI Diagnostics to confirm all 24 reviewed captures satisfy the required domains, scenarios, and blind-review minimum.
 3. Tune benchmark thresholds, sub-score weights, and guidance-priority boosts against blind preference tests now that the app can load the manifest at runtime.
-4. Plug an optional provider into the audited Creative Interpretation Request only after provider health checks prove that raw camera frames, private photos, identity data, precise location, and raw learning events stay out of the request.
+4. Connect a live optional provider behind `HealthGatedCreativeInterpretationAdapter` only after provider health checks keep proving that raw camera frames, private photos, identity data, precise location, and raw learning events stay out of the request and response path.

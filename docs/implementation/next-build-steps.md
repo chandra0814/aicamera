@@ -52,6 +52,7 @@
 - The in-app AI Diagnostics sheet now checks shot planning, reference popup, online plan, provider health, calibration readiness, local learning, encrypted learning storage, and capture coaching from the same phone.
 - AI Diagnostics now verifies the Creative Plan privacy boundary and shows the same concrete shot-brief suggestions that appear in Personal Visual AI settings.
 - Creative Plan provider requests now require a payload audit, clamp response length, preserve required safety/reference suggestions, and reject unsafe summaries before any future online reasoning adapter can run.
+- Creative interpretation now has a health-gated adapter path that only returns a same-phone creative brief after safe public-source health and audited provider payload checks both pass.
 - Target Match calibration readiness now reports reviewed real-capture counts, missing domains, and missing scenarios so production calibration cannot be mistaken for seed-fixture coverage.
 - AI Diagnostics now includes an in-app calibration readiness checklist with missing domains, missing scenarios, and a one-tap action that selects the next capture scenario on the same phone.
 
@@ -72,6 +73,7 @@
 - Learning insight displays aggregate usage, requirement, action, and public-reference signals only; it does not expose raw photos, live frames, identity data, or cloud personalization state.
 - Creative interpretation is event-triggered and consent-gated; it uses safe summaries only and blocks raw camera frames, private photos, identity data, precise location, raw learning events, and generative-output claims.
 - Creative interpretation request payloads are audited before provider use; summaries containing raw-frame, image-byte, EXIF/GPS, precise-location, private-photo, identity, or raw-learning-event terms are rejected.
+- Creative interpretation provider execution is health-gated; missing, unsafe, failed, or empty public-source health blocks the provider path before any brief is produced.
 - On iOS, learned profile persistence prefers Keychain encrypted, this-device-only storage and removes legacy UserDefaults bytes after migration or save.
 - Capture feedback records structured ratings, guidance outcomes, and selected correction reasons only; it does not store the captured photo as a learning event.
 - After-capture coaching uses score summaries and ranked-shot metadata only; it does not store or upload raw photos.

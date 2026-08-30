@@ -18,7 +18,7 @@
   - guided calibration queue validation for eight real-capture scenarios, 24 target captures, supported domains, manifest `requiredScenarios` alignment, and sanitized local progress
   - reviewed app export normalization before manifest import
   - guidance stabilizer checks for immediate opposite-action suppression and completed-action memory
-  - Personal Visual AI validation for consent-gated learning, local learning insights, creative interpretation plans, creative payload audits, positive/negative capture feedback, correction-reason learning boosts, small personalization boosts, and online-reference privacy boundaries
+  - Personal Visual AI validation for consent-gated learning, local learning insights, creative interpretation plans, creative payload audits, health-gated creative provider execution, positive/negative capture feedback, correction-reason learning boosts, small personalization boosts, and online-reference privacy boundaries
   - Personal Visual AI local profile storage sanitization, preferred encrypted-at-rest policy, legacy-store migration flags, cloud-sync stripping, and oversized-profile rejection
   - Wikimedia Commons online-inspiration request construction and public image response parsing
   - Openverse-style public image request construction and response parsing
@@ -35,8 +35,8 @@
 
 ## Latest Verification
 
-- GitHub Actions run #54 passed AI fixture validation, Swift package tests, and the iOS app build for commit `fe1d5bc`.
-- Local `.\scripts\test-all.ps1` passed JSON validation, TypeScript AI fixture validation, deterministic Target Preview validation, preview adjustment validation, after-capture coaching validation, six deterministic AI guidance benchmarks, Target Match calibration validation with readiness reporting, calibration readiness checklist validation, calibration promotion validation, reviewed importer readiness-summary validation, guided calibration queue validation, reviewed import normalization, Personal Visual AI validation, local learning insight validation, creative interpretation validation, creative payload audit validation, local profile storage validation, capture-feedback correction learning validation, single-phone AI diagnostics, and multi-provider public inspiration validation on Windows after Creative Plan payload-audit wiring.
+- GitHub Actions run #55 passed AI fixture validation, Swift package tests, and the iOS app build for commit `72f3610`.
+- Local `.\scripts\test-all.ps1` passed JSON validation, TypeScript AI fixture validation, deterministic Target Preview validation, preview adjustment validation, after-capture coaching validation, six deterministic AI guidance benchmarks, Target Match calibration validation with readiness reporting, calibration readiness checklist validation, calibration promotion validation, reviewed importer readiness-summary validation, guided calibration queue validation, reviewed import normalization, Personal Visual AI validation, local learning insight validation, creative interpretation validation, creative payload audit validation, health-gated creative provider validation, local profile storage validation, capture-feedback correction learning validation, single-phone AI diagnostics, and multi-provider public inspiration validation on Windows after health-gated creative adapter wiring.
 - Swift package tests still need GitHub/macOS CI for this workspace because Windows does not have Swift/Xcode installed.
 
 ## Not Runnable Here

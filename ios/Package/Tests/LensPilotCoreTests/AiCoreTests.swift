@@ -1004,6 +1004,148 @@ final class AiCoreTests: XCTestCase {
         }
     }
 
+    func testCreativeInterpretationAdapterRunsOnlyAfterSafeProviderHealth() async throws {
+        let engine = PersonalVisualLearningEngine()
+        let prompt = "Give me a cinematic luxury portrait with online inspiration."
+        let shotSpec = ShotSpecFactory().makeShotSpec(from: prompt, source: .text)
+        let profile = PersonalVisualPreferenceProfile(
+            consent: PersonalizationConsent(learningEnabled: true, onlineReferencesAllowed: true),
+            totalEvents: 3,
+            domainCounts: ["portrait": 3],
+            styleAffinities: ["cinematic": 0.4],
+            colorAffinities: ["warm_highlights_cool_shadows": 0.2],
+            framingAffinities: ["environmental": 0.3],
+            guidanceReasonAffinities: ["improve_face_light": 0.4],
+            requirementAffinities: ["luxury": 0.3],
+            onlineReferenceUsageCount: 1
+        )
+        let onlinePlan = try XCTUnwrap(engine.makeOnlineReferencePlan(
+            for: shotSpec,
+            prompt: prompt,
+            profile: profile,
+            consent: profile.consent
+        ))
+        let creativePlan = try XCTUnwrap(engine.makeCreativeInterpretationPlan(
+            for: shotSpec,
+            prompt: prompt,
+            profile: profile,
+            onlineReferencePlan: onlinePlan,
+            consent: profile.consent
+        ))
+        let healthSnapshot = OnlineInspirationHealthSnapshot(
+            planId: onlinePlan.id,
+            source: .publicSources,
+            providers: [
+                OnlineInspirationProviderHealth.available(source: .wikimediaCommons, resultCount: 2),
+                OnlineInspirationProviderHealth.failed(source: .openverse, error: OnlineInspirationError.missingProviderData)
+            ]
+        )
+
+        let response = try await HealthGatedCreativeInterpretationAdapter().interpret(
+            for: creativePlan,
+            providerHealthSnapshot: healthSnapshot,
+            maxResponseWords: 64,
+            generatedAt: Date(timeIntervalSince1970: 0)
+        )
+
+        XCTAssertEqual(response.status, .completed)
+        XCTAssertEqual(response.provider, .onlineReasoning)
+        XCTAssertEqual(response.maxResponseWords, 64)
+        XCTAssertTrue(response.payloadAudit.safeToSend)
+        XCTAssertTrue(response.healthGate.canRunProvider)
+        XCTAssertEqual(response.healthGate.providerHealthStatus, .degraded)
+        XCTAssertEqual(response.healthGate.publicReferenceCount, 2)
+        XCTAssertFalse(response.guidance.isEmpty)
+        XCTAssertTrue(response.guidance.contains { $0.contains("Stay Capture-Realistic") })
+        XCTAssertTrue(response.privacy.usesAuditedPayload)
+        XCTAssertTrue(response.privacy.usesProviderHealthGate)
+        XCTAssertTrue(response.privacy.isSafeForSinglePhoneCreativeReasoning)
+        XCTAssertFalse(response.privacy.uploadsLiveCameraFrame)
+        XCTAssertFalse(response.privacy.sendsPrivatePhoto)
+        XCTAssertFalse(response.privacy.sendsIdentityData)
+        XCTAssertFalse(response.privacy.sendsRawLearningEvents)
+    }
+
+    func testCreativeInterpretationAdapterBlocksMissingOrUnsafeProviderHealth() async throws {
+        let prompt = "Give me a cinematic portrait with online inspiration."
+        let shotSpec = ShotSpecFactory().makeShotSpec(from: prompt, source: .text)
+        let profile = PersonalVisualPreferenceProfile(
+            consent: PersonalizationConsent(learningEnabled: true, onlineReferencesAllowed: true),
+            totalEvents: 3,
+            domainCounts: ["portrait": 3],
+            styleAffinities: ["cinematic": 0.4],
+            guidanceReasonAffinities: ["reduce_clutter": 0.4],
+            requirementAffinities: ["cinematic": 0.3]
+        )
+        let onlinePlan = try XCTUnwrap(PersonalVisualLearningEngine().makeOnlineReferencePlan(
+            for: shotSpec,
+            prompt: prompt,
+            profile: profile,
+            consent: profile.consent
+        ))
+        let creativePlan = try XCTUnwrap(PersonalVisualLearningEngine().makeCreativeInterpretationPlan(
+            for: shotSpec,
+            prompt: prompt,
+            profile: profile,
+            onlineReferencePlan: onlinePlan,
+            consent: profile.consent
+        ))
+        let request = try CreativeInterpretationRequest(plan: creativePlan)
+
+        let missingGate = CreativeInterpretationProviderHealthGate.make(
+            for: request,
+            healthSnapshot: nil
+        )
+        XCTAssertFalse(missingGate.canRunProvider)
+        XCTAssertTrue(missingGate.deniedReasons.contains(.missingProviderHealth))
+
+        let unsafeHealthSnapshot = OnlineInspirationHealthSnapshot(
+            planId: onlinePlan.id,
+            source: .publicSources,
+            providers: [
+                OnlineInspirationProviderHealth.available(source: .wikimediaCommons, resultCount: 1)
+            ],
+            privacy: .init(
+                singlePhoneOnly: true,
+                requiresUserConsent: true,
+                sendsRawCameraFrame: true,
+                sendsPrivatePhoto: false,
+                sendsIdentityData: false,
+                sendsPreciseLocation: false
+            )
+        )
+        let unsafeGate = CreativeInterpretationProviderHealthGate.make(
+            for: request,
+            healthSnapshot: unsafeHealthSnapshot
+        )
+        XCTAssertFalse(unsafeGate.canRunProvider)
+        XCTAssertTrue(unsafeGate.deniedReasons.contains(.unsafeProviderHealth))
+
+        let failedHealthSnapshot = OnlineInspirationHealthSnapshot(
+            planId: onlinePlan.id,
+            source: .publicSources,
+            providers: [
+                OnlineInspirationProviderHealth.failed(source: .wikimediaCommons, error: OnlineInspirationError.missingProviderData)
+            ]
+        )
+
+        do {
+            _ = try await HealthGatedCreativeInterpretationAdapter().interpret(
+                for: creativePlan,
+                providerHealthSnapshot: failedHealthSnapshot
+            )
+            XCTFail("Expected the creative interpretation adapter to block failed provider health.")
+        } catch let error as CreativeInterpretationAdapterError {
+            guard case let .blockedByHealthGate(reasons) = error else {
+                XCTFail("Expected health gate block.")
+                return
+            }
+
+            XCTAssertTrue(reasons.contains(.providerUnavailable))
+            XCTAssertTrue(reasons.contains(.noPublicReferences))
+        }
+    }
+
     func testWikimediaCommonsOnlineInspirationAdapterUsesSafePublicFileSearch() throws {
         let provider = WikimediaCommonsInspirationProvider()
         let url = try provider.makeSearchURL(query: "cinematic portrait phone photography reference", limit: 50)
