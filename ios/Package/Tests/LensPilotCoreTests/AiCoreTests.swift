@@ -1254,6 +1254,124 @@ final class AiCoreTests: XCTestCase {
         }
     }
 
+    func testLensPilotCreativeAPIProviderBuildsMobileSafeBackendRequest() async throws {
+        let (creativePlan, healthSnapshot) = try makeCreativeInterpretationFixture()
+        let providerOutput = try JSONSerialization.data(withJSONObject: [
+            "status": "completed",
+            "provider": "online_reasoning",
+            "result": [
+                "headline": "Backend Creative Brief",
+                "guidance": [
+                    "Turn the subject toward the softer side light.",
+                    "Keep the phone steady and preserve the clean background edge."
+                ]
+            ],
+            "privacy": [
+                "keepsOpenAIKeyOnServer": true,
+                "acceptsClientOpenAIKey": false
+            ]
+        ])
+        let recorder = LensPilotCreativeAPIRequestRecorder(data: providerOutput)
+        let provider = try LensPilotCreativeInterpretationAPIProvider(
+            apiURL: URL(string: "https://api.lenspilot.example/v1/creative-interpretation")!,
+            clientToken: "client-token",
+            transport: recorder.transport
+        )
+
+        let response = try await HealthGatedCreativeInterpretationAdapter(provider: provider).interpret(
+            for: creativePlan,
+            providerHealthSnapshot: healthSnapshot,
+            maxResponseWords: 80,
+            generatedAt: Date(timeIntervalSince1970: 0)
+        )
+
+        XCTAssertEqual(response.provider, .onlineReasoning)
+        XCTAssertEqual(response.headline, "Backend Creative Brief")
+        XCTAssertTrue(response.privacy.isSafeForSinglePhoneCreativeReasoning)
+
+        let urlRequest = try XCTUnwrap(recorder.request)
+        XCTAssertEqual(urlRequest.url?.absoluteString, "https://api.lenspilot.example/v1/creative-interpretation")
+        XCTAssertEqual(urlRequest.httpMethod, "POST")
+        XCTAssertEqual(urlRequest.value(forHTTPHeaderField: "Content-Type"), "application/json")
+        XCTAssertEqual(urlRequest.value(forHTTPHeaderField: "Accept"), "application/json")
+        XCTAssertEqual(urlRequest.value(forHTTPHeaderField: "X-LensPilot-Client"), "ios")
+        XCTAssertEqual(urlRequest.value(forHTTPHeaderField: "Authorization"), "Bearer client-token")
+        XCTAssertFalse(urlRequest.value(forHTTPHeaderField: "Authorization")?.contains("sk-") == true)
+
+        let body = try XCTUnwrap(urlRequest.httpBody)
+        let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        XCTAssertEqual(payload["apiVersion"] as? String, "2026-08-31")
+        XCTAssertEqual((payload["client"] as? [String: Any])?["platform"] as? String, "ios")
+        let apiRequest = try XCTUnwrap(payload["request"] as? [String: Any])
+        XCTAssertEqual(apiRequest["provider"] as? String, "online_reasoning")
+        XCTAssertEqual((payload["healthGate"] as? [String: Any])?["canRunProvider"] as? Bool, true)
+        let mustNotSend = try XCTUnwrap(apiRequest["mustNotSend"] as? [String])
+        XCTAssertTrue(mustNotSend.contains("raw_live_camera_feed"))
+        XCTAssertTrue(mustNotSend.contains("private_photo"))
+
+        let inputSummary = try XCTUnwrap(apiRequest["inputSummary"] as? [String])
+        let suggestionBriefs = try XCTUnwrap(apiRequest["suggestionBriefs"] as? [String])
+        XCTAssertFalse(inputSummary.joined(separator: " ").contains("private_photo"))
+        XCTAssertFalse(suggestionBriefs.joined(separator: " ").contains("raw_live_camera_feed"))
+
+        let bodyText = try XCTUnwrap(String(data: body, encoding: .utf8))
+        XCTAssertFalse(bodyText.contains("OPENAI_API_KEY"))
+        XCTAssertFalse(bodyText.contains("sk-proj"))
+    }
+
+    func testLensPilotCreativeAPIProviderRejectsDirectUseWithoutHealthGate() async throws {
+        let (creativePlan, _) = try makeCreativeInterpretationFixture()
+        let request = try CreativeInterpretationRequest(plan: creativePlan)
+        let provider = try LensPilotCreativeInterpretationAPIProvider(
+            apiURL: URL(string: "https://api.lenspilot.example/v1/creative-interpretation")!,
+            transport: LensPilotCreativeAPIRequestRecorder(data: Data()).transport
+        )
+
+        do {
+            _ = try await provider.interpret(request: request)
+            XCTFail("Expected direct creative API provider use to require a health gate.")
+        } catch let error as LensPilotCreativeInterpretationAPIProviderError {
+            XCTAssertEqual(error, .missingHealthGate)
+        }
+    }
+
+    func testLensPilotCreativeAPIProviderRejectsUnsafeHealthGate() async throws {
+        let (creativePlan, _) = try makeCreativeInterpretationFixture()
+        let request = try CreativeInterpretationRequest(plan: creativePlan)
+        let unsafeHealthGate = CreativeInterpretationProviderHealthGate(
+            canRunProvider: false,
+            deniedReasons: [.unsafeProviderHealth],
+            providerHealthStatus: nil,
+            publicReferenceCount: 0,
+            payloadAudit: request.payloadAudit,
+            privacy: CreativeInterpretationProviderHealthGate.Privacy(sendsRawCameraFrame: true)
+        )
+        let provider = try LensPilotCreativeInterpretationAPIProvider(
+            apiURL: URL(string: "https://api.lenspilot.example/v1/creative-interpretation")!,
+            transport: LensPilotCreativeAPIRequestRecorder(data: Data()).transport
+        )
+
+        do {
+            _ = try await provider.interpret(request: request, healthGate: unsafeHealthGate)
+            XCTFail("Expected unsafe creative API health gate to be rejected.")
+        } catch let error as LensPilotCreativeInterpretationAPIProviderError {
+            XCTAssertEqual(error, .unsafeHealthGate)
+        }
+    }
+
+    func testLensPilotCreativeAPIProviderConfiguredFromEnvironmentPrefersSecureBackend() {
+        XCTAssertNotNil(LensPilotCreativeInterpretationAPIProvider.configuredFromEnvironment([
+            "LENSPILOT_CREATIVE_API_URL": "https://api.lenspilot.example/v1/creative-interpretation",
+            "LENSPILOT_CREATIVE_API_TOKEN": "client-token"
+        ]))
+        XCTAssertNotNil(LensPilotCreativeInterpretationAPIProvider.configuredFromEnvironment([
+            "LENSPILOT_CREATIVE_API_URL": "http://localhost:8787/v1/creative-interpretation"
+        ]))
+        XCTAssertNil(LensPilotCreativeInterpretationAPIProvider.configuredFromEnvironment([
+            "LENSPILOT_CREATIVE_API_URL": "http://api.lenspilot.example/v1/creative-interpretation"
+        ]))
+    }
+
     func testWikimediaCommonsOnlineInspirationAdapterUsesSafePublicFileSearch() throws {
         let provider = WikimediaCommonsInspirationProvider()
         let url = try provider.makeSearchURL(query: "cinematic portrait phone photography reference", limit: 50)
@@ -1594,6 +1712,24 @@ final class AiCoreTests: XCTestCase {
             { request in
                 self.request = request
                 return OpenAIReasoningHTTPResponse(data: self.data, statusCode: self.statusCode)
+            }
+        }
+    }
+
+    private final class LensPilotCreativeAPIRequestRecorder: @unchecked Sendable {
+        private(set) var request: URLRequest?
+        let data: Data
+        let statusCode: Int
+
+        init(data: Data, statusCode: Int = 200) {
+            self.data = data
+            self.statusCode = statusCode
+        }
+
+        var transport: LensPilotCreativeAPITransport {
+            { request in
+                self.request = request
+                return LensPilotCreativeAPIHTTPResponse(data: self.data, statusCode: self.statusCode)
             }
         }
     }

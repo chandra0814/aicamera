@@ -71,6 +71,30 @@ const openAICreativeInterpretationDefaults = {
   },
 };
 
+const lensPilotCreativeInterpretationApiDefaults = {
+  apiVersion: "2026-08-31",
+  path: "/v1/creative-interpretation",
+  method: "POST",
+  requiresServerSideOpenAIKey: true,
+  acceptsClientOpenAIKey: false,
+  defaultModel: openAICreativeInterpretationDefaults.model,
+};
+
+const lensPilotCreativeInterpretationApiPrivacy = {
+  keepsOpenAIKeyOnServer: true,
+  acceptsClientOpenAIKey: false,
+  singlePhoneOnly: true,
+  usesAuditedPayload: true,
+  usesProviderHealthGate: true,
+  storesRawPhoto: false,
+  uploadsLiveCameraFrame: false,
+  sendsPrivatePhoto: false,
+  sendsIdentityData: false,
+  sendsPreciseLocation: false,
+  sendsRawLearningEvents: false,
+  allowsGenerativeImageOutput: false,
+};
+
 const openAICreativeInterpretationInstructions =
   "You are LensPilot AI's photography reasoning provider. Return only JSON matching the schema. Use only the audited text summary and public-reference context in the request. Do not ask for or mention uploading live camera frames, private photos, identity data, precise location, raw learning events, EXIF, base64, or photo bytes. Keep guidance capture-realistic, concise, and useful for one phone in the user's hand. Do not promise generated edits, object removal, sky replacement, or a synthetic final image.";
 
@@ -557,6 +581,41 @@ assertThrows(
   }),
   "OpenAI parser should reject unsafe provider guidance."
 );
+const lensPilotApiRequest = makeLensPilotCreativeInterpretationApiRequest(
+  creativeRequest,
+  creativeProviderGate,
+  {
+    platform: "ios",
+    appVersion: "0.1.0",
+    requestId: "creative-api-fixture-001",
+  }
+);
+assert(lensPilotCreativeInterpretationApiDefaults.path === "/v1/creative-interpretation", "Creative API should expose a versioned backend route.");
+assert(lensPilotCreativeInterpretationApiDefaults.requiresServerSideOpenAIKey === true, "Creative API should keep the OpenAI key on the server.");
+assert(lensPilotCreativeInterpretationApiDefaults.acceptsClientOpenAIKey === false, "Creative API should reject client-supplied OpenAI keys.");
+assert(lensPilotApiRequest.apiVersion === "2026-08-31", "Creative API request should carry the contract version.");
+assert(lensPilotApiRequest.client.platform === "ios", "Creative API request should be scoped to the iOS phone client.");
+assert(isLensPilotCreativeInterpretationApiRequestSafe(lensPilotApiRequest), "Creative API request should pass the single-phone safety gate.");
+assertThrows(
+  () => makeLensPilotCreativeInterpretationApiRequest(
+    {
+      ...creativeRequest,
+      inputSummary: [...creativeRequest.inputSummary, "OPENAI_API_KEY=sk-proj-client-secret"],
+    },
+    creativeProviderGate
+  ),
+  "Creative API request should reject client-provided OpenAI keys."
+);
+const lensPilotApiResponse = makeLensPilotCreativeInterpretationApiResponse(
+  lensPilotApiRequest,
+  openAIParsedResult,
+  "2026-08-31T00:00:00.000Z"
+);
+assert(lensPilotApiResponse.status === "completed", "Creative API should return completed provider output.");
+assert(lensPilotApiResponse.result.headline === "OpenAI Capture Brief", "Creative API should return the provider headline.");
+assert(lensPilotApiResponse.privacy.keepsOpenAIKeyOnServer === true, "Creative API response should declare server-side key ownership.");
+assert(lensPilotApiResponse.privacy.acceptsClientOpenAIKey === false, "Creative API response should declare that client OpenAI keys are rejected.");
+assert(JSON.stringify(lensPilotApiResponse).includes("sk-proj") === false, "Creative API response must not include provider secrets.");
 const missingCreativeHealthGate = makeCreativeInterpretationProviderHealthGate(creativeRequest);
 assert(missingCreativeHealthGate.canRunProvider === false, "Creative provider gate should require a provider health snapshot.");
 assert(missingCreativeHealthGate.deniedReasons.includes("missing_provider_health"), "Creative provider gate should explain missing health.");
@@ -1246,6 +1305,7 @@ function makeCreativeInterpretationRequest(plan, provider = "online_reasoning", 
     inputSummary: plan.inputSummary,
     suggestionBriefs: plan.suggestions.map((suggestion) => `${suggestion.title}: ${suggestion.instruction}`),
     allowedInputs: plan.allowedInputs,
+    mustNotSend: plan.mustNotSend,
     maxResponseWords: Math.min(240, Math.max(40, Math.trunc(maxResponseWords))),
     payloadAudit,
     privacy: plan.privacy,
@@ -2038,6 +2098,12 @@ function containsAny(text, terms) {
   return terms.some((term) => text.includes(term));
 }
 
+function isNonEmptyStringArray(value) {
+  return Array.isArray(value) &&
+    value.length > 0 &&
+    value.every((item) => typeof item === "string" && item.trim().length > 0);
+}
+
 function compactPromptQuery(prompt) {
   return prompt
     .split(/[^a-z0-9]+/i)
@@ -2051,14 +2117,15 @@ function uniqueNonEmpty(values) {
 }
 
 function isCreativeInterpretationPrivacySafe(privacy) {
-  return privacy.singlePhoneOnly &&
-    privacy.requiresUserConsent &&
-    !privacy.sendsRawCameraFrame &&
-    !privacy.sendsPrivatePhoto &&
-    !privacy.sendsIdentityData &&
-    !privacy.sendsPreciseLocation &&
-    !privacy.sendsRawLearningEvents &&
-    !privacy.allowsGenerativeOutput;
+  return isRecord(privacy) &&
+    privacy.singlePhoneOnly === true &&
+    privacy.requiresUserConsent === true &&
+    privacy.sendsRawCameraFrame === false &&
+    privacy.sendsPrivatePhoto === false &&
+    privacy.sendsIdentityData === false &&
+    privacy.sendsPreciseLocation === false &&
+    privacy.sendsRawLearningEvents === false &&
+    privacy.allowsGenerativeOutput === false;
 }
 
 function blockedCreativeInterpretationPayloadTerms(plan) {
@@ -2199,6 +2266,112 @@ function parseOpenAICreativeInterpretationProviderResult(payload) {
   return result;
 }
 
+function makeLensPilotCreativeInterpretationApiRequest(request, healthGate, client = { platform: "ios" }) {
+  const apiRequest = {
+    apiVersion: lensPilotCreativeInterpretationApiDefaults.apiVersion,
+    request,
+    healthGate,
+    client,
+  };
+
+  if (!isLensPilotCreativeInterpretationApiRequestSafe(apiRequest)) {
+    throw new Error("unsafe_lenspilot_creative_interpretation_api_request");
+  }
+
+  return apiRequest;
+}
+
+function makeLensPilotCreativeInterpretationApiResponse(apiRequest, result, generatedAt = new Date().toISOString()) {
+  if (!isLensPilotCreativeInterpretationApiRequestSafe(apiRequest)) {
+    throw new Error("unsafe_lenspilot_creative_interpretation_api_request");
+  }
+  if (!isCreativeInterpretationProviderResultSafe(result) || result.guidance.length === 0) {
+    throw new Error("unsafe_lenspilot_creative_interpretation_api_response");
+  }
+
+  return {
+    apiVersion: lensPilotCreativeInterpretationApiDefaults.apiVersion,
+    status: "completed",
+    provider: apiRequest.request.provider,
+    result,
+    generatedAt,
+    privacy: lensPilotCreativeInterpretationApiPrivacy,
+  };
+}
+
+function isLensPilotCreativeInterpretationApiRequestSafe(apiRequest) {
+  if (!isRecord(apiRequest) ||
+      apiRequest.apiVersion !== lensPilotCreativeInterpretationApiDefaults.apiVersion ||
+      !isRecord(apiRequest.client) ||
+      apiRequest.client.platform !== "ios" ||
+      !isRecord(apiRequest.request)) {
+    return false;
+  }
+
+  const request = apiRequest.request;
+  const payloadAudit = request.payloadAudit;
+  const inputSummary = request.inputSummary;
+  const suggestionBriefs = request.suggestionBriefs;
+  const allowedInputs = request.allowedInputs;
+  const mustNotSend = request.mustNotSend;
+
+  return isRecord(payloadAudit) &&
+    request.provider === "online_reasoning" &&
+    payloadAudit.safeToSend === true &&
+    Array.isArray(payloadAudit.deniedReasons) &&
+    payloadAudit.deniedReasons.length === 0 &&
+    Array.isArray(payloadAudit.blockedTermsDetected) &&
+    payloadAudit.blockedTermsDetected.length === 0 &&
+    isNonEmptyStringArray(allowedInputs) &&
+    isNonEmptyStringArray(mustNotSend) &&
+    requiredCreativeInterpretationMustNotSendTerms.every((term) => mustNotSend.includes(term)) &&
+    isNonEmptyStringArray(inputSummary) &&
+    isNonEmptyStringArray(suggestionBriefs) &&
+    typeof request.maxResponseWords === "number" &&
+    Number.isFinite(request.maxResponseWords) &&
+    request.maxResponseWords >= 40 &&
+    request.maxResponseWords <= 240 &&
+    isCreativeInterpretationPrivacySafe(request.privacy) &&
+    isCreativeInterpretationProviderHealthGateSafe(apiRequest.healthGate) &&
+    blockedCreativeInterpretationRequestPayloadTerms({ inputSummary, suggestionBriefs }).length === 0 &&
+    !containsClientOpenAIKey(apiRequest);
+}
+
+function isCreativeInterpretationProviderHealthGateSafe(healthGate) {
+  if (!isRecord(healthGate) ||
+      !isRecord(healthGate.payloadAudit) ||
+      !isRecord(healthGate.privacy)) {
+    return false;
+  }
+
+  return healthGate.canRunProvider === true &&
+    (healthGate.providerHealthStatus === "available" || healthGate.providerHealthStatus === "degraded") &&
+    typeof healthGate.publicReferenceCount === "number" &&
+    Number.isFinite(healthGate.publicReferenceCount) &&
+    healthGate.publicReferenceCount > 0 &&
+    healthGate.payloadAudit.safeToSend === true &&
+    Array.isArray(healthGate.payloadAudit.deniedReasons) &&
+    healthGate.payloadAudit.deniedReasons.length === 0 &&
+    Array.isArray(healthGate.payloadAudit.blockedTermsDetected) &&
+    healthGate.payloadAudit.blockedTermsDetected.length === 0 &&
+    healthGate.privacy.singlePhoneOnly === true &&
+    healthGate.privacy.requiresUserConsent === true &&
+    healthGate.privacy.sendsRawCameraFrame === false &&
+    healthGate.privacy.sendsPrivatePhoto === false &&
+    healthGate.privacy.sendsIdentityData === false &&
+    healthGate.privacy.sendsPreciseLocation === false &&
+    healthGate.privacy.sendsRawLearningEvents === false;
+}
+
+function blockedCreativeInterpretationRequestPayloadTerms(request) {
+  const inspectedText = [
+    ...request.inputSummary,
+    ...request.suggestionBriefs,
+  ].join(" ").toLowerCase();
+
+  return creativeInterpretationBlockedPayloadTerms.filter((term) => inspectedText.includes(term));
+}
+
 function makeCreativeInterpretationProviderResult(headline, guidance) {
   return {
     headline: cleanProviderText(headline, 96),
@@ -2236,6 +2409,29 @@ function cleanProviderText(value, maxLength) {
     .join(" ")
     .trim();
   return collapsed.length <= maxLength ? collapsed : collapsed.slice(0, maxLength).trim();
+}
+
+function containsClientOpenAIKey(value) {
+  if (typeof value === "string") {
+    const normalized = value.toLowerCase();
+    return normalized.includes("openai_api_key") || /(^|[\s"'=:])sk-(proj-)?[a-z0-9_-]{8,}/i.test(value);
+  }
+
+  if (Array.isArray(value)) {
+    return value.some(containsClientOpenAIKey);
+  }
+
+  if (isRecord(value)) {
+    return Object.entries(value).some(([key, nestedValue]) => {
+      const normalizedKey = key.toLowerCase();
+      return normalizedKey === "openai_api_key" ||
+        normalizedKey === "apikey" ||
+        normalizedKey === "api_key" ||
+        containsClientOpenAIKey(nestedValue);
+    });
+  }
+
+  return false;
 }
 
 function isRecord(value) {

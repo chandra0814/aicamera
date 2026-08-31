@@ -675,6 +675,7 @@ public struct CreativeInterpretationRequest: Codable, Equatable, Sendable {
     public let inputSummary: [String]
     public let suggestionBriefs: [String]
     public let allowedInputs: [CreativeInterpretationPlan.AllowedInput]
+    public let mustNotSend: [String]
     public let maxResponseWords: Int
     public let payloadAudit: CreativeInterpretationPayloadAudit
     public let privacy: CreativeInterpretationPlan.Privacy
@@ -694,6 +695,7 @@ public struct CreativeInterpretationRequest: Codable, Equatable, Sendable {
         self.inputSummary = plan.inputSummary
         self.suggestionBriefs = plan.suggestions.map { "\($0.title): \($0.instruction)" }
         self.allowedInputs = plan.allowedInputs
+        self.mustNotSend = plan.mustNotSend
         self.maxResponseWords = min(240, max(40, maxResponseWords))
         self.payloadAudit = audit
         self.privacy = plan.privacy

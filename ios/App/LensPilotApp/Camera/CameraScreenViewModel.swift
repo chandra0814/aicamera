@@ -908,11 +908,25 @@ final class CameraScreenViewModel: ObservableObject {
     }
 
     private static func makeCreativeInterpretationAdapter() -> HealthGatedCreativeInterpretationAdapter {
-        if let openAIProvider = OpenAICreativeInterpretationProvider.configuredFromEnvironment() {
+        if let apiProvider = LensPilotCreativeInterpretationAPIProvider.configuredFromEnvironment() {
+            return HealthGatedCreativeInterpretationAdapter(provider: apiProvider)
+        }
+
+        if Self.allowsDirectOpenAIProvider(),
+           let openAIProvider = OpenAICreativeInterpretationProvider.configuredFromEnvironment() {
             return HealthGatedCreativeInterpretationAdapter(provider: openAIProvider)
         }
 
         return HealthGatedCreativeInterpretationAdapter()
+    }
+
+    private static func allowsDirectOpenAIProvider(
+        _ environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Bool {
+        let setting = environment["LENSPILOT_ALLOW_DIRECT_OPENAI_PROVIDER"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return ["1", "true", "yes", "on"].contains(setting ?? "")
     }
 
     private static func isCreativeInterpretationSafetyBlock(_ error: Error) -> Bool {
@@ -942,6 +956,24 @@ final class CameraScreenViewModel: ObservableObject {
                     .apiError(_),
                     .incompleteResponse(_),
                     .missingOutputText,
+                    .invalidProviderJSON:
+                return false
+            }
+        }
+
+        if let apiProviderError = error as? LensPilotCreativeInterpretationAPIProviderError {
+            switch apiProviderError {
+            case .unsafeRequest, .unsafeHealthGate:
+                return true
+            case .missingAPIURL,
+                    .invalidAPIURL,
+                    .insecureAPIURL,
+                    .missingHealthGate,
+                    .requestEncodingFailed,
+                    .invalidHTTPStatus(_),
+                    .apiError(_),
+                    .incompleteResponse(_),
+                    .missingResult,
                     .invalidProviderJSON:
                 return false
             }
@@ -985,6 +1017,31 @@ final class CameraScreenViewModel: ObservableObject {
                 return "OpenAI response incomplete"
             case .missingOutputText, .invalidProviderJSON:
                 return "OpenAI response could not be read"
+            }
+        }
+
+        if let apiProviderError = error as? LensPilotCreativeInterpretationAPIProviderError {
+            switch apiProviderError {
+            case .missingAPIURL:
+                return "Creative API URL unavailable"
+            case .invalidAPIURL:
+                return "Creative API URL invalid"
+            case .insecureAPIURL:
+                return "Creative API must use HTTPS"
+            case .missingHealthGate:
+                return "Creative API request is not health-gated"
+            case .unsafeRequest, .unsafeHealthGate:
+                return "Unsafe creative API payload"
+            case .requestEncodingFailed:
+                return "Creative API request could not be prepared"
+            case let .invalidHTTPStatus(statusCode):
+                return "Creative API request failed (\(statusCode))"
+            case .apiError(_):
+                return "Creative API response failed"
+            case .incompleteResponse(_):
+                return "Creative API response incomplete"
+            case .missingResult, .invalidProviderJSON:
+                return "Creative API response could not be read"
             }
         }
 

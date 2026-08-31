@@ -139,6 +139,7 @@ export interface CreativeInterpretationRequest {
   inputSummary: string[];
   suggestionBriefs: string[];
   allowedInputs: CreativeInterpretationPlan["allowedInputs"];
+  mustNotSend: string[];
   maxResponseWords: number;
   payloadAudit: CreativeInterpretationPayloadAudit;
   privacy: CreativeInterpretationPlan["privacy"];
@@ -275,6 +276,28 @@ export interface OpenAICreativeInterpretationOptions {
   model?: string;
   allowsWebSearch?: boolean;
   maxToolCalls?: number;
+}
+
+export interface LensPilotCreativeInterpretationApiClient {
+  platform: "ios";
+  appVersion?: string;
+  requestId?: string;
+}
+
+export interface LensPilotCreativeInterpretationApiRequest {
+  apiVersion: "2026-08-31";
+  request: CreativeInterpretationRequest;
+  healthGate: CreativeInterpretationProviderHealthGate;
+  client: LensPilotCreativeInterpretationApiClient;
+}
+
+export interface LensPilotCreativeInterpretationApiResponse {
+  apiVersion: "2026-08-31";
+  status: "completed";
+  provider: CreativeInterpretationProvider;
+  result: CreativeInterpretationProviderResult;
+  generatedAt: string;
+  privacy: typeof lensPilotCreativeInterpretationApiPrivacy;
 }
 
 export interface OnlineInspirationResponse {
@@ -743,6 +766,7 @@ export function makeCreativeInterpretationRequest(
     inputSummary: plan.inputSummary,
     suggestionBriefs: plan.suggestions.map((suggestion) => `${suggestion.title}: ${suggestion.instruction}`),
     allowedInputs: plan.allowedInputs,
+    mustNotSend: plan.mustNotSend,
     maxResponseWords: Math.min(240, Math.max(40, Math.trunc(maxResponseWords))),
     payloadAudit,
     privacy: plan.privacy,
@@ -851,6 +875,30 @@ export const openAICreativeInterpretationDefaults = {
     sendsRawLearningEvents: false,
     allowsGenerativeImageOutput: false,
   },
+} as const;
+
+export const lensPilotCreativeInterpretationApiDefaults = {
+  apiVersion: "2026-08-31",
+  path: "/v1/creative-interpretation",
+  method: "POST",
+  requiresServerSideOpenAIKey: true,
+  acceptsClientOpenAIKey: false,
+  defaultModel: openAICreativeInterpretationDefaults.model,
+} as const;
+
+export const lensPilotCreativeInterpretationApiPrivacy = {
+  keepsOpenAIKeyOnServer: true,
+  acceptsClientOpenAIKey: false,
+  singlePhoneOnly: true,
+  usesAuditedPayload: true,
+  usesProviderHealthGate: true,
+  storesRawPhoto: false,
+  uploadsLiveCameraFrame: false,
+  sendsPrivatePhoto: false,
+  sendsIdentityData: false,
+  sendsPreciseLocation: false,
+  sendsRawLearningEvents: false,
+  allowsGenerativeImageOutput: false,
 } as const;
 
 export function makeCreativeInterpretationProviderHealthGate(
@@ -1044,6 +1092,115 @@ export function parseOpenAICreativeInterpretationProviderResult(
   }
 
   return result;
+}
+
+export function makeLensPilotCreativeInterpretationApiRequest(
+  request: CreativeInterpretationRequest,
+  healthGate: CreativeInterpretationProviderHealthGate,
+  client: LensPilotCreativeInterpretationApiClient = { platform: "ios" }
+): LensPilotCreativeInterpretationApiRequest {
+  const apiRequest: LensPilotCreativeInterpretationApiRequest = {
+    apiVersion: lensPilotCreativeInterpretationApiDefaults.apiVersion,
+    request,
+    healthGate,
+    client,
+  };
+
+  if (!isLensPilotCreativeInterpretationApiRequestSafe(apiRequest)) {
+    throw new Error("unsafe_lenspilot_creative_interpretation_api_request");
+  }
+
+  return apiRequest;
+}
+
+export function makeLensPilotCreativeInterpretationApiResponse(
+  apiRequest: LensPilotCreativeInterpretationApiRequest,
+  result: CreativeInterpretationProviderResult,
+  generatedAt = new Date().toISOString()
+): LensPilotCreativeInterpretationApiResponse {
+  if (!isLensPilotCreativeInterpretationApiRequestSafe(apiRequest)) {
+    throw new Error("unsafe_lenspilot_creative_interpretation_api_request");
+  }
+  if (!isCreativeInterpretationProviderResultSafe(result) || result.guidance.length === 0) {
+    throw new Error("unsafe_lenspilot_creative_interpretation_api_response");
+  }
+
+  return {
+    apiVersion: lensPilotCreativeInterpretationApiDefaults.apiVersion,
+    status: "completed",
+    provider: apiRequest.request.provider,
+    result,
+    generatedAt,
+    privacy: lensPilotCreativeInterpretationApiPrivacy,
+  };
+}
+
+export function isLensPilotCreativeInterpretationApiRequestSafe(
+  apiRequest: unknown
+): boolean {
+  if (!isRecord(apiRequest) ||
+      apiRequest.apiVersion !== lensPilotCreativeInterpretationApiDefaults.apiVersion ||
+      !isRecord(apiRequest.client) ||
+      apiRequest.client.platform !== "ios" ||
+      !isRecord(apiRequest.request)) {
+    return false;
+  }
+
+  const request = apiRequest.request;
+  const payloadAudit = request.payloadAudit;
+  const inputSummary = request.inputSummary;
+  const suggestionBriefs = request.suggestionBriefs;
+  const allowedInputs = request.allowedInputs;
+  const mustNotSend = request.mustNotSend;
+
+  return isRecord(payloadAudit) &&
+    request.provider === "online_reasoning" &&
+    payloadAudit.safeToSend === true &&
+    Array.isArray(payloadAudit.deniedReasons) &&
+    payloadAudit.deniedReasons.length === 0 &&
+    Array.isArray(payloadAudit.blockedTermsDetected) &&
+    payloadAudit.blockedTermsDetected.length === 0 &&
+    isNonEmptyStringArray(allowedInputs) &&
+    isNonEmptyStringArray(mustNotSend) &&
+    requiredCreativeInterpretationMustNotSendTerms.every((term) => mustNotSend.includes(term)) &&
+    isNonEmptyStringArray(inputSummary) &&
+    isNonEmptyStringArray(suggestionBriefs) &&
+    typeof request.maxResponseWords === "number" &&
+    Number.isFinite(request.maxResponseWords) &&
+    request.maxResponseWords >= 40 &&
+    request.maxResponseWords <= 240 &&
+    isCreativeInterpretationPrivacySafe(request.privacy) &&
+    isCreativeInterpretationProviderHealthGateSafe(apiRequest.healthGate) &&
+    blockedCreativeInterpretationRequestPayloadTerms({ inputSummary, suggestionBriefs }).length === 0 &&
+    !containsClientOpenAIKey(apiRequest);
+}
+
+export function isCreativeInterpretationProviderHealthGateSafe(
+  healthGate: unknown
+): boolean {
+  if (!isRecord(healthGate) ||
+      !isRecord(healthGate.payloadAudit) ||
+      !isRecord(healthGate.privacy)) {
+    return false;
+  }
+
+  return healthGate.canRunProvider === true &&
+    (healthGate.providerHealthStatus === "available" || healthGate.providerHealthStatus === "degraded") &&
+    typeof healthGate.publicReferenceCount === "number" &&
+    Number.isFinite(healthGate.publicReferenceCount) &&
+    healthGate.publicReferenceCount > 0 &&
+    healthGate.payloadAudit.safeToSend === true &&
+    Array.isArray(healthGate.payloadAudit.deniedReasons) &&
+    healthGate.payloadAudit.deniedReasons.length === 0 &&
+    Array.isArray(healthGate.payloadAudit.blockedTermsDetected) &&
+    healthGate.payloadAudit.blockedTermsDetected.length === 0 &&
+    healthGate.privacy.singlePhoneOnly === true &&
+    healthGate.privacy.requiresUserConsent === true &&
+    healthGate.privacy.sendsRawCameraFrame === false &&
+    healthGate.privacy.sendsPrivatePhoto === false &&
+    healthGate.privacy.sendsIdentityData === false &&
+    healthGate.privacy.sendsPreciseLocation === false &&
+    healthGate.privacy.sendsRawLearningEvents === false;
 }
 
 export function makeCreativeInterpretationProviderResult(
@@ -1617,6 +1774,12 @@ function containsAny(text: string, terms: string[]): boolean {
   return terms.some((term) => text.includes(term));
 }
 
+function isNonEmptyStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) &&
+    value.length > 0 &&
+    value.every((item) => typeof item === "string" && item.trim().length > 0);
+}
+
 function compactPromptQuery(prompt: string): string {
   return prompt
     .split(/[^a-z0-9]+/i)
@@ -1654,16 +1817,17 @@ const creativeInterpretationBlockedPayloadTerms = [
 ] as const;
 
 function isCreativeInterpretationPrivacySafe(
-  privacy: CreativeInterpretationPlan["privacy"]
-): boolean {
-  return privacy.singlePhoneOnly &&
-    privacy.requiresUserConsent &&
-    !privacy.sendsRawCameraFrame &&
-    !privacy.sendsPrivatePhoto &&
-    !privacy.sendsIdentityData &&
-    !privacy.sendsPreciseLocation &&
-    !privacy.sendsRawLearningEvents &&
-    !privacy.allowsGenerativeOutput;
+  privacy: unknown
+): privacy is CreativeInterpretationPlan["privacy"] {
+  return isRecord(privacy) &&
+    privacy.singlePhoneOnly === true &&
+    privacy.requiresUserConsent === true &&
+    privacy.sendsRawCameraFrame === false &&
+    privacy.sendsPrivatePhoto === false &&
+    privacy.sendsIdentityData === false &&
+    privacy.sendsPreciseLocation === false &&
+    privacy.sendsRawLearningEvents === false &&
+    privacy.allowsGenerativeOutput === false;
 }
 
 function blockedCreativeInterpretationPayloadTerms(
@@ -1672,6 +1836,17 @@ function blockedCreativeInterpretationPayloadTerms(
   const inspectedText = [
     ...plan.inputSummary,
     ...plan.suggestions.flatMap((suggestion) => [suggestion.title, suggestion.instruction]),
+  ].join(" ").toLowerCase();
+
+  return creativeInterpretationBlockedPayloadTerms.filter((term) => inspectedText.includes(term));
+}
+
+function blockedCreativeInterpretationRequestPayloadTerms(
+  request: Pick<CreativeInterpretationRequest, "inputSummary" | "suggestionBriefs">
+): string[] {
+  const inspectedText = [
+    ...request.inputSummary,
+    ...request.suggestionBriefs,
   ].join(" ").toLowerCase();
 
   return creativeInterpretationBlockedPayloadTerms.filter((term) => inspectedText.includes(term));
@@ -1783,6 +1958,30 @@ function cleanProviderText(value: string, maxLength: number): string {
     .join(" ")
     .trim();
   return collapsed.length <= maxLength ? collapsed : collapsed.slice(0, maxLength).trim();
+}
+
+function containsClientOpenAIKey(value: unknown): boolean {
+  if (typeof value === "string") {
+    const normalized = value.toLowerCase();
+    return normalized.includes("openai_api_key") ||
+      /(^|[\s"'=:])sk-(proj-)?[a-z0-9_-]{8,}/i.test(value);
+  }
+
+  if (Array.isArray(value)) {
+    return value.some(containsClientOpenAIKey);
+  }
+
+  if (isRecord(value)) {
+    return Object.entries(value).some(([key, nestedValue]) => {
+      const normalizedKey = key.toLowerCase();
+      return normalizedKey === "openai_api_key" ||
+        normalizedKey === "apikey" ||
+        normalizedKey === "api_key" ||
+        containsClientOpenAIKey(nestedValue);
+    });
+  }
+
+  return false;
 }
 
 const unsafeCreativeInterpretationProviderOutputTerms = [

@@ -221,6 +221,13 @@ public protocol CreativeInterpretationReasoningProvider: Sendable {
     func interpret(request: CreativeInterpretationRequest) async throws -> CreativeInterpretationProviderResult
 }
 
+public protocol HealthGatedCreativeInterpretationReasoningProvider: CreativeInterpretationReasoningProvider {
+    func interpret(
+        request: CreativeInterpretationRequest,
+        healthGate: CreativeInterpretationProviderHealthGate
+    ) async throws -> CreativeInterpretationProviderResult
+}
+
 public struct CreativeInterpretationHeuristicProvider: CreativeInterpretationReasoningProvider {
     public let provider: CreativeInterpretationRequest.Provider
 
@@ -396,7 +403,12 @@ public struct HealthGatedCreativeInterpretationAdapter: Sendable {
             throw CreativeInterpretationAdapterError.blockedByHealthGate(healthGate.deniedReasons)
         }
 
-        let result = try await provider.interpret(request: request)
+        let result: CreativeInterpretationProviderResult
+        if let healthGatedProvider = provider as? any HealthGatedCreativeInterpretationReasoningProvider {
+            result = try await healthGatedProvider.interpret(request: request, healthGate: healthGate)
+        } else {
+            result = try await provider.interpret(request: request)
+        }
         guard !result.guidance.isEmpty else {
             throw CreativeInterpretationAdapterError.emptyProviderOutput
         }

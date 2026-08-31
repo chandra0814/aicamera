@@ -20,7 +20,8 @@ This implementation completes the MVP AI control skeleton, not the final product
 - Creative Interpretation Plan: produces an event-triggered shot brief from prompt, ShotSpec, aggregate learned preferences, and public-reference summaries only; diagnostics block it if raw frames, private photos, identity data, precise location, raw learning events, or generative-output claims are included.
 - Creative Interpretation Request Audit: builds a bounded provider request only after a payload audit confirms safe summaries, required blocklists, privacy flags, and suggestion content.
 - Health-Gated Creative Interpretation Adapter: runs a creative brief only when the audited request and public-source health snapshot are both safe, available, and free of raw camera frames, private photos, identity data, precise location, and raw learning events.
-- Optional OpenAI Responses Provider: when `OPENAI_API_KEY` is available, the app can run the health-gated creative brief through OpenAI's Responses API using audited text only, `store: false`, strict JSON schema output, default model `gpt-5.6-luna`, and optional built-in public web search.
+- Mobile-Safe Creative API: `backend/api/creative-interpretation.mjs` exposes a server-side `/v1/creative-interpretation` handler that keeps `OPENAI_API_KEY` on the backend, rejects client-supplied OpenAI keys, reruns request and health-gate safety checks, sends audited text only to OpenAI's Responses API, uses `store: false`, requests strict JSON schema output, and blocks unsafe provider output.
+- Optional iOS Creative API Provider: when `LENSPILOT_CREATIVE_API_URL` is available, the app sends the audited creative request and health gate to the LensPilot backend. Direct OpenAI provider use is now limited to explicit development opt-in with `LENSPILOT_ALLOW_DIRECT_OPENAI_PROVIDER=true`.
 - Single-phone invariant: `ShotSpec.constraints.singlePhoneOnly` is required and true.
 - Native Swift AI core: iOS now has on-device `SceneState`, `LensPilotAiCore`, `TargetMatchEngine`, `GuidancePolicy`, `PreviewSafetyEngine`, and `BestShotRanker` equivalents.
 - App wiring: the iOS camera screen view model calls the native AI core and displays AI guidance plus Target Match from scene inputs.
@@ -62,7 +63,7 @@ This implementation completes the MVP AI control skeleton, not the final product
 - No trained aesthetic model yet.
 - No completed real iPhone target-match calibration dataset yet; the bundled seed manifest currently reports `needs_more_samples` until 24 reviewed real captures are imported.
 - No Core ML/TFLite production model bundle yet.
-- No production mobile-safe API proxy or ephemeral-key layer yet; the OpenAI provider is optional development wiring and must not ship with a raw provider key embedded in the client app.
+- No deployed production Creative API host, app-attestation enforcement, rate limiting, request logging policy, or key-rotation runbook yet.
 - No generative preview engine yet.
 - No embedding sync or cloud personalization sync yet.
 - No live production monitoring, endpoint health checks, or provider-specific quality analytics for public inspiration yet.
@@ -77,4 +78,4 @@ LensPilot must remain a reliable camera first. A deterministic AI core lets us p
 1. Collect real portrait, landscape, sky, clutter, backlight, horizon, motion, and night samples from iPhone captures.
 2. Use the calibration readiness report and AI Diagnostics to confirm all 24 reviewed captures satisfy the required domains, scenarios, and blind-review minimum.
 3. Tune benchmark thresholds, sub-score weights, and guidance-priority boosts against blind preference tests now that the app can load the manifest at runtime.
-4. Move the optional OpenAI creative provider behind a production mobile-safe backend or ephemeral-key service, then add endpoint health checks and provider-specific quality analytics.
+4. Deploy the Creative API behind production app authorization or app attestation, then add endpoint health checks, rate limits, provider-specific quality analytics, and key-rotation operations.
