@@ -169,6 +169,14 @@ public struct CreativeInterpretationProviderResult: Codable, Equatable, Sendable
             .map { $0 }
     }
 
+    public var isSafeForSinglePhoneCreativeReasoning: Bool {
+        let inspectedText = ([headline] + guidance)
+            .joined(separator: " ")
+            .lowercased()
+
+        return !Self.unsafeProviderOutputTerms.contains { inspectedText.contains($0) }
+    }
+
     private static func cleanedText(_ value: String, maxLength: Int) -> String {
         let collapsed = value
             .split(whereSeparator: \.isWhitespace)
@@ -180,6 +188,32 @@ public struct CreativeInterpretationProviderResult: Codable, Equatable, Sendable
         return String(collapsed.prefix(maxLength))
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
+
+    private static let unsafeProviderOutputTerms = [
+        "raw_live_camera",
+        "raw camera frame",
+        "private_photo",
+        "private photo",
+        "face_identity",
+        "face identity",
+        "identity_recognition",
+        "identity recognition",
+        "precise_location",
+        "precise location",
+        "gps",
+        "latitude",
+        "longitude",
+        "exif",
+        "raw_learning_event",
+        "raw learning event",
+        "base64",
+        "image_data",
+        "photo_bytes",
+        "generate an image",
+        "generative edit",
+        "sky replacement",
+        "object removal"
+    ]
 }
 
 public protocol CreativeInterpretationReasoningProvider: Sendable {
@@ -365,6 +399,9 @@ public struct HealthGatedCreativeInterpretationAdapter: Sendable {
         let result = try await provider.interpret(request: request)
         guard !result.guidance.isEmpty else {
             throw CreativeInterpretationAdapterError.emptyProviderOutput
+        }
+        guard result.isSafeForSinglePhoneCreativeReasoning else {
+            throw CreativeInterpretationAdapterError.unsafeProviderResponse
         }
 
         let response = CreativeInterpretationResponse(

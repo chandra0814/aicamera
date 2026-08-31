@@ -162,7 +162,7 @@ final class CameraScreenViewModel: ObservableObject {
     private let personalLearningEngine = PersonalVisualLearningEngine()
     private let onlineInspirationService = OnlineInspirationService()
     private let onlineInspirationThumbnailCache = OnlineInspirationThumbnailCache()
-    private let creativeInterpretationAdapter = HealthGatedCreativeInterpretationAdapter()
+    private let creativeInterpretationAdapter: HealthGatedCreativeInterpretationAdapter
     private let speechIntentController = SpeechIntentController()
     private var guidanceStabilizer = GuidanceStabilizer()
     private lazy var frameAnalysisCoordinator = CameraFrameAnalysisCoordinator(analyzer: frameAnalyzer)
@@ -186,6 +186,7 @@ final class CameraScreenViewModel: ObservableObject {
         self.activeCalibrationScenario = storedCalibrationQueueProgress.activeScenario
         self.personalizationConsent = storedProfile?.consent ?? .disabled
         self.personalProfile = storedProfile ?? .empty(consent: .disabled)
+        self.creativeInterpretationAdapter = Self.makeCreativeInterpretationAdapter()
         bindSpeechIntentController()
     }
 
@@ -894,10 +895,59 @@ final class CameraScreenViewModel: ObservableObject {
             } catch {
                 guard creativeInterpretationPlan?.id == planId else { return }
                 creativeInterpretationResponse = nil
-                creativeInterpretationLoadState = .blocked(Self.creativeInterpretationMessage(for: error))
-                diagnosticMessage = "Creative interpretation is blocked by the safety gate."
+                let message = Self.creativeInterpretationMessage(for: error)
+                if Self.isCreativeInterpretationSafetyBlock(error) {
+                    creativeInterpretationLoadState = .blocked(message)
+                    diagnosticMessage = "Creative interpretation is blocked by the safety gate."
+                } else {
+                    creativeInterpretationLoadState = .failed(message)
+                    diagnosticMessage = "Creative interpretation is unavailable. Camera guidance still works."
+                }
             }
         }
+    }
+
+    private static func makeCreativeInterpretationAdapter() -> HealthGatedCreativeInterpretationAdapter {
+        if let openAIProvider = OpenAICreativeInterpretationProvider.configuredFromEnvironment() {
+            return HealthGatedCreativeInterpretationAdapter(provider: openAIProvider)
+        }
+
+        return HealthGatedCreativeInterpretationAdapter()
+    }
+
+    private static func isCreativeInterpretationSafetyBlock(_ error: Error) -> Bool {
+        if let adapterError = error as? CreativeInterpretationAdapterError {
+            switch adapterError {
+            case .blockedByHealthGate, .unsafeProviderResponse:
+                return true
+            case .emptyProviderOutput:
+                return false
+            }
+        }
+
+        if let interpretationError = error as? CreativeInterpretationError {
+            switch interpretationError {
+            case .unsafePlan:
+                return true
+            }
+        }
+
+        if let providerError = error as? OpenAICreativeInterpretationProviderError {
+            switch providerError {
+            case .unsafeRequest:
+                return true
+            case .missingAPIKey,
+                    .requestEncodingFailed,
+                    .invalidHTTPStatus(_),
+                    .apiError(_),
+                    .incompleteResponse(_),
+                    .missingOutputText,
+                    .invalidProviderJSON:
+                return false
+            }
+        }
+
+        return false
     }
 
     private static func creativeInterpretationMessage(for error: Error) -> String {
@@ -916,6 +966,25 @@ final class CameraScreenViewModel: ObservableObject {
             switch interpretationError {
             case .unsafePlan:
                 return "Unsafe creative payload"
+            }
+        }
+
+        if let providerError = error as? OpenAICreativeInterpretationProviderError {
+            switch providerError {
+            case .missingAPIKey:
+                return "OpenAI API key unavailable"
+            case .unsafeRequest:
+                return "Unsafe creative payload"
+            case .requestEncodingFailed:
+                return "Creative request could not be prepared"
+            case let .invalidHTTPStatus(statusCode):
+                return "OpenAI request failed (\(statusCode))"
+            case .apiError(_):
+                return "OpenAI response failed"
+            case .incompleteResponse(_):
+                return "OpenAI response incomplete"
+            case .missingOutputText, .invalidProviderJSON:
+                return "OpenAI response could not be read"
             }
         }
 

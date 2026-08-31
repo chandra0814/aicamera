@@ -7,6 +7,7 @@
 3. Use the in-app share control to export each selected `iphone_capture_candidate` JSON, then add blind preference labels from the in-app tag control.
 4. Check collection gaps with `npm run calibration:readiness`, then import reviewed app exports with `npm run calibration:import-reviewed -- --sample <reviewed-sample.json> --write`.
 5. Calibrate the on-device metric weights and guidance priorities against those reviewed samples; the app now loads the bundled manifest into `LensPilotAiCore`.
+6. For API-backed creative guidance, set `OPENAI_API_KEY` only in a local development environment or Xcode scheme; use `LENSPILOT_OPENAI_MODEL` to override `gpt-5.6-luna` and `LENSPILOT_OPENAI_WEB_SEARCH=false` to disable public web search. Do not embed the key in the iOS client.
 
 ## Completed Single-Phone Runtime Work
 
@@ -53,6 +54,7 @@
 - AI Diagnostics now verifies the Creative Plan privacy boundary and shows the same concrete shot-brief suggestions that appear in Personal Visual AI settings.
 - Creative Plan provider requests now require a payload audit, clamp response length, preserve required safety/reference suggestions, and reject unsafe summaries before any future online reasoning adapter can run.
 - Creative interpretation now has a health-gated adapter path that only returns a same-phone creative brief after safe public-source health and audited provider payload checks both pass.
+- Creative interpretation now has an optional OpenAI Responses API provider behind that health gate; it sends only audited prompt/ShotSpec/profile/public-reference summaries, requests strict JSON output, disables response storage with `store: false`, and blocks unsafe provider output before showing guidance.
 - Target Match calibration readiness now reports reviewed real-capture counts, missing domains, and missing scenarios so production calibration cannot be mistaken for seed-fixture coverage.
 - AI Diagnostics now includes an in-app calibration readiness checklist with missing domains, missing scenarios, and a one-tap action that selects the next capture scenario on the same phone.
 
@@ -74,6 +76,7 @@
 - Creative interpretation is event-triggered and consent-gated; it uses safe summaries only and blocks raw camera frames, private photos, identity data, precise location, raw learning events, and generative-output claims.
 - Creative interpretation request payloads are audited before provider use; summaries containing raw-frame, image-byte, EXIF/GPS, precise-location, private-photo, identity, or raw-learning-event terms are rejected.
 - Creative interpretation provider execution is health-gated; missing, unsafe, failed, or empty public-source health blocks the provider path before any brief is produced.
+- OpenAI creative guidance is optional and API-backed; the same-phone camera loop still works without the key, and production distribution still needs a backend or ephemeral-key layer so provider secrets are never shipped in the app.
 - On iOS, learned profile persistence prefers Keychain encrypted, this-device-only storage and removes legacy UserDefaults bytes after migration or save.
 - Capture feedback records structured ratings, guidance outcomes, and selected correction reasons only; it does not store the captured photo as a learning event.
 - After-capture coaching uses score summaries and ranked-shot metadata only; it does not store or upload raw photos.

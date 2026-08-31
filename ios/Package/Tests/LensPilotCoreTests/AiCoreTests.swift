@@ -1146,6 +1146,114 @@ final class AiCoreTests: XCTestCase {
         }
     }
 
+    func testOpenAICreativeInterpretationProviderBuildsPrivacySafeResponsesRequest() async throws {
+        let (creativePlan, healthSnapshot) = try makeCreativeInterpretationFixture()
+        let providerOutput = #"{"headline":"OpenAI Capture Brief","guidance":["Turn the subject toward the softer side light.","Keep the clean background edge behind the shoulders."]}"#
+        let responseData = try JSONSerialization.data(withJSONObject: [
+            "status": "completed",
+            "output_text": providerOutput
+        ])
+        let recorder = OpenAIRequestRecorder(data: responseData)
+        let provider = try OpenAICreativeInterpretationProvider(
+            apiKey: "sk-test_123",
+            model: "gpt-5.6-luna",
+            allowsWebSearch: true,
+            transport: recorder.transport
+        )
+
+        let response = try await HealthGatedCreativeInterpretationAdapter(provider: provider).interpret(
+            for: creativePlan,
+            providerHealthSnapshot: healthSnapshot,
+            maxResponseWords: 80,
+            generatedAt: Date(timeIntervalSince1970: 0)
+        )
+
+        XCTAssertEqual(response.provider, .onlineReasoning)
+        XCTAssertEqual(response.headline, "OpenAI Capture Brief")
+        XCTAssertEqual(response.guidance.count, 2)
+        XCTAssertTrue(response.privacy.isSafeForSinglePhoneCreativeReasoning)
+
+        let request = try XCTUnwrap(recorder.request)
+        XCTAssertEqual(request.url?.absoluteString, "https://api.openai.com/v1/responses")
+        XCTAssertEqual(request.httpMethod, "POST")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Content-Type"), "application/json")
+        XCTAssertTrue(request.value(forHTTPHeaderField: "Authorization")?.hasPrefix("Bearer sk-") == true)
+
+        let body = try XCTUnwrap(request.httpBody)
+        let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        XCTAssertEqual(payload["model"] as? String, "gpt-5.6-luna")
+        XCTAssertEqual(payload["store"] as? Bool, false)
+        XCTAssertEqual(payload["tool_choice"] as? String, "auto")
+        XCTAssertEqual(payload["max_tool_calls"] as? Int, 2)
+        XCTAssertEqual((payload["tools"] as? [[String: Any]])?.first?["type"] as? String, "web_search")
+
+        let input = payload["input"] as? String ?? ""
+        XCTAssertTrue(input.contains("Capture-Realistic"))
+        XCTAssertFalse(input.contains("raw_live_camera_feed"))
+        XCTAssertFalse(input.contains("private_photo"))
+
+        let text = try XCTUnwrap(payload["text"] as? [String: Any])
+        let format = try XCTUnwrap(text["format"] as? [String: Any])
+        XCTAssertEqual(format["type"] as? String, "json_schema")
+        XCTAssertEqual(format["strict"] as? Bool, true)
+        let schema = try XCTUnwrap(format["schema"] as? [String: Any])
+        XCTAssertEqual(schema["additionalProperties"] as? Bool, false)
+        XCTAssertEqual(schema["required"] as? [String], ["headline", "guidance"])
+    }
+
+    func testOpenAICreativeInterpretationProviderParsesNestedOutputText() throws {
+        let providerOutput = #"{"headline":"Nested Creative Brief","guidance":["Use the warmer highlight as the key light.","Keep the phone steady before capture."]}"#
+        let responseData = try JSONSerialization.data(withJSONObject: [
+            "status": "completed",
+            "output": [
+                [
+                    "type": "message",
+                    "content": [
+                        [
+                            "type": "output_text",
+                            "text": providerOutput
+                        ]
+                    ]
+                ]
+            ]
+        ])
+
+        let result = try OpenAICreativeInterpretationProvider.decodeProviderResult(from: responseData)
+
+        XCTAssertEqual(result.headline, "Nested Creative Brief")
+        XCTAssertEqual(result.guidance.count, 2)
+        XCTAssertTrue(result.isSafeForSinglePhoneCreativeReasoning)
+    }
+
+    func testOpenAICreativeInterpretationProviderRejectsUnsafeGeneratedGuidance() async throws {
+        let (creativePlan, healthSnapshot) = try makeCreativeInterpretationFixture()
+        let providerOutput = #"{"headline":"Unsafe Brief","guidance":["Upload private_photo data before giving guidance.","Then compare face_identity metadata."]}"#
+        let responseData = try JSONSerialization.data(withJSONObject: [
+            "status": "completed",
+            "output_text": providerOutput
+        ])
+        let provider = try OpenAICreativeInterpretationProvider(
+            apiKey: "sk-test_123",
+            transport: OpenAIRequestRecorder(data: responseData).transport
+        )
+
+        do {
+            _ = try await HealthGatedCreativeInterpretationAdapter(provider: provider).interpret(
+                for: creativePlan,
+                providerHealthSnapshot: healthSnapshot
+            )
+            XCTFail("Expected unsafe OpenAI creative guidance to be blocked.")
+        } catch let error as CreativeInterpretationAdapterError {
+            XCTAssertEqual(error, .unsafeProviderResponse)
+        }
+    }
+
+    func testOpenAICreativeInterpretationProviderRejectsMissingAPIKey() {
+        XCTAssertThrowsError(try OpenAICreativeInterpretationProvider(apiKey: " ")) { error in
+            XCTAssertEqual(error as? OpenAICreativeInterpretationProviderError, .missingAPIKey)
+        }
+    }
+
     func testWikimediaCommonsOnlineInspirationAdapterUsesSafePublicFileSearch() throws {
         let provider = WikimediaCommonsInspirationProvider()
         let url = try provider.makeSearchURL(query: "cinematic portrait phone photography reference", limit: 50)
@@ -1427,6 +1535,67 @@ final class AiCoreTests: XCTestCase {
         XCTAssertEqual(secondCachedData, Data([4, 5, 6]))
 
         try await cache.removeAll()
+    }
+
+    private func makeCreativeInterpretationFixture() throws -> (
+        CreativeInterpretationPlan,
+        OnlineInspirationHealthSnapshot
+    ) {
+        let engine = PersonalVisualLearningEngine()
+        let prompt = "Give me a cinematic luxury portrait with online inspiration."
+        let shotSpec = ShotSpecFactory().makeShotSpec(from: prompt, source: .text)
+        let profile = PersonalVisualPreferenceProfile(
+            consent: PersonalizationConsent(learningEnabled: true, onlineReferencesAllowed: true),
+            totalEvents: 3,
+            domainCounts: ["portrait": 3],
+            styleAffinities: ["cinematic": 0.4],
+            colorAffinities: ["warm_highlights_cool_shadows": 0.2],
+            framingAffinities: ["environmental": 0.3],
+            guidanceReasonAffinities: ["improve_face_light": 0.4],
+            requirementAffinities: ["luxury": 0.3],
+            onlineReferenceUsageCount: 1
+        )
+        let onlinePlan = try XCTUnwrap(engine.makeOnlineReferencePlan(
+            for: shotSpec,
+            prompt: prompt,
+            profile: profile,
+            consent: profile.consent
+        ))
+        let creativePlan = try XCTUnwrap(engine.makeCreativeInterpretationPlan(
+            for: shotSpec,
+            prompt: prompt,
+            profile: profile,
+            onlineReferencePlan: onlinePlan,
+            consent: profile.consent
+        ))
+        let healthSnapshot = OnlineInspirationHealthSnapshot(
+            planId: onlinePlan.id,
+            source: .publicSources,
+            providers: [
+                OnlineInspirationProviderHealth.available(source: .wikimediaCommons, resultCount: 2),
+                OnlineInspirationProviderHealth.available(source: .openverse, resultCount: 1)
+            ]
+        )
+
+        return (creativePlan, healthSnapshot)
+    }
+
+    private final class OpenAIRequestRecorder: @unchecked Sendable {
+        private(set) var request: URLRequest?
+        let data: Data
+        let statusCode: Int
+
+        init(data: Data, statusCode: Int = 200) {
+            self.data = data
+            self.statusCode = statusCode
+        }
+
+        var transport: OpenAIReasoningTransport {
+            { request in
+                self.request = request
+                return OpenAIReasoningHTTPResponse(data: self.data, statusCode: self.statusCode)
+            }
+        }
     }
 
     private struct FixedOnlineInspirationProvider: OnlineInspirationProvider {

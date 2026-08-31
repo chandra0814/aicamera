@@ -266,6 +266,17 @@ export interface CreativeInterpretationResponse {
   };
 }
 
+export interface CreativeInterpretationProviderResult {
+  headline: string;
+  guidance: string[];
+}
+
+export interface OpenAICreativeInterpretationOptions {
+  model?: string;
+  allowsWebSearch?: boolean;
+  maxToolCalls?: number;
+}
+
 export interface OnlineInspirationResponse {
   planId: string;
   source: OnlineInspirationSource;
@@ -827,6 +838,21 @@ export const creativeInterpretationResponsePrivacy = {
   allowsGenerativeImageOutput: false,
 } as const;
 
+export const openAICreativeInterpretationDefaults = {
+  endpoint: "https://api.openai.com/v1/responses",
+  model: "gpt-5.6-luna",
+  store: false,
+  maxToolCalls: 2,
+  privacy: {
+    sendsRawCameraFrame: false,
+    sendsPrivatePhoto: false,
+    sendsIdentityData: false,
+    sendsPreciseLocation: false,
+    sendsRawLearningEvents: false,
+    allowsGenerativeImageOutput: false,
+  },
+} as const;
+
 export function makeCreativeInterpretationProviderHealthGate(
   request: CreativeInterpretationRequest,
   healthSnapshot?: OnlineInspirationHealthSnapshot
@@ -920,6 +946,9 @@ export function makeHealthGatedCreativeInterpretationResponse(
   if (guidance.length === 0) {
     throw new Error("empty_creative_interpretation_provider_output");
   }
+  if (!isCreativeInterpretationProviderResultSafe({ headline: provider === "online_reasoning" ? "Provider-Ready Creative Brief" : "Local Creative Brief", guidance })) {
+    throw new Error("unsafe_creative_interpretation_provider_output");
+  }
 
   return {
     id: `creative_interpretation_response_${request.planId}_${request.provider}`,
@@ -934,6 +963,107 @@ export function makeHealthGatedCreativeInterpretationResponse(
     healthGate,
     privacy: creativeInterpretationResponsePrivacy,
   };
+}
+
+export function makeOpenAICreativeInterpretationResponsesPayload(
+  request: CreativeInterpretationRequest,
+  options: OpenAICreativeInterpretationOptions = {}
+): Record<string, unknown> {
+  if (!request.payloadAudit.safeToSend || !isCreativeInterpretationPrivacySafe(request.privacy)) {
+    throw new Error("unsafe_openai_creative_interpretation_request");
+  }
+
+  const model = options.model?.trim() || openAICreativeInterpretationDefaults.model;
+  const payload: Record<string, unknown> = {
+    model,
+    instructions: openAICreativeInterpretationInstructions,
+    input: openAICreativeInterpretationInputText(request),
+    store: false,
+    max_output_tokens: Math.min(640, Math.max(96, request.maxResponseWords * 3)),
+    reasoning: {
+      effort: "low",
+    },
+    text: {
+      format: openAICreativeInterpretationResponseFormat,
+    },
+    metadata: {
+      lenspilot_plan_id: request.planId.slice(0, 64),
+      lenspilot_provider: request.provider,
+      lenspilot_payload: "audited_text_only",
+    },
+  };
+
+  if (options.allowsWebSearch ?? true) {
+    payload.tools = [{ type: "web_search" }];
+    payload.tool_choice = "auto";
+    payload.max_tool_calls = Math.min(4, Math.max(1, Math.trunc(options.maxToolCalls ?? openAICreativeInterpretationDefaults.maxToolCalls)));
+  }
+
+  return payload;
+}
+
+export function parseOpenAICreativeInterpretationProviderResult(
+  payload: unknown
+): CreativeInterpretationProviderResult {
+  if (!isRecord(payload)) {
+    throw new Error("invalid_openai_creative_interpretation_response");
+  }
+
+  if (isRecord(payload.error)) {
+    throw new Error("openai_creative_interpretation_api_error");
+  }
+
+  if (typeof payload.status === "string" && payload.status !== "completed") {
+    throw new Error(`openai_creative_interpretation_incomplete:${payload.status}`);
+  }
+
+  const outputText = typeof payload.output_text === "string"
+    ? payload.output_text
+    : firstOpenAIOutputText(payload.output);
+  if (!outputText) {
+    throw new Error("missing_openai_creative_interpretation_output_text");
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(outputText);
+  } catch {
+    throw new Error("invalid_openai_creative_interpretation_json");
+  }
+
+  if (!isRecord(parsed) || typeof parsed.headline !== "string" || !Array.isArray(parsed.guidance)) {
+    throw new Error("invalid_openai_creative_interpretation_json");
+  }
+
+  const result = makeCreativeInterpretationProviderResult(
+    parsed.headline,
+    parsed.guidance.filter((item): item is string => typeof item === "string")
+  );
+  if (!isCreativeInterpretationProviderResultSafe(result)) {
+    throw new Error("unsafe_creative_interpretation_provider_output");
+  }
+
+  return result;
+}
+
+export function makeCreativeInterpretationProviderResult(
+  headline: string,
+  guidance: string[]
+): CreativeInterpretationProviderResult {
+  return {
+    headline: cleanProviderText(headline, 96),
+    guidance: guidance
+      .map((item) => cleanProviderText(item, 180))
+      .filter(Boolean)
+      .slice(0, 4),
+  };
+}
+
+export function isCreativeInterpretationProviderResultSafe(
+  result: CreativeInterpretationProviderResult
+): boolean {
+  const inspectedText = [result.headline, ...result.guidance].join(" ").toLowerCase();
+  return !unsafeCreativeInterpretationProviderOutputTerms.some((term) => inspectedText.includes(term));
 }
 
 export const singlePhoneAiDiagnosticsPrivacy = {
@@ -1574,6 +1704,112 @@ function creativeInterpretationGuidanceFromRequest(request: CreativeInterpretati
 
   return guidance;
 }
+
+const openAICreativeInterpretationInstructions =
+  "You are LensPilot AI's photography reasoning provider. Return only JSON matching the schema. Use only the audited text summary and public-reference context in the request. Do not ask for or mention uploading live camera frames, private photos, identity data, precise location, raw learning events, EXIF, base64, or photo bytes. Keep guidance capture-realistic, concise, and useful for one phone in the user's hand. Do not promise generated edits, object removal, sky replacement, or a synthetic final image.";
+
+const openAICreativeInterpretationResponseFormat = {
+  type: "json_schema",
+  name: "lenspilot_creative_interpretation",
+  strict: true,
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      headline: {
+        type: "string",
+        maxLength: 96,
+      },
+      guidance: {
+        type: "array",
+        minItems: 2,
+        maxItems: 4,
+        items: {
+          type: "string",
+          maxLength: 180,
+        },
+      },
+    },
+    required: ["headline", "guidance"],
+  },
+} as const;
+
+function openAICreativeInterpretationInputText(request: CreativeInterpretationRequest): string {
+  const summary = request.inputSummary
+    .slice(0, 8)
+    .map((item) => `- ${item}`)
+    .join("\n");
+  const suggestions = request.suggestionBriefs
+    .slice(0, 6)
+    .map((item) => `- ${item}`)
+    .join("\n");
+  const allowedInputs = request.allowedInputs.join(", ");
+
+  return [
+    "LensPilot creative interpretation request.",
+    `Plan id: ${request.planId}`,
+    `Allowed input classes: ${allowedInputs}`,
+    `Max response words: ${request.maxResponseWords}`,
+    "",
+    "Safe input summary:",
+    summary,
+    "",
+    "Candidate capture guidance:",
+    suggestions,
+    "",
+    "Return a short headline and 2-4 capture-realistic guidance strings.",
+  ].join("\n");
+}
+
+function firstOpenAIOutputText(output: unknown): string | undefined {
+  if (!Array.isArray(output)) return undefined;
+
+  for (const item of output) {
+    if (!isRecord(item) || !Array.isArray(item.content)) continue;
+
+    for (const content of item.content) {
+      if (isRecord(content) && content.type === "output_text" && typeof content.text === "string") {
+        return content.text;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function cleanProviderText(value: string, maxLength: number): string {
+  const collapsed = value
+    .split(/\s+/)
+    .join(" ")
+    .trim();
+  return collapsed.length <= maxLength ? collapsed : collapsed.slice(0, maxLength).trim();
+}
+
+const unsafeCreativeInterpretationProviderOutputTerms = [
+  "raw_live_camera",
+  "raw camera frame",
+  "private_photo",
+  "private photo",
+  "face_identity",
+  "face identity",
+  "identity_recognition",
+  "identity recognition",
+  "precise_location",
+  "precise location",
+  "gps",
+  "latitude",
+  "longitude",
+  "exif",
+  "raw_learning_event",
+  "raw learning event",
+  "base64",
+  "image_data",
+  "photo_bytes",
+  "generate an image",
+  "generative edit",
+  "sky replacement",
+  "object removal",
+] as const;
 
 function uniqueSources(
   results: OnlineInspirationResult[],

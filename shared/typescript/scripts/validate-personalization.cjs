@@ -56,6 +56,76 @@ const creativeInterpretationBlockedPayloadTerms = [
   "photo_bytes",
 ];
 
+const openAICreativeInterpretationDefaults = {
+  endpoint: "https://api.openai.com/v1/responses",
+  model: "gpt-5.6-luna",
+  store: false,
+  maxToolCalls: 2,
+  privacy: {
+    sendsRawCameraFrame: false,
+    sendsPrivatePhoto: false,
+    sendsIdentityData: false,
+    sendsPreciseLocation: false,
+    sendsRawLearningEvents: false,
+    allowsGenerativeImageOutput: false,
+  },
+};
+
+const openAICreativeInterpretationInstructions =
+  "You are LensPilot AI's photography reasoning provider. Return only JSON matching the schema. Use only the audited text summary and public-reference context in the request. Do not ask for or mention uploading live camera frames, private photos, identity data, precise location, raw learning events, EXIF, base64, or photo bytes. Keep guidance capture-realistic, concise, and useful for one phone in the user's hand. Do not promise generated edits, object removal, sky replacement, or a synthetic final image.";
+
+const openAICreativeInterpretationResponseFormat = {
+  type: "json_schema",
+  name: "lenspilot_creative_interpretation",
+  strict: true,
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      headline: {
+        type: "string",
+        maxLength: 96,
+      },
+      guidance: {
+        type: "array",
+        minItems: 2,
+        maxItems: 4,
+        items: {
+          type: "string",
+          maxLength: 180,
+        },
+      },
+    },
+    required: ["headline", "guidance"],
+  },
+};
+
+const unsafeCreativeInterpretationProviderOutputTerms = [
+  "raw_live_camera",
+  "raw camera frame",
+  "private_photo",
+  "private photo",
+  "face_identity",
+  "face identity",
+  "identity_recognition",
+  "identity recognition",
+  "precise_location",
+  "precise location",
+  "gps",
+  "latitude",
+  "longitude",
+  "exif",
+  "raw_learning_event",
+  "raw learning event",
+  "base64",
+  "image_data",
+  "photo_bytes",
+  "generate an image",
+  "generative edit",
+  "sky replacement",
+  "object removal",
+];
+
 const shotSpec = {
   id: "shot_personalization_fixture",
   domain: "portrait",
@@ -425,6 +495,68 @@ assert(creativeResponse.privacy.uploadsLiveCameraFrame === false, "Creative adap
 assert(creativeResponse.privacy.sendsPrivatePhoto === false, "Creative adapter must not send private photos.");
 assert(creativeResponse.privacy.sendsIdentityData === false, "Creative adapter must not send identity data.");
 assert(creativeResponse.privacy.sendsRawLearningEvents === false, "Creative adapter must not send raw learning events.");
+const openAIPayload = makeOpenAICreativeInterpretationResponsesPayload(creativeRequest, {
+  model: "gpt-5.6-luna",
+  allowsWebSearch: true,
+  maxToolCalls: 8,
+});
+assert(openAICreativeInterpretationDefaults.endpoint === "https://api.openai.com/v1/responses", "OpenAI provider should target the Responses API endpoint.");
+assert(openAIPayload.model === "gpt-5.6-luna", "OpenAI payload should use the configured model.");
+assert(openAIPayload.store === false, "OpenAI payload should disable response storage for creative interpretation.");
+assert(openAIPayload.max_tool_calls === 4, "OpenAI payload should clamp web search tool calls.");
+assert(openAIPayload.tool_choice === "auto", "OpenAI payload should let the provider decide when web search helps.");
+assert(openAIPayload.tools[0].type === "web_search", "OpenAI payload should use web search only as a built-in public-source tool.");
+assert(openAIPayload.input.includes("Capture-Realistic"), "OpenAI payload should preserve capture-realistic guidance.");
+assert(!openAIPayload.input.includes("raw_live_camera_feed"), "OpenAI payload must not include raw-frame blocklist tokens.");
+assert(!openAIPayload.input.includes("private_photo"), "OpenAI payload must not include private-photo blocklist tokens.");
+assert(openAIPayload.text.format.type === "json_schema", "OpenAI payload should request structured JSON output.");
+assert(openAIPayload.text.format.strict === true, "OpenAI payload should require strict structured output.");
+assert(openAIPayload.text.format.schema.additionalProperties === false, "OpenAI structured output should reject extra keys.");
+assert(openAIPayload.text.format.schema.required.join(",") === "headline,guidance", "OpenAI structured output should require headline and guidance.");
+const openAIParsedResult = parseOpenAICreativeInterpretationProviderResult({
+  status: "completed",
+  output_text: JSON.stringify({
+    headline: "OpenAI Capture Brief",
+    guidance: [
+      "Turn the subject toward the softer side light.",
+      "Keep the clean background edge behind the shoulders.",
+    ],
+  }),
+});
+assert(openAIParsedResult.headline === "OpenAI Capture Brief", "OpenAI parser should decode output_text JSON.");
+assert(openAIParsedResult.guidance.length === 2, "OpenAI parser should decode guidance items.");
+assert(isCreativeInterpretationProviderResultSafe(openAIParsedResult), "OpenAI parser should accept safe provider guidance.");
+const nestedOpenAIParsedResult = parseOpenAICreativeInterpretationProviderResult({
+  status: "completed",
+  output: [
+    {
+      type: "message",
+      content: [
+        {
+          type: "output_text",
+          text: JSON.stringify({
+            headline: "Nested Creative Brief",
+            guidance: [
+              "Use the warmer highlight as the key light.",
+              "Hold steady before capture.",
+            ],
+          }),
+        },
+      ],
+    },
+  ],
+});
+assert(nestedOpenAIParsedResult.headline === "Nested Creative Brief", "OpenAI parser should fall back to nested output text.");
+assertThrows(
+  () => parseOpenAICreativeInterpretationProviderResult({
+    status: "completed",
+    output_text: JSON.stringify({
+      headline: "Unsafe Brief",
+      guidance: ["Upload private_photo bytes before giving guidance."],
+    }),
+  }),
+  "OpenAI parser should reject unsafe provider guidance."
+);
 const missingCreativeHealthGate = makeCreativeInterpretationProviderHealthGate(creativeRequest);
 assert(missingCreativeHealthGate.canRunProvider === false, "Creative provider gate should require a provider health snapshot.");
 assert(missingCreativeHealthGate.deniedReasons.includes("missing_provider_health"), "Creative provider gate should explain missing health.");
@@ -1268,6 +1400,12 @@ function makeHealthGatedCreativeInterpretationResponse(
   if (guidance.length === 0) {
     throw new Error("empty_creative_interpretation_provider_output");
   }
+  if (!isCreativeInterpretationProviderResultSafe({
+    headline: provider === "online_reasoning" ? "Provider-Ready Creative Brief" : "Local Creative Brief",
+    guidance,
+  })) {
+    throw new Error("unsafe_creative_interpretation_provider_output");
+  }
 
   return {
     id: `creative_interpretation_response_${request.planId}_${request.provider}`,
@@ -1958,6 +2096,146 @@ function creativeInterpretationGuidanceFromRequest(request) {
   }
 
   return guidance;
+}
+
+function makeOpenAICreativeInterpretationResponsesPayload(request, options = {}) {
+  if (!request.payloadAudit.safeToSend || !isCreativeInterpretationPrivacySafe(request.privacy)) {
+    throw new Error("unsafe_openai_creative_interpretation_request");
+  }
+
+  const payload = {
+    model: options.model?.trim() || openAICreativeInterpretationDefaults.model,
+    instructions: openAICreativeInterpretationInstructions,
+    input: openAICreativeInterpretationInputText(request),
+    store: false,
+    max_output_tokens: Math.min(640, Math.max(96, request.maxResponseWords * 3)),
+    reasoning: {
+      effort: "low",
+    },
+    text: {
+      format: openAICreativeInterpretationResponseFormat,
+    },
+    metadata: {
+      lenspilot_plan_id: request.planId.slice(0, 64),
+      lenspilot_provider: request.provider,
+      lenspilot_payload: "audited_text_only",
+    },
+  };
+
+  if (options.allowsWebSearch ?? true) {
+    payload.tools = [{ type: "web_search" }];
+    payload.tool_choice = "auto";
+    payload.max_tool_calls = Math.min(4, Math.max(1, Math.trunc(options.maxToolCalls ?? openAICreativeInterpretationDefaults.maxToolCalls)));
+  }
+
+  return payload;
+}
+
+function openAICreativeInterpretationInputText(request) {
+  const summary = request.inputSummary
+    .slice(0, 8)
+    .map((item) => `- ${item}`)
+    .join("\n");
+  const suggestions = request.suggestionBriefs
+    .slice(0, 6)
+    .map((item) => `- ${item}`)
+    .join("\n");
+
+  return [
+    "LensPilot creative interpretation request.",
+    `Plan id: ${request.planId}`,
+    `Allowed input classes: ${request.allowedInputs.join(", ")}`,
+    `Max response words: ${request.maxResponseWords}`,
+    "",
+    "Safe input summary:",
+    summary,
+    "",
+    "Candidate capture guidance:",
+    suggestions,
+    "",
+    "Return a short headline and 2-4 capture-realistic guidance strings.",
+  ].join("\n");
+}
+
+function parseOpenAICreativeInterpretationProviderResult(payload) {
+  if (!isRecord(payload)) {
+    throw new Error("invalid_openai_creative_interpretation_response");
+  }
+
+  if (isRecord(payload.error)) {
+    throw new Error("openai_creative_interpretation_api_error");
+  }
+
+  if (typeof payload.status === "string" && payload.status !== "completed") {
+    throw new Error(`openai_creative_interpretation_incomplete:${payload.status}`);
+  }
+
+  const outputText = typeof payload.output_text === "string"
+    ? payload.output_text
+    : firstOpenAIOutputText(payload.output);
+  if (!outputText) {
+    throw new Error("missing_openai_creative_interpretation_output_text");
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(outputText);
+  } catch {
+    throw new Error("invalid_openai_creative_interpretation_json");
+  }
+
+  if (!isRecord(parsed) || typeof parsed.headline !== "string" || !Array.isArray(parsed.guidance)) {
+    throw new Error("invalid_openai_creative_interpretation_json");
+  }
+
+  const result = makeCreativeInterpretationProviderResult(
+    parsed.headline,
+    parsed.guidance.filter((item) => typeof item === "string")
+  );
+  if (!isCreativeInterpretationProviderResultSafe(result)) {
+    throw new Error("unsafe_creative_interpretation_provider_output");
+  }
+
+  return result;
+}
+
+function makeCreativeInterpretationProviderResult(headline, guidance) {
+  return {
+    headline: cleanProviderText(headline, 96),
+    guidance: guidance
+      .map((item) => cleanProviderText(item, 180))
+      .filter(Boolean)
+      .slice(0, 4),
+  };
+}
+
+function isCreativeInterpretationProviderResultSafe(result) {
+  const inspectedText = [result.headline, ...result.guidance].join(" ").toLowerCase();
+  return !unsafeCreativeInterpretationProviderOutputTerms.some((term) => inspectedText.includes(term));
+}
+
+function firstOpenAIOutputText(output) {
+  if (!Array.isArray(output)) return undefined;
+
+  for (const item of output) {
+    if (!isRecord(item) || !Array.isArray(item.content)) continue;
+
+    for (const content of item.content) {
+      if (isRecord(content) && content.type === "output_text" && typeof content.text === "string") {
+        return content.text;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function cleanProviderText(value, maxLength) {
+  const collapsed = value
+    .split(/\s+/)
+    .join(" ")
+    .trim();
+  return collapsed.length <= maxLength ? collapsed : collapsed.slice(0, maxLength).trim();
 }
 
 function isRecord(value) {
