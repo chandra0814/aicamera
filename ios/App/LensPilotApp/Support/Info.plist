@@ -20,6 +20,10 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>LENSPILOT_CREATIVE_API_TOKEN</key>
+	<string>$(LENSPILOT_CREATIVE_API_TOKEN)</string>
+	<key>LENSPILOT_CREATIVE_API_URL</key>
+	<string>$(LENSPILOT_CREATIVE_API_URL)</string>
 	<key>NSCameraUsageDescription</key>
 	<string>LensPilot needs camera access to show live framing guidance and capture photos on this phone.</string>
 	<key>NSMicrophoneUsageDescription</key>

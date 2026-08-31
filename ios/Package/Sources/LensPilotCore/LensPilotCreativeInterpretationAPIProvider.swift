@@ -66,14 +66,38 @@ public struct LensPilotCreativeInterpretationAPIProvider: HealthGatedCreativeInt
     public static func configuredFromEnvironment(
         _ environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> LensPilotCreativeInterpretationAPIProvider? {
-        guard let rawURL = cleanedOptional(environment["LENSPILOT_CREATIVE_API_URL"]),
+        configured(
+            apiURLValue: environment["LENSPILOT_CREATIVE_API_URL"],
+            clientTokenValue: environment["LENSPILOT_CREATIVE_API_TOKEN"]
+        )
+    }
+
+    public static func configuredFromBundle(
+        _ bundle: Bundle = .main,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> LensPilotCreativeInterpretationAPIProvider? {
+        if let environmentProvider = configuredFromEnvironment(environment) {
+            return environmentProvider
+        }
+
+        return configured(
+            apiURLValue: bundle.object(forInfoDictionaryKey: "LENSPILOT_CREATIVE_API_URL") as? String,
+            clientTokenValue: bundle.object(forInfoDictionaryKey: "LENSPILOT_CREATIVE_API_TOKEN") as? String
+        )
+    }
+
+    public static func configured(
+        apiURLValue: String?,
+        clientTokenValue: String?
+    ) -> LensPilotCreativeInterpretationAPIProvider? {
+        guard let rawURL = cleanedConfigValue(apiURLValue),
               let apiURL = URL(string: rawURL) else {
             return nil
         }
 
         return try? LensPilotCreativeInterpretationAPIProvider(
             apiURL: apiURL,
-            clientToken: environment["LENSPILOT_CREATIVE_API_TOKEN"]
+            clientToken: cleanedConfigValue(clientTokenValue)
         )
     }
 
@@ -176,6 +200,15 @@ public struct LensPilotCreativeInterpretationAPIProvider: HealthGatedCreativeInt
     private static func cleanedOptional(_ value: String?) -> String? {
         let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed?.isEmpty == false ? trimmed : nil
+    }
+
+    private static func cleanedConfigValue(_ value: String?) -> String? {
+        guard let cleaned = cleanedOptional(value),
+              !cleaned.contains("$("),
+              !cleaned.contains("${") else {
+            return nil
+        }
+        return cleaned
     }
 
     private static func isLocalDevelopmentHost(_ host: String) -> Bool {

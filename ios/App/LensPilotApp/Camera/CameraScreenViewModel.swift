@@ -908,7 +908,7 @@ final class CameraScreenViewModel: ObservableObject {
     }
 
     private static func makeCreativeInterpretationAdapter() -> HealthGatedCreativeInterpretationAdapter {
-        if let apiProvider = LensPilotCreativeInterpretationAPIProvider.configuredFromEnvironment() {
+        if let apiProvider = LensPilotCreativeInterpretationAPIProvider.configuredFromBundle() {
             return HealthGatedCreativeInterpretationAdapter(provider: apiProvider)
         }
 

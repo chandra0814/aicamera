@@ -17,6 +17,14 @@ if ($LASTEXITCODE -ne 0) {
 }
 Pop-Location
 
+Write-Host "`n== Backend creative API server validation =="
+Push-Location (Join-Path $repoRoot "backend")
+npm test
+if ($LASTEXITCODE -ne 0) {
+    throw "Backend creative API server validation failed with exit code $LASTEXITCODE."
+}
+Pop-Location
+
 Write-Host "`n== Swift toolchain check =="
 $swift = Get-Command swift -ErrorAction SilentlyContinue
 if ($swift) {

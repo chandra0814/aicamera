@@ -1372,6 +1372,21 @@ final class AiCoreTests: XCTestCase {
         ]))
     }
 
+    func testLensPilotCreativeAPIProviderConfigIgnoresUnresolvedBuildSettings() {
+        XCTAssertNil(LensPilotCreativeInterpretationAPIProvider.configured(
+            apiURLValue: "$(LENSPILOT_CREATIVE_API_URL)",
+            clientTokenValue: "$(LENSPILOT_CREATIVE_API_TOKEN)"
+        ))
+        XCTAssertNotNil(LensPilotCreativeInterpretationAPIProvider.configured(
+            apiURLValue: "https://api.lenspilot.example/v1/creative-interpretation",
+            clientTokenValue: "$(LENSPILOT_CREATIVE_API_TOKEN)"
+        ))
+        XCTAssertNil(LensPilotCreativeInterpretationAPIProvider.configured(
+            apiURLValue: "http://api.lenspilot.example/v1/creative-interpretation",
+            clientTokenValue: nil
+        ))
+    }
+
     func testWikimediaCommonsOnlineInspirationAdapterUsesSafePublicFileSearch() throws {
         let provider = WikimediaCommonsInspirationProvider()
         let url = try provider.makeSearchURL(query: "cinematic portrait phone photography reference", limit: 50)

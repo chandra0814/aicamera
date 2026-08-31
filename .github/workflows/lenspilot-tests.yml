@@ -45,6 +45,10 @@ jobs:
         working-directory: shared/typescript
         run: npm run validate
 
+      - name: Run backend creative API server validation
+        working-directory: backend
+        run: npm test
+
   swift-package:
     name: Swift package tests
     runs-on: macos-15
