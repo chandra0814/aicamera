@@ -27,6 +27,16 @@ Default local URLs:
 - `LENSPILOT_MAX_REQUEST_BYTES`: request body cap, default `65536`.
 - `LENSPILOT_RATE_LIMIT_WINDOW_MS`: local in-memory rate-limit window, default `60000`.
 - `LENSPILOT_RATE_LIMIT_MAX`: local in-memory request count per client per window, default `30`.
+- `LENSPILOT_REQUIRE_PRODUCTION_SAFETY`: set `true` in deployed environments so `/ready` fails unless server OpenAI configuration, phone bearer authorization, CORS policy, request caps, rate limits, and the single-phone privacy boundary are all production-safe.
+
+## Production Preflight
+
+```bash
+cd backend
+npm run preflight:production
+```
+
+The preflight prints only safe configuration metadata and exits non-zero when production safety checks fail. It never prints the OpenAI key or phone bearer token.
 
 ## Validation
 
@@ -35,7 +45,7 @@ cd backend
 npm test
 ```
 
-The validation starts the server on a random local port, checks health/readiness/CORS, verifies client authorization, exercises the creative route with a fake OpenAI transport, and confirms rate limiting. It does not require a real OpenAI key.
+The validation starts the server on a random local port, checks health/readiness/CORS, verifies client authorization, exercises the creative route with a fake OpenAI transport, confirms rate limiting, and validates production-safety readiness failures. It does not require a real OpenAI key.
 
 ## Provider Errors
 

@@ -22,6 +22,7 @@ This implementation completes the MVP AI control skeleton, not the final product
 - Health-Gated Creative Interpretation Adapter: runs a creative brief only when the audited request and public-source health snapshot are both safe, available, and free of raw camera frames, private photos, identity data, precise location, and raw learning events.
 - Mobile-Safe Creative API: `backend/api/creative-interpretation.mjs` exposes a server-side `/v1/creative-interpretation` handler that keeps `OPENAI_API_KEY` on the backend, rejects client-supplied OpenAI keys, reruns request and health-gate safety checks, sends audited text only to OpenAI's Responses API, uses `store: false`, requests strict JSON schema output, and blocks unsafe provider output.
 - Deployable Creative API Runtime: `backend/server.mjs` exposes `/health`, `/ready`, and `/v1/creative-interpretation` on plain Node with request body caps, optional CORS allow-listing, optional phone bearer authorization, and local in-memory rate limiting.
+- Creative API Production Preflight: `/ready` can now enforce `LENSPILOT_REQUIRE_PRODUCTION_SAFETY=true`, and `npm run preflight:production` validates server OpenAI configuration, phone bearer authorization, CORS policy, request caps, rate limits, and the single-phone privacy boundary without exposing secrets.
 - Creative API provider failures now return sanitized diagnostic metadata, including exhausted-credit classification, provider HTTP status, retryability, and billing-blocked flags, without exposing secrets or raw provider payloads to the phone.
 - The same-phone camera UI now maps sanitized OpenAI and Creative API provider errors into clear diagnostics such as `OpenAI credits exhausted`, while defensively redacting secret-looking tokens from provider messages.
 - Optional iOS Creative API Provider: when `LENSPILOT_CREATIVE_API_URL` is available from environment or app bundle build settings, the app sends the audited creative request and health gate to the LensPilot backend. Direct OpenAI provider use is now limited to explicit development opt-in with `LENSPILOT_ALLOW_DIRECT_OPENAI_PROVIDER=true`.
@@ -66,7 +67,7 @@ This implementation completes the MVP AI control skeleton, not the final product
 - No trained aesthetic model yet.
 - No completed real iPhone target-match calibration dataset yet; the bundled seed manifest currently reports `needs_more_samples` until 24 reviewed real captures are imported.
 - No Core ML/TFLite production model bundle yet.
-- No deployed production Creative API host, app-attestation enforcement, managed edge rate limiting, request logging policy, or key-rotation runbook yet.
+- No deployed production Creative API host, app-attestation enforcement, managed edge rate limiting, request logging policy, or key-rotation runbook yet; the backend now includes a production-safety preflight before deployment.
 - No generative preview engine yet.
 - No embedding sync or cloud personalization sync yet.
 - No live production monitoring, endpoint health checks, or provider-specific quality analytics for public inspiration yet.
@@ -81,4 +82,4 @@ LensPilot must remain a reliable camera first. A deterministic AI core lets us p
 1. Collect real portrait, landscape, sky, clutter, backlight, horizon, motion, and night samples from iPhone captures.
 2. Use the calibration readiness report and AI Diagnostics to confirm all 24 reviewed captures satisfy the required domains, scenarios, and blind-review minimum.
 3. Tune benchmark thresholds, sub-score weights, and guidance-priority boosts against blind preference tests now that the app can load the manifest at runtime.
-4. Deploy the Creative API runtime behind production app authorization or app attestation, then add managed endpoint checks, edge rate limits, provider-specific quality analytics, and key-rotation operations.
+4. Deploy the Creative API runtime with `LENSPILOT_REQUIRE_PRODUCTION_SAFETY=true`, then add app attestation, managed endpoint checks, edge rate limits, provider-specific quality analytics, and key-rotation operations.

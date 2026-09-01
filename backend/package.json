@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "node server.mjs",
+    "preflight:production": "node -e \"eval(require('node:fs').readFileSync('scripts/preflight-production.cjs','utf8'))\"",
     "test": "node -e \"eval(require('node:fs').readFileSync('scripts/validate-server.cjs','utf8'))\""
   },
   "engines": {

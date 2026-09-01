@@ -30,6 +30,7 @@ const serverModule = Function(
   `${serverSource}
 return {
   createLensPilotCreativeHTTPServer,
+  describeLensPilotCreativeServerConfig,
   lensPilotCreativeServerDefaults,
 };
 `
@@ -43,6 +44,7 @@ return {
 
 const {
   createLensPilotCreativeHTTPServer,
+  describeLensPilotCreativeServerConfig,
   lensPilotCreativeServerDefaults,
 } = serverModule;
 const {
@@ -128,6 +130,43 @@ main().catch((error) => {
 });
 
 async function main() {
+  const safeProductionConfig = describeLensPilotCreativeServerConfig({
+    openAIAPIKey: "sk-test-server-side",
+    expectedClientToken: "client-token",
+    allowedOrigins: ["https://app.lenspilot.example"],
+    requireProductionSafety: true,
+    rateLimitMaxRequests: 30,
+    maxRequestBytes: 64 * 1024,
+  });
+  assert(safeProductionConfig.productionSafety.ready === true, "Production preflight should pass for protected configuration.");
+  assert(safeProductionConfig.productionSafety.failedRequiredChecks.length === 0, "Protected production configuration should not report failures.");
+  assert(!JSON.stringify(safeProductionConfig).includes("sk-test"), "Production preflight must not expose secrets.");
+
+  const unsafeProductionConfig = describeLensPilotCreativeServerConfig({
+    openAIAPIKey: "sk-test-server-side",
+    allowedOrigins: ["*"],
+    requireProductionSafety: true,
+    rateLimitMaxRequests: 500,
+    maxRequestBytes: 256 * 1024,
+  });
+  assert(unsafeProductionConfig.productionSafety.ready === false, "Production preflight should fail unsafe configuration.");
+  assert(
+    unsafeProductionConfig.productionSafety.failedRequiredChecks.includes("phone_client_authorization"),
+    "Production preflight should require phone client authorization."
+  );
+  assert(
+    unsafeProductionConfig.productionSafety.failedRequiredChecks.includes("cors_origin_policy"),
+    "Production preflight should reject wildcard CORS."
+  );
+  assert(
+    unsafeProductionConfig.productionSafety.failedRequiredChecks.includes("request_body_cap"),
+    "Production preflight should enforce the request body cap."
+  );
+  assert(
+    unsafeProductionConfig.productionSafety.failedRequiredChecks.includes("rate_limit_policy"),
+    "Production preflight should enforce bounded rate limits."
+  );
+
   await withServer(
     {
       openAIAPIKey: "sk-test-server-side",
@@ -163,6 +202,7 @@ async function main() {
       assert(ready.status === 200, "Ready route should return 200 when the server key is configured.");
       assert(readyBody.openAIConfigured === true, "Ready route should report configured OpenAI state.");
       assert(readyBody.clientAuthorizationConfigured === true, "Ready route should report client auth state.");
+      assert(readyBody.productionSafety.ready === true, "Ready route should include passing production safety metadata.");
 
       const preflight = await fetch(`${baseURL}${lensPilotCreativeServerDefaults.creativePath}`, {
         method: "OPTIONS",
@@ -265,6 +305,30 @@ async function main() {
   await withServer(
     {
       openAIAPIKey: "sk-test-server-side",
+      requireProductionSafety: true,
+      allowedOrigins: ["*"],
+      rateLimitMaxRequests: 500,
+      maxRequestBytes: 256 * 1024,
+    },
+    async (baseURL) => {
+      const ready = await fetch(`${baseURL}${lensPilotCreativeServerDefaults.readyPath}`);
+      const readyBody = await ready.json();
+      assert(ready.status === 503, "Ready route should fail unsafe production configuration.");
+      assert(readyBody.productionSafety.ready === false, "Unsafe production config should report not ready.");
+      assert(
+        readyBody.productionSafety.failedRequiredChecks.includes("phone_client_authorization"),
+        "Ready route should report missing phone client authorization."
+      );
+      assert(
+        readyBody.productionSafety.failedRequiredChecks.includes("cors_origin_policy"),
+        "Ready route should report wildcard CORS as unsafe for production."
+      );
+    }
+  );
+
+  await withServer(
+    {
+      openAIAPIKey: "sk-test-server-side",
       fetchImpl: async () => ({
         ok: false,
         status: 429,
@@ -304,6 +368,7 @@ async function main() {
     readyPath: lensPilotCreativeServerDefaults.readyPath,
     creativePath: lensPilotCreativeServerDefaults.creativePath,
     rateLimited: true,
+    productionPreflight: true,
     status: "passed",
   }, null, 2));
 }

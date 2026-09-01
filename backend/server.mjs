@@ -15,6 +15,9 @@ export const lensPilotCreativeServerDefaults = {
   maxRequestBytes: 64 * 1024,
   rateLimitWindowMs: 60_000,
   rateLimitMaxRequests: 30,
+  productionMaxRequestBytes: 64 * 1024,
+  productionMaxRequestsPerWindow: 120,
+  requireProductionSafety: false,
 };
 
 export function createLensPilotCreativeHTTPServer(options = {}) {
@@ -81,8 +84,12 @@ export async function handleLensPilotCreativeHTTPRoute(requestLike, options = {}
 
   if (path === config.readyPath) {
     const configured = Boolean(config.openAIAPIKeyConfigured);
-    return jsonResponse(configured ? 200 : 503, {
-      status: configured ? "ready" : "not_ready",
+    const deployment = describeLensPilotCreativeServerConfig({
+      config,
+    });
+    const ready = configured && (!config.requireProductionSafety || deployment.productionSafety.ready);
+    return jsonResponse(ready ? 200 : 503, {
+      status: ready ? "ready" : "not_ready",
       service: "lenspilot-creative-api",
       apiVersion: lensPilotCreativeInterpretationApiDefaults.apiVersion,
       openAIConfigured: configured,
@@ -91,6 +98,14 @@ export async function handleLensPilotCreativeHTTPRoute(requestLike, options = {}
         windowMs: config.rateLimitWindowMs,
         maxRequests: config.rateLimitMaxRequests,
       },
+      requestBody: {
+        maxBytes: config.maxRequestBytes,
+      },
+      cors: {
+        allowedOriginsConfigured: config.allowedOrigins.length,
+        wildcardAllowed: config.allowedOrigins.includes("*"),
+      },
+      productionSafety: deployment.productionSafety,
     }, corsHeaders);
   }
 
@@ -179,6 +194,114 @@ function makeServerConfig(options, environment) {
     allowedOrigins: parseAllowedOrigins(options.allowedOrigins ?? environment.LENSPILOT_ALLOWED_ORIGINS),
     openAIAPIKeyConfigured: Boolean(cleanOptional(options.openAIAPIKey ?? environment.OPENAI_API_KEY)),
     clientAuthorizationConfigured: Boolean(cleanOptional(options.expectedClientToken ?? environment.LENSPILOT_CREATIVE_API_TOKEN)),
+    requireProductionSafety: parseBooleanOption(
+      options.requireProductionSafety ?? environment.LENSPILOT_REQUIRE_PRODUCTION_SAFETY,
+      lensPilotCreativeServerDefaults.requireProductionSafety
+    ),
+  };
+}
+
+export function describeLensPilotCreativeServerConfig(options = {}) {
+  const environment = options.environment ?? globalThis.process?.env ?? {};
+  const config = options.config ?? makeServerConfig(options, environment);
+
+  return {
+    service: "lenspilot-creative-api",
+    apiVersion: lensPilotCreativeInterpretationApiDefaults.apiVersion,
+    paths: {
+      health: config.healthPath,
+      ready: config.readyPath,
+      creative: config.creativePath,
+    },
+    openAIConfigured: Boolean(config.openAIAPIKeyConfigured),
+    clientAuthorizationConfigured: Boolean(config.clientAuthorizationConfigured),
+    rateLimit: {
+      windowMs: config.rateLimitWindowMs,
+      maxRequests: config.rateLimitMaxRequests,
+    },
+    requestBody: {
+      maxBytes: config.maxRequestBytes,
+    },
+    cors: {
+      allowedOriginsConfigured: config.allowedOrigins.length,
+      wildcardAllowed: config.allowedOrigins.includes("*"),
+    },
+    privacy: lensPilotCreativeInterpretationApiPrivacy,
+    productionSafety: makeProductionSafetyReport(config),
+  };
+}
+
+function makeProductionSafetyReport(config) {
+  const checks = [
+    makeProductionSafetyCheck({
+      id: "server_openai_key",
+      passed: config.openAIAPIKeyConfigured,
+      required: true,
+      message: "Server-side OPENAI_API_KEY is configured.",
+    }),
+    makeProductionSafetyCheck({
+      id: "phone_client_authorization",
+      passed: config.clientAuthorizationConfigured,
+      required: config.requireProductionSafety,
+      message: "Phone bearer authorization is configured with LENSPILOT_CREATIVE_API_TOKEN.",
+    }),
+    makeProductionSafetyCheck({
+      id: "cors_origin_policy",
+      passed: !config.allowedOrigins.includes("*"),
+      required: config.requireProductionSafety,
+      message: config.allowedOrigins.length > 0
+        ? "CORS is restricted to configured origins."
+        : "CORS is closed to browser origins.",
+    }),
+    makeProductionSafetyCheck({
+      id: "request_body_cap",
+      passed: config.maxRequestBytes <= lensPilotCreativeServerDefaults.productionMaxRequestBytes,
+      required: config.requireProductionSafety,
+      message: `Request body cap is ${config.maxRequestBytes} bytes.`,
+    }),
+    makeProductionSafetyCheck({
+      id: "rate_limit_policy",
+      passed: config.rateLimitWindowMs > 0 &&
+        config.rateLimitMaxRequests > 0 &&
+        config.rateLimitMaxRequests <= lensPilotCreativeServerDefaults.productionMaxRequestsPerWindow,
+      required: config.requireProductionSafety,
+      message: `Local rate limit is ${config.rateLimitMaxRequests} requests per ${config.rateLimitWindowMs} ms.`,
+    }),
+    makeProductionSafetyCheck({
+      id: "single_phone_privacy_boundary",
+      passed: lensPilotCreativeInterpretationApiPrivacy.singlePhoneOnly === true &&
+        lensPilotCreativeInterpretationApiPrivacy.acceptsClientOpenAIKey === false &&
+        lensPilotCreativeInterpretationApiPrivacy.uploadsLiveCameraFrame === false &&
+        lensPilotCreativeInterpretationApiPrivacy.sendsPrivatePhoto === false &&
+        lensPilotCreativeInterpretationApiPrivacy.sendsIdentityData === false &&
+        lensPilotCreativeInterpretationApiPrivacy.sendsPreciseLocation === false &&
+        lensPilotCreativeInterpretationApiPrivacy.sendsRawLearningEvents === false,
+      required: true,
+      message: "Creative API privacy boundary is single-phone and text-summary only.",
+    }),
+  ];
+  const failedRequiredChecks = checks
+    .filter((check) => check.required && check.status !== "pass")
+    .map((check) => check.id);
+  const warnings = checks
+    .filter((check) => !check.required && check.status !== "pass")
+    .map((check) => check.id);
+
+  return {
+    required: config.requireProductionSafety,
+    ready: failedRequiredChecks.length === 0,
+    failedRequiredChecks,
+    warnings,
+    checks,
+  };
+}
+
+function makeProductionSafetyCheck({ id, passed, required, message }) {
+  return {
+    id,
+    status: passed ? "pass" : "fail",
+    required: Boolean(required),
+    message,
   };
 }
 
@@ -331,6 +454,13 @@ function parseAllowedOrigins(value) {
 function parseIntegerOption(value, fallback) {
   const parsed = typeof value === "number" ? value : Number.parseInt(String(value ?? ""), 10);
   return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : fallback;
+}
+
+function parseBooleanOption(value, fallback) {
+  if (typeof value === "boolean") return value;
+  const cleaned = cleanOptional(value);
+  if (!cleaned) return fallback;
+  return !["0", "false", "no", "off"].includes(cleaned.toLowerCase());
 }
 
 function cleanPath(value) {

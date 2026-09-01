@@ -3,7 +3,7 @@
 ## Runnable In This Workspace
 
 - JSON parse validation for all `.json` files.
-- Backend Creative API server validation with local HTTP health/readiness checks, CORS allow-list checks, phone bearer authorization, fake-provider creative route execution, and rate-limit checks.
+- Backend Creative API server validation with local HTTP health/readiness checks, CORS allow-list checks, phone bearer authorization, fake-provider creative route execution, rate-limit checks, and production-safety readiness failures.
 - `npm run validate` inside `shared/typescript`, covering:
   - `singlePhoneOnly` invariant
   - identity recognition disabled
@@ -35,7 +35,7 @@
 - `LensPilotDirectorTests` on macOS CI, covering same-phone reference popup activation, popup selection into the full reference viewer, and returning from full reference view back to the popup.
 - `AiBenchmarkTests` on macOS CI, covering the deterministic single-phone guidance benchmark suite.
 - GitHub Actions `iOS app build`, covering the SwiftUI app target, local package dependency wiring, camera screen, reference picker, popup, and result review compilation.
-- GitHub Actions backend server validation, covering the deployable `backend/server.mjs` wrapper around the mobile-safe Creative API handler.
+- GitHub Actions backend server validation, covering the deployable `backend/server.mjs` wrapper around the mobile-safe Creative API handler and production-safety preflight checks.
 
 ## Latest Verification
 
