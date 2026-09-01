@@ -3,7 +3,7 @@
 ## Runnable In This Workspace
 
 - JSON parse validation for all `.json` files.
-- Backend Creative API server validation with local HTTP health/readiness checks, CORS allow-list checks, phone bearer authorization, fake-provider creative route execution, rate-limit checks, production-safety readiness failures, and safe operational telemetry checks.
+- Backend Creative API server validation with local HTTP health/readiness checks, CORS allow-list checks, phone bearer authorization, signed phone request and replay protection, fake-provider creative route execution, rate-limit checks, production-safety readiness failures, and safe operational telemetry checks.
 - `npm run validate` inside `shared/typescript`, covering:
   - `singlePhoneOnly` invariant
   - identity recognition disabled
@@ -31,11 +31,11 @@
   - OpenAI Responses API creative-provider payload and parser validation for audited text-only requests, `store: false`, strict JSON schema output, optional public web search, nested `output_text` parsing, and unsafe-provider-output rejection
   - LensPilot Creative API validation for the server-side `/v1/creative-interpretation` route, backend-only OpenAI key use, client OpenAI-key rejection, unsafe request rejection, missing server-key failure, and unsafe-provider-output rejection
 - `LensPilotVisionTests` on macOS CI, covering the `SceneDebugState` to native `SceneState` bridge and on-device quality metric mapping.
-- `LensPilotCoreTests` on macOS CI, covering burst capture review ranking, after-capture coaching summaries, empty-burst handling, guided calibration queue progress, calibration readiness next-scenario selection, calibration weight tuning, reviewed guidance-priority calibration, guidance stabilization, Personal Visual AI learning including local learning insights, creative interpretation plans, audited creative request payloads, health-gated OpenAI creative-provider request construction and response parsing, mobile-safe LensPilot Creative API request construction and response parsing, unsafe provider-output rejection, and customer correction reasons, local profile storage protection metadata, online-reference privacy policy, Wikimedia Commons and Openverse online-inspiration parsing, source-diverse online-result ranking, thumbnail cache eviction, calibration sample export, and reviewed calibration sample promotion.
+- `LensPilotCoreTests` on macOS CI, covering burst capture review ranking, after-capture coaching summaries, empty-burst handling, guided calibration queue progress, calibration readiness next-scenario selection, calibration weight tuning, reviewed guidance-priority calibration, guidance stabilization, Personal Visual AI learning including local learning insights, creative interpretation plans, audited creative request payloads, health-gated OpenAI creative-provider request construction and response parsing, mobile-safe LensPilot Creative API request construction, signed request headers, response parsing, unsafe provider-output rejection, and customer correction reasons, local profile storage protection metadata, online-reference privacy policy, Wikimedia Commons and Openverse online-inspiration parsing, source-diverse online-result ranking, thumbnail cache eviction, calibration sample export, and reviewed calibration sample promotion.
 - `LensPilotDirectorTests` on macOS CI, covering same-phone reference popup activation, popup selection into the full reference viewer, and returning from full reference view back to the popup.
 - `AiBenchmarkTests` on macOS CI, covering the deterministic single-phone guidance benchmark suite.
 - GitHub Actions `iOS app build`, covering the SwiftUI app target, local package dependency wiring, camera screen, reference picker, popup, and result review compilation.
-- GitHub Actions backend server validation, covering the deployable `backend/server.mjs` wrapper around the mobile-safe Creative API handler, production-safety preflight checks, and safe metrics redaction checks.
+- GitHub Actions backend server validation, covering the deployable `backend/server.mjs` wrapper around the mobile-safe Creative API handler, production-safety preflight checks, signed request replay protection, and safe metrics redaction checks.
 
 ## Latest Verification
 

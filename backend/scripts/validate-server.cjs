@@ -1,5 +1,6 @@
 const fs = require("node:fs");
 const http = require("node:http");
+const { createHash, createHmac, timingSafeEqual } = require("node:crypto");
 const { pathToFileURL } = require("node:url");
 
 const apiSource = fs
@@ -16,6 +17,7 @@ return {
 const serverSource = fs
   .readFileSync("server.mjs", "utf8")
   .replace(/^import http from "node:http";\r?\n/, "")
+  .replace(/^import \{ createHash, createHmac, timingSafeEqual \} from "node:crypto";\r?\n/, "")
   .replace(/^import \{ pathToFileURL \} from "node:url";\r?\n/, "")
   .replace(/import \{\r?\n[\s\S]*?\} from "\.\/api\/creative-interpretation\.mjs";\r?\n/, "")
   .replace(/^export /gm, "")
@@ -23,6 +25,9 @@ const serverSource = fs
 
 const serverModule = Function(
   "http",
+  "createHash",
+  "createHmac",
+  "timingSafeEqual",
   "pathToFileURL",
   "createLensPilotCreativeInterpretationApi",
   "lensPilotCreativeInterpretationApiDefaults",
@@ -31,11 +36,15 @@ const serverModule = Function(
 return {
   createLensPilotCreativeHTTPServer,
   describeLensPilotCreativeServerConfig,
+  makeLensPilotPhoneRequestSignature,
   lensPilotCreativeServerDefaults,
 };
 `
 )(
   http,
+  createHash,
+  createHmac,
+  timingSafeEqual,
   pathToFileURL,
   apiModule.createLensPilotCreativeInterpretationApi,
   apiModule.lensPilotCreativeInterpretationApiDefaults,
@@ -45,6 +54,7 @@ return {
 const {
   createLensPilotCreativeHTTPServer,
   describeLensPilotCreativeServerConfig,
+  makeLensPilotPhoneRequestSignature,
   lensPilotCreativeServerDefaults,
 } = serverModule;
 const {
@@ -133,6 +143,8 @@ async function main() {
   const safeProductionConfig = describeLensPilotCreativeServerConfig({
     openAIAPIKey: "sk-test-server-side",
     expectedClientToken: "client-token",
+    clientSigningSecret: "client-signing-secret",
+    signedRequestsRequired: true,
     expectedMetricsToken: "metrics-token",
     allowedOrigins: ["https://app.lenspilot.example"],
     requireProductionSafety: true,
@@ -154,6 +166,10 @@ async function main() {
   assert(
     unsafeProductionConfig.productionSafety.failedRequiredChecks.includes("phone_client_authorization"),
     "Production preflight should require phone client authorization."
+  );
+  assert(
+    unsafeProductionConfig.productionSafety.failedRequiredChecks.includes("signed_phone_requests"),
+    "Production preflight should require signed phone requests."
   );
   assert(
     unsafeProductionConfig.productionSafety.failedRequiredChecks.includes("cors_origin_policy"),
@@ -223,6 +239,10 @@ async function main() {
         preflight.headers.get("access-control-allow-origin") === "https://app.lenspilot.example",
         "CORS should echo configured allowed origins."
       );
+      assert(
+        preflight.headers.get("access-control-allow-headers").includes("x-lenspilot-signature"),
+        "CORS should allow signed phone request headers."
+      );
 
       const unauthorized = await fetch(`${baseURL}${lensPilotCreativeServerDefaults.creativePath}`, {
         method: "POST",
@@ -274,6 +294,137 @@ async function main() {
 
       const notFound = await fetch(`${baseURL}/unknown`);
       assert(notFound.status === 404, "Unknown routes should return 404.");
+    }
+  );
+
+  await withServer(
+    {
+      openAIAPIKey: "sk-test-server-side",
+      expectedClientToken: "client-token",
+      clientSigningSecret: "client-signing-secret",
+      signedRequestsRequired: true,
+      expectedMetricsToken: "metrics-token",
+      signatureToleranceMs: 5 * 60 * 1000,
+      fetchImpl: async () => ({
+        ok: true,
+        status: 200,
+        async json() {
+          return {
+            status: "completed",
+            output_text: JSON.stringify({
+              headline: "Signed Request Brief",
+              guidance: [
+                "Use the cleaner edge of the light.",
+                "Keep the phone steady before capture.",
+              ],
+            }),
+          };
+        },
+      }),
+    },
+    async (baseURL) => {
+      const body = JSON.stringify(safeApiRequest);
+      const unsigned = await fetch(`${baseURL}${lensPilotCreativeServerDefaults.creativePath}`, {
+        method: "POST",
+        headers: {
+          authorization: "Bearer client-token",
+          "content-type": "application/json",
+        },
+        body,
+      });
+      const unsignedBody = await unsigned.json();
+      assert(unsigned.status === 401, "Signed-request mode should reject unsigned phone requests.");
+      assert(unsignedBody.error.code === "signed_request_required", "Unsigned phone requests should return a safe error code.");
+
+      const validSignedHeaders = makeSignedPhoneHeaders({
+        body,
+        requestId: "signed-fixture-valid-001",
+      });
+      const signed = await fetch(`${baseURL}${lensPilotCreativeServerDefaults.creativePath}`, {
+        method: "POST",
+        headers: {
+          authorization: "Bearer client-token",
+          "content-type": "application/json",
+          ...validSignedHeaders,
+        },
+        body,
+      });
+      const signedBody = await signed.json();
+      assert(signed.status === 200, "Signed-request mode should accept valid signed phone requests.");
+      assert(signedBody.result.headline === "Signed Request Brief", "Signed request should reach the provider.");
+
+      const replayed = await fetch(`${baseURL}${lensPilotCreativeServerDefaults.creativePath}`, {
+        method: "POST",
+        headers: {
+          authorization: "Bearer client-token",
+          "content-type": "application/json",
+          ...validSignedHeaders,
+        },
+        body,
+      });
+      const replayedBody = await replayed.json();
+      assert(replayed.status === 401, "Signed-request mode should reject replayed signed requests.");
+      assert(replayedBody.error.code === "replayed_request", "Replayed requests should return a safe error code.");
+
+      const staleHeaders = makeSignedPhoneHeaders({
+        body,
+        requestId: "signed-fixture-stale-001",
+        timestamp: String(Date.now() - 10 * 60 * 1000),
+      });
+      const stale = await fetch(`${baseURL}${lensPilotCreativeServerDefaults.creativePath}`, {
+        method: "POST",
+        headers: {
+          authorization: "Bearer client-token",
+          "content-type": "application/json",
+          ...staleHeaders,
+        },
+        body,
+      });
+      const staleBody = await stale.json();
+      assert(stale.status === 401, "Signed-request mode should reject stale signatures.");
+      assert(staleBody.error.code === "stale_signature", "Stale requests should return a safe error code.");
+
+      const tamperHeaders = makeSignedPhoneHeaders({
+        body,
+        requestId: "signed-fixture-tamper-001",
+      });
+      const tamperedBody = JSON.stringify({
+        ...safeApiRequest,
+        client: {
+          ...safeApiRequest.client,
+          requestId: "tampered-after-signing",
+        },
+      });
+      const tampered = await fetch(`${baseURL}${lensPilotCreativeServerDefaults.creativePath}`, {
+        method: "POST",
+        headers: {
+          authorization: "Bearer client-token",
+          "content-type": "application/json",
+          ...tamperHeaders,
+        },
+        body: tamperedBody,
+      });
+      const tamperedBodyJSON = await tampered.json();
+      assert(tampered.status === 401, "Signed-request mode should reject tampered bodies.");
+      assert(tamperedBodyJSON.error.code === "invalid_signature", "Tampered bodies should return a safe error code.");
+
+      const metrics = await fetch(`${baseURL}${lensPilotCreativeServerDefaults.metricsPath}`, {
+        headers: {
+          authorization: "Bearer metrics-token",
+        },
+      });
+      const metricsBody = await metrics.json();
+      const metricsText = JSON.stringify(metricsBody);
+      assert(metricsBody.totals.signedRequestFailures >= 4, "Metrics should count signed-request failures.");
+      assert(metricsBody.totals.staleSignedRequests >= 1, "Metrics should count stale signed requests.");
+      assert(metricsBody.totals.replayedSignedRequests >= 1, "Metrics should count replayed signed requests.");
+      assert(metricsBody.errorCounts.signed_request_required >= 1, "Metrics should aggregate missing-signature failures.");
+      assert(metricsBody.errorCounts.replayed_request >= 1, "Metrics should aggregate replay failures.");
+      assert(metricsBody.errorCounts.stale_signature >= 1, "Metrics should aggregate stale signature failures.");
+      assert(metricsBody.errorCounts.invalid_signature >= 1, "Metrics should aggregate invalid signature failures.");
+      assert(!metricsText.includes("client-signing-secret"), "Metrics must not expose signing secrets.");
+      assert(!metricsText.includes("signed-fixture-valid-001"), "Metrics must not expose raw signed request ids.");
+      assert(!metricsText.includes("cinematic portrait"), "Metrics must not expose prompt summaries.");
     }
   );
 
@@ -350,6 +501,10 @@ async function main() {
       assert(
         readyBody.productionSafety.failedRequiredChecks.includes("phone_client_authorization"),
         "Ready route should report missing phone client authorization."
+      );
+      assert(
+        readyBody.productionSafety.failedRequiredChecks.includes("signed_phone_requests"),
+        "Ready route should report missing signed phone request enforcement."
       );
       assert(
         readyBody.productionSafety.failedRequiredChecks.includes("cors_origin_policy"),
@@ -430,8 +585,29 @@ async function main() {
     rateLimited: true,
     productionPreflight: true,
     safeOperationalTelemetry: true,
+    signedPhoneRequests: true,
     status: "passed",
   }, null, 2));
+}
+
+function makeSignedPhoneHeaders({
+  body,
+  requestId,
+  timestamp = String(Date.now()),
+  secret = "client-signing-secret",
+}) {
+  return {
+    "x-lenspilot-request-id": requestId,
+    "x-lenspilot-timestamp": timestamp,
+    "x-lenspilot-signature": makeLensPilotPhoneRequestSignature({
+      secret,
+      method: "POST",
+      path: lensPilotCreativeServerDefaults.creativePath,
+      timestamp,
+      requestId,
+      body,
+    }),
+  };
 }
 
 async function withServer(options, run) {

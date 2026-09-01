@@ -1,5 +1,9 @@
 import Foundation
 
+#if canImport(CryptoKit)
+import CryptoKit
+#endif
+
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
@@ -12,6 +16,7 @@ public enum LensPilotCreativeInterpretationAPIProviderError: Error, Equatable, S
     case unsafeRequest
     case unsafeHealthGate
     case requestEncodingFailed
+    case requestSigningFailed
     case invalidHTTPStatus(Int)
     case apiError(String)
     case incompleteResponse(String)
@@ -34,6 +39,8 @@ public extension LensPilotCreativeInterpretationAPIProviderError {
             return "Unsafe creative API payload"
         case .requestEncodingFailed:
             return "Creative API request could not be prepared"
+        case .requestSigningFailed:
+            return "Creative API request could not be signed"
         case let .invalidHTTPStatus(statusCode):
             return statusCode == 429 ? "Creative provider is rate-limited" : "Creative API request failed (\(statusCode))"
         case let .apiError(message):
@@ -90,13 +97,19 @@ public struct LensPilotCreativeInterpretationAPIProvider: HealthGatedCreativeInt
 
     private let apiURL: URL
     private let clientToken: String?
+    private let signingSecret: String?
     private let timeoutSeconds: TimeInterval
+    private let clock: @Sendable () -> Date
+    private let requestIDGenerator: @Sendable () -> String
     private let transport: LensPilotCreativeAPITransport
 
     public init(
         apiURL: URL,
         clientToken: String? = nil,
+        signingSecret: String? = nil,
         timeoutSeconds: TimeInterval = 12,
+        clock: @escaping @Sendable () -> Date = Date.init,
+        requestIDGenerator: @escaping @Sendable () -> String = { UUID().uuidString },
         transport: LensPilotCreativeAPITransport? = nil
     ) throws {
         guard let scheme = apiURL.scheme?.lowercased(),
@@ -111,7 +124,10 @@ public struct LensPilotCreativeInterpretationAPIProvider: HealthGatedCreativeInt
 
         self.apiURL = apiURL
         self.clientToken = Self.cleanedOptional(clientToken)
+        self.signingSecret = Self.cleanedOptional(signingSecret)
         self.timeoutSeconds = max(3, timeoutSeconds)
+        self.clock = clock
+        self.requestIDGenerator = requestIDGenerator
         self.transport = transport ?? Self.urlSessionTransport
     }
 
@@ -120,7 +136,8 @@ public struct LensPilotCreativeInterpretationAPIProvider: HealthGatedCreativeInt
     ) -> LensPilotCreativeInterpretationAPIProvider? {
         configured(
             apiURLValue: environment["LENSPILOT_CREATIVE_API_URL"],
-            clientTokenValue: environment["LENSPILOT_CREATIVE_API_TOKEN"]
+            clientTokenValue: environment["LENSPILOT_CREATIVE_API_TOKEN"],
+            signingSecretValue: environment["LENSPILOT_CREATIVE_API_SIGNING_SECRET"]
         )
     }
 
@@ -134,13 +151,15 @@ public struct LensPilotCreativeInterpretationAPIProvider: HealthGatedCreativeInt
 
         return configured(
             apiURLValue: bundle.object(forInfoDictionaryKey: "LENSPILOT_CREATIVE_API_URL") as? String,
-            clientTokenValue: bundle.object(forInfoDictionaryKey: "LENSPILOT_CREATIVE_API_TOKEN") as? String
+            clientTokenValue: bundle.object(forInfoDictionaryKey: "LENSPILOT_CREATIVE_API_TOKEN") as? String,
+            signingSecretValue: bundle.object(forInfoDictionaryKey: "LENSPILOT_CREATIVE_API_SIGNING_SECRET") as? String
         )
     }
 
     public static func configured(
         apiURLValue: String?,
-        clientTokenValue: String?
+        clientTokenValue: String?,
+        signingSecretValue: String? = nil
     ) -> LensPilotCreativeInterpretationAPIProvider? {
         guard let rawURL = cleanedConfigValue(apiURLValue),
               let apiURL = URL(string: rawURL) else {
@@ -149,7 +168,8 @@ public struct LensPilotCreativeInterpretationAPIProvider: HealthGatedCreativeInt
 
         return try? LensPilotCreativeInterpretationAPIProvider(
             apiURL: apiURL,
-            clientToken: cleanedConfigValue(clientTokenValue)
+            clientToken: cleanedConfigValue(clientTokenValue),
+            signingSecret: cleanedConfigValue(signingSecretValue)
         )
     }
 
@@ -215,8 +235,58 @@ public struct LensPilotCreativeInterpretationAPIProvider: HealthGatedCreativeInt
         if let clientToken {
             urlRequest.setValue("Bearer \(clientToken)", forHTTPHeaderField: "Authorization")
         }
+        if let signingSecret {
+            let requestID = requestIDGenerator()
+            let timestampMilliseconds = Int64((clock().timeIntervalSince1970 * 1000).rounded(.down))
+            let signature = try Self.makeRequestSignature(
+                secret: signingSecret,
+                method: "POST",
+                path: apiURL.path,
+                timestampMilliseconds: timestampMilliseconds,
+                requestID: requestID,
+                body: body
+            )
+            urlRequest.setValue(requestID, forHTTPHeaderField: "X-LensPilot-Request-Id")
+            urlRequest.setValue(String(timestampMilliseconds), forHTTPHeaderField: "X-LensPilot-Timestamp")
+            urlRequest.setValue(signature, forHTTPHeaderField: "X-LensPilot-Signature")
+        }
         urlRequest.httpBody = body
         return urlRequest
+    }
+
+    static func makeRequestSignature(
+        secret: String,
+        method: String,
+        path: String,
+        timestampMilliseconds: Int64,
+        requestID: String,
+        body: Data
+    ) throws -> String {
+        #if canImport(CryptoKit)
+        guard let secretData = cleanedOptional(secret).map({ Data($0.utf8) }),
+              !requestID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw LensPilotCreativeInterpretationAPIProviderError.requestSigningFailed
+        }
+
+        let bodyDigest = SHA256.hash(data: body)
+        let bodyHash = Data(bodyDigest).map { String(format: "%02x", $0) }.joined()
+        let canonical = [
+            "v1",
+            method.uppercased(),
+            normalizedSigningPath(path),
+            String(timestampMilliseconds),
+            requestID,
+            bodyHash
+        ].joined(separator: "\n")
+        let authenticationCode = HMAC<SHA256>.authenticationCode(
+            for: Data(canonical.utf8),
+            using: SymmetricKey(data: secretData)
+        )
+
+        return "v1=\(Data(authenticationCode).base64URLEncodedString())"
+        #else
+        throw LensPilotCreativeInterpretationAPIProviderError.requestSigningFailed
+        #endif
     }
 
     public static func decodeProviderResult(from data: Data) throws -> CreativeInterpretationProviderResult {
@@ -301,6 +371,13 @@ public struct LensPilotCreativeInterpretationAPIProvider: HealthGatedCreativeInt
         ["localhost", "127.0.0.1", "::1"].contains(host.lowercased())
     }
 
+    private static func normalizedSigningPath(_ path: String) -> String {
+        let cleaned = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        let withSlash = cleaned.hasPrefix("/") ? cleaned : "/\(cleaned)"
+        let trimmed = withSlash.replacingOccurrences(of: #"/+$"#, with: "", options: .regularExpression)
+        return trimmed.isEmpty ? "/" : trimmed
+    }
+
     private static func sanitizeError(_ value: String) -> String {
         let collapsed = redactSecretLikeTokens(value)
             .split(whereSeparator: \.isWhitespace)
@@ -325,6 +402,15 @@ public struct LensPilotCreativeInterpretationAPIProvider: HealthGatedCreativeInt
                 return String(token)
             }
             .joined(separator: " ")
+    }
+}
+
+private extension Data {
+    func base64URLEncodedString() -> String {
+        base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
     }
 }
 

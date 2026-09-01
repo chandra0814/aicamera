@@ -1,4 +1,5 @@
 import http from "node:http";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import {
   createLensPilotCreativeInterpretationApi,
@@ -18,6 +19,9 @@ export const lensPilotCreativeServerDefaults = {
   rateLimitMaxRequests: 30,
   metricsEnabled: true,
   maxMetricEvents: 100,
+  signedRequestsRequired: false,
+  signatureToleranceMs: 5 * 60 * 1000,
+  signatureReplayMaxEntries: 1000,
   productionMaxRequestBytes: 64 * 1024,
   productionMaxRequestsPerWindow: 120,
   requireProductionSafety: false,
@@ -40,6 +44,11 @@ export function createLensPilotCreativeHTTPServer(options = {}) {
     maxEvents: config.maxMetricEvents,
     nowMs,
   });
+  const replayGuard = options.replayGuard ?? createMemoryReplayGuard({
+    windowMs: config.signatureToleranceMs,
+    maxEntries: config.signatureReplayMaxEntries,
+    now: nowMs,
+  });
 
   return http.createServer(async (request, response) => {
     const result = await handleLensPilotCreativeHTTPRoute(request, {
@@ -47,6 +56,7 @@ export function createLensPilotCreativeHTTPServer(options = {}) {
       creativeApi,
       rateLimiter,
       telemetry,
+      replayGuard,
     });
     writeNodeResponse(response, result);
   });
@@ -65,6 +75,11 @@ export async function handleLensPilotCreativeHTTPRoute(requestLike, options = {}
     now: options.nowMs ?? Date.now,
   });
   const telemetry = options.telemetry;
+  const replayGuard = options.replayGuard ?? createMemoryReplayGuard({
+    windowMs: config.signatureToleranceMs,
+    maxEntries: config.signatureReplayMaxEntries,
+    now: options.nowMs ?? Date.now,
+  });
 
   const method = String(requestLike?.method ?? "GET").toUpperCase();
   const url = requestURL(requestLike, config);
@@ -77,7 +92,7 @@ export async function handleLensPilotCreativeHTTPRoute(requestLike, options = {}
     return jsonResponse(204, "", {
       ...corsHeaders,
       "access-control-allow-methods": "GET,POST,OPTIONS",
-      "access-control-allow-headers": "authorization,content-type,x-lenspilot-client",
+      "access-control-allow-headers": "authorization,content-type,x-lenspilot-client,x-lenspilot-request-id,x-lenspilot-timestamp,x-lenspilot-signature",
       "access-control-max-age": "600",
     });
   }
@@ -105,9 +120,15 @@ export async function handleLensPilotCreativeHTTPRoute(requestLike, options = {}
       apiVersion: lensPilotCreativeInterpretationApiDefaults.apiVersion,
       openAIConfigured: configured,
       clientAuthorizationConfigured: Boolean(config.clientAuthorizationConfigured),
+      clientSignatureConfigured: Boolean(config.clientSignatureConfigured),
+      signedRequestsRequired: Boolean(config.signedRequestsRequired),
       rateLimit: {
         windowMs: config.rateLimitWindowMs,
         maxRequests: config.rateLimitMaxRequests,
+      },
+      signedRequestPolicy: {
+        toleranceMs: config.signatureToleranceMs,
+        replayMaxEntries: config.signatureReplayMaxEntries,
       },
       requestBody: {
         maxBytes: config.maxRequestBytes,
@@ -206,6 +227,23 @@ export async function handleLensPilotCreativeHTTPRoute(requestLike, options = {}
     }, corsHeaders));
   }
 
+  const signedRequest = validateLensPilotSignedPhoneRequest({
+    method,
+    path,
+    headers,
+    body,
+    config,
+    replayGuard,
+  });
+  if (!signedRequest.allowed) {
+    return completeCreativeRoute(jsonResponse(signedRequest.status, {
+      error: {
+        code: signedRequest.code,
+        message: signedRequest.message,
+      },
+    }, corsHeaders));
+  }
+
   const creativeResult = await creativeApi.handle({
     method,
     headers,
@@ -254,6 +292,20 @@ function makeServerConfig(options, environment) {
     allowedOrigins: parseAllowedOrigins(options.allowedOrigins ?? environment.LENSPILOT_ALLOWED_ORIGINS),
     openAIAPIKeyConfigured: Boolean(cleanOptional(options.openAIAPIKey ?? environment.OPENAI_API_KEY)),
     clientAuthorizationConfigured: Boolean(cleanOptional(options.expectedClientToken ?? environment.LENSPILOT_CREATIVE_API_TOKEN)),
+    clientSigningSecret: cleanOptional(options.clientSigningSecret ?? environment.LENSPILOT_CLIENT_SIGNING_SECRET),
+    clientSignatureConfigured: Boolean(cleanOptional(options.clientSigningSecret ?? environment.LENSPILOT_CLIENT_SIGNING_SECRET)),
+    signedRequestsRequired: parseBooleanOption(
+      options.signedRequestsRequired ?? environment.LENSPILOT_REQUIRE_SIGNED_PHONE_REQUESTS,
+      lensPilotCreativeServerDefaults.signedRequestsRequired
+    ),
+    signatureToleranceMs: parseIntegerOption(
+      options.signatureToleranceMs ?? environment.LENSPILOT_SIGNATURE_TOLERANCE_MS,
+      lensPilotCreativeServerDefaults.signatureToleranceMs
+    ),
+    signatureReplayMaxEntries: parseIntegerOption(
+      options.signatureReplayMaxEntries ?? environment.LENSPILOT_SIGNATURE_REPLAY_MAX_ENTRIES,
+      lensPilotCreativeServerDefaults.signatureReplayMaxEntries
+    ),
     metricsEnabled: parseBooleanOption(
       options.metricsEnabled ?? environment.LENSPILOT_ENABLE_METRICS,
       lensPilotCreativeServerDefaults.metricsEnabled
@@ -286,10 +338,20 @@ export function describeLensPilotCreativeServerConfig(options = {}) {
     },
     openAIConfigured: Boolean(config.openAIAPIKeyConfigured),
     clientAuthorizationConfigured: Boolean(config.clientAuthorizationConfigured),
+    clientSignatureConfigured: Boolean(config.clientSignatureConfigured),
+    signedRequestsRequired: Boolean(config.signedRequestsRequired),
     metricsAuthorizationConfigured: Boolean(config.metricsAuthorizationConfigured),
     rateLimit: {
       windowMs: config.rateLimitWindowMs,
       maxRequests: config.rateLimitMaxRequests,
+    },
+    signedRequestPolicy: {
+      required: Boolean(config.signedRequestsRequired),
+      toleranceMs: config.signatureToleranceMs,
+      replayMaxEntries: config.signatureReplayMaxEntries,
+      storesRawRequestBody: false,
+      storesSignatureSecret: false,
+      storesRawRequestId: false,
     },
     requestBody: {
       maxBytes: config.maxRequestBytes,
@@ -326,6 +388,12 @@ function makeProductionSafetyReport(config) {
       passed: config.clientAuthorizationConfigured,
       required: config.requireProductionSafety,
       message: "Phone bearer authorization is configured with LENSPILOT_CREATIVE_API_TOKEN.",
+    }),
+    makeProductionSafetyCheck({
+      id: "signed_phone_requests",
+      passed: config.clientSignatureConfigured && config.signedRequestsRequired,
+      required: config.requireProductionSafety,
+      message: "Signed phone requests are required and configured with LENSPILOT_CLIENT_SIGNING_SECRET.",
     }),
     makeProductionSafetyCheck({
       id: "cors_origin_policy",
@@ -410,6 +478,9 @@ export function createLensPilotCreativeOperationalTelemetry(options = {}) {
     unsafeRequests: 0,
     rateLimitedRequests: 0,
     oversizedRequests: 0,
+    signedRequestFailures: 0,
+    staleSignedRequests: 0,
+    replayedSignedRequests: 0,
     billingBlockedProviderRequests: 0,
     retryableProviderFailures: 0,
   };
@@ -439,6 +510,9 @@ export function createLensPilotCreativeOperationalTelemetry(options = {}) {
         if (safeEvent.errorCode === "unsafe_request") counters.unsafeRequests += 1;
         if (safeEvent.errorCode === "rate_limited") counters.rateLimitedRequests += 1;
         if (safeEvent.errorCode === "request_body_too_large") counters.oversizedRequests += 1;
+        if (isSignedRequestFailureCode(safeEvent.errorCode)) counters.signedRequestFailures += 1;
+        if (safeEvent.errorCode === "stale_signature") counters.staleSignedRequests += 1;
+        if (safeEvent.errorCode === "replayed_request") counters.replayedSignedRequests += 1;
         if (safeEvent.errorCode.startsWith("openai_")) counters.providerErrors += 1;
       }
       if (Number.isFinite(safeEvent.providerStatus)) {
@@ -570,6 +644,238 @@ function incrementCounter(record, key) {
 
 function sortRecordByKey(record) {
   return Object.fromEntries(Object.entries(record).sort(([left], [right]) => left.localeCompare(right)));
+}
+
+function isSignedRequestFailureCode(code) {
+  return [
+    "signed_request_required",
+    "signed_request_unconfigured",
+    "invalid_signature_headers",
+    "invalid_signature",
+    "stale_signature",
+    "replayed_request",
+  ].includes(code);
+}
+
+export function makeLensPilotPhoneRequestSignature({
+  secret,
+  method,
+  path,
+  timestamp,
+  requestId,
+  body,
+}) {
+  const cleanedSecret = cleanOptional(secret);
+  const cleanedRequestId = cleanSignatureRequestId(requestId);
+  const cleanedTimestamp = cleanSignatureTimestamp(timestamp);
+  if (!cleanedSecret || !cleanedRequestId || !cleanedTimestamp) {
+    throw new Error("invalid_lenspilot_signature_input");
+  }
+
+  const canonical = makeLensPilotPhoneRequestSignatureCanonicalString({
+    method,
+    path,
+    timestamp: cleanedTimestamp,
+    requestId: cleanedRequestId,
+    body,
+  });
+  const digest = createHmac("sha256", cleanedSecret)
+    .update(canonical)
+    .digest();
+
+  return `v1=${toBase64URL(digest)}`;
+}
+
+function validateLensPilotSignedPhoneRequest({
+  method,
+  path,
+  headers,
+  body,
+  config,
+  replayGuard,
+}) {
+  const signature = headerValue(headers, "x-lenspilot-signature");
+  const timestamp = headerValue(headers, "x-lenspilot-timestamp");
+  const requestId = headerValue(headers, "x-lenspilot-request-id");
+  const hasSignatureHeaders = Boolean(signature || timestamp || requestId);
+
+  if (!config.signedRequestsRequired && !hasSignatureHeaders) {
+    return { allowed: true };
+  }
+  if (!config.clientSigningSecret) {
+    return {
+      allowed: false,
+      status: 503,
+      code: "signed_request_unconfigured",
+      message: "Creative API signed request verification is not configured.",
+    };
+  }
+  if (!signature || !timestamp || !requestId) {
+    return {
+      allowed: false,
+      status: 401,
+      code: "signed_request_required",
+      message: "Creative API requires a signed phone request.",
+    };
+  }
+
+  const cleanedRequestId = cleanSignatureRequestId(requestId);
+  const cleanedTimestamp = cleanSignatureTimestamp(timestamp);
+  const actualSignature = cleanSignatureHeader(signature);
+  if (!cleanedRequestId || !cleanedTimestamp || !actualSignature) {
+    return {
+      allowed: false,
+      status: 401,
+      code: "invalid_signature_headers",
+      message: "Creative API signed request headers are invalid.",
+    };
+  }
+
+  const timestampMs = signatureTimestampToMilliseconds(cleanedTimestamp);
+  const now = typeof replayGuard.now === "function" ? replayGuard.now() : Date.now();
+  if (Math.abs(now - timestampMs) > config.signatureToleranceMs) {
+    return {
+      allowed: false,
+      status: 401,
+      code: "stale_signature",
+      message: "Creative API signed request is outside the allowed time window.",
+    };
+  }
+
+  const expectedSignature = makeLensPilotPhoneRequestSignature({
+    secret: config.clientSigningSecret,
+    method,
+    path,
+    timestamp: cleanedTimestamp,
+    requestId: cleanedRequestId,
+    body,
+  });
+  if (!secureEqualSignature(actualSignature, expectedSignature)) {
+    return {
+      allowed: false,
+      status: 401,
+      code: "invalid_signature",
+      message: "Creative API signed request verification failed.",
+    };
+  }
+
+  const replayKey = makeSignatureReplayKey(cleanedRequestId, actualSignature);
+  const replay = replayGuard.take(replayKey, timestampMs + config.signatureToleranceMs);
+  if (!replay.allowed) {
+    return {
+      allowed: false,
+      status: 401,
+      code: "replayed_request",
+      message: "Creative API signed request was already used.",
+    };
+  }
+
+  return { allowed: true };
+}
+
+function makeLensPilotPhoneRequestSignatureCanonicalString({
+  method,
+  path,
+  timestamp,
+  requestId,
+  body,
+}) {
+  return [
+    "v1",
+    String(method ?? "GET").toUpperCase(),
+    normalizeSignaturePath(path),
+    String(timestamp),
+    String(requestId),
+    sha256Hex(body ?? ""),
+  ].join("\n");
+}
+
+function secureEqualSignature(actual, expected) {
+  const actualToken = actual.replace(/^v1=/, "");
+  const expectedToken = expected.replace(/^v1=/, "");
+  const actualBuffer = Buffer.from(actualToken);
+  const expectedBuffer = Buffer.from(expectedToken);
+  return actualBuffer.length === expectedBuffer.length &&
+    timingSafeEqual(actualBuffer, expectedBuffer);
+}
+
+function cleanSignatureHeader(value) {
+  const cleaned = cleanOptional(value);
+  if (!cleaned || !/^v1=[A-Za-z0-9_-]{32,128}$/.test(cleaned)) return undefined;
+  return cleaned;
+}
+
+function cleanSignatureRequestId(value) {
+  const cleaned = cleanOptional(value);
+  if (!cleaned || !/^[A-Za-z0-9_.:-]{8,128}$/.test(cleaned)) return undefined;
+  return cleaned;
+}
+
+function cleanSignatureTimestamp(value) {
+  const cleaned = cleanOptional(String(value ?? ""));
+  if (!cleaned || !/^\d{10,17}$/.test(cleaned)) return undefined;
+  return cleaned;
+}
+
+function signatureTimestampToMilliseconds(timestamp) {
+  const numeric = Number.parseInt(timestamp, 10);
+  return timestamp.length <= 10 ? numeric * 1000 : numeric;
+}
+
+function normalizeSignaturePath(path) {
+  const cleaned = cleanOptional(path);
+  if (!cleaned) return "/";
+  const withoutQuery = cleaned.split("?")[0];
+  const withSlash = withoutQuery.startsWith("/") ? withoutQuery : `/${withoutQuery}`;
+  return withSlash.replace(/\/+$/, "") || "/";
+}
+
+function makeSignatureReplayKey(requestId, signature) {
+  return sha256Hex(`${requestId}\n${signature}`).slice(0, 64);
+}
+
+function sha256Hex(value) {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function toBase64URL(buffer) {
+  return Buffer.from(buffer)
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+}
+
+function createMemoryReplayGuard({ windowMs, maxEntries, now }) {
+  const seen = new Map();
+  const safeWindowMs = Math.max(1_000, windowMs);
+  const safeMaxEntries = Math.max(1, Math.min(50_000, maxEntries));
+
+  return {
+    now() {
+      return now();
+    },
+    take(key, expiresAt) {
+      const checkedAt = now();
+      for (const [storedKey, storedExpiresAt] of seen) {
+        if (storedExpiresAt <= checkedAt) {
+          seen.delete(storedKey);
+        }
+      }
+
+      if (seen.has(key)) {
+        return { allowed: false };
+      }
+
+      seen.set(key, Math.max(checkedAt + safeWindowMs, expiresAt));
+      while (seen.size > safeMaxEntries) {
+        const oldestKey = seen.keys().next().value;
+        seen.delete(oldestKey);
+      }
+
+      return { allowed: true };
+    },
+  };
 }
 
 function createMemoryRateLimiter({ windowMs, maxRequests, now }) {

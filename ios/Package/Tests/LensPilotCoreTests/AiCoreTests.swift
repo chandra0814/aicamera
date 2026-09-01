@@ -1358,6 +1358,47 @@ final class AiCoreTests: XCTestCase {
         XCTAssertFalse(bodyText.contains("sk-proj"))
     }
 
+    func testLensPilotCreativeAPIProviderSignsBackendRequestsWhenConfigured() throws {
+        let (creativePlan, healthSnapshot) = try makeCreativeInterpretationFixture()
+        let request = try CreativeInterpretationRequest(plan: creativePlan, maxResponseWords: 80)
+        let healthGate = CreativeInterpretationProviderHealthGate.make(
+            for: request,
+            healthSnapshot: healthSnapshot
+        )
+        let provider = try LensPilotCreativeInterpretationAPIProvider(
+            apiURL: URL(string: "https://api.lenspilot.example/v1/creative-interpretation")!,
+            clientToken: "client-token",
+            signingSecret: "client-signing-secret",
+            clock: { Date(timeIntervalSince1970: 1_786_000_000) },
+            requestIDGenerator: { "signed-swift-test-001" },
+            transport: LensPilotCreativeAPIRequestRecorder(data: Data()).transport
+        )
+
+        let urlRequest = try provider.makeURLRequest(for: request, healthGate: healthGate)
+        let body = try XCTUnwrap(urlRequest.httpBody)
+        let expectedSignature = try LensPilotCreativeInterpretationAPIProvider.makeRequestSignature(
+            secret: "client-signing-secret",
+            method: "POST",
+            path: "/v1/creative-interpretation",
+            timestampMilliseconds: 1_786_000_000_000,
+            requestID: "signed-swift-test-001",
+            body: body
+        )
+
+        XCTAssertEqual(urlRequest.value(forHTTPHeaderField: "X-LensPilot-Request-Id"), "signed-swift-test-001")
+        XCTAssertEqual(urlRequest.value(forHTTPHeaderField: "X-LensPilot-Timestamp"), "1786000000000")
+        XCTAssertEqual(urlRequest.value(forHTTPHeaderField: "X-LensPilot-Signature"), expectedSignature)
+        XCTAssertTrue(expectedSignature.hasPrefix("v1="))
+        XCTAssertFalse(expectedSignature.dropFirst(3).contains("="), "Base64url signatures should omit padding.")
+
+        let bodyText = try XCTUnwrap(String(data: body, encoding: .utf8))
+        XCTAssertFalse(bodyText.contains("client-signing-secret"))
+        XCTAssertFalse(bodyText.contains("signed-swift-test-001"))
+        XCTAssertFalse(urlRequest.allHTTPHeaderFields?.description.contains("OPENAI_API_KEY") == true)
+        XCTAssertFalse(urlRequest.value(forHTTPHeaderField: "Authorization")?.contains("sk-") == true)
+        XCTAssertFalse(urlRequest.value(forHTTPHeaderField: "X-LensPilot-Signature")?.contains("client-signing-secret") == true)
+    }
+
     func testLensPilotCreativeAPIProviderSurfacesSanitizedProviderErrors() async throws {
         let (creativePlan, healthSnapshot) = try makeCreativeInterpretationFixture()
         let request = try CreativeInterpretationRequest(plan: creativePlan, maxResponseWords: 80)
@@ -1446,7 +1487,8 @@ final class AiCoreTests: XCTestCase {
     func testLensPilotCreativeAPIProviderConfiguredFromEnvironmentPrefersSecureBackend() {
         XCTAssertNotNil(LensPilotCreativeInterpretationAPIProvider.configuredFromEnvironment([
             "LENSPILOT_CREATIVE_API_URL": "https://api.lenspilot.example/v1/creative-interpretation",
-            "LENSPILOT_CREATIVE_API_TOKEN": "client-token"
+            "LENSPILOT_CREATIVE_API_TOKEN": "client-token",
+            "LENSPILOT_CREATIVE_API_SIGNING_SECRET": "client-signing-secret"
         ]))
         XCTAssertNotNil(LensPilotCreativeInterpretationAPIProvider.configuredFromEnvironment([
             "LENSPILOT_CREATIVE_API_URL": "http://localhost:8787/v1/creative-interpretation"
@@ -1463,7 +1505,8 @@ final class AiCoreTests: XCTestCase {
         ))
         XCTAssertNotNil(LensPilotCreativeInterpretationAPIProvider.configured(
             apiURLValue: "https://api.lenspilot.example/v1/creative-interpretation",
-            clientTokenValue: "$(LENSPILOT_CREATIVE_API_TOKEN)"
+            clientTokenValue: "$(LENSPILOT_CREATIVE_API_TOKEN)",
+            signingSecretValue: "$(LENSPILOT_CREATIVE_API_SIGNING_SECRET)"
         ))
         XCTAssertNil(LensPilotCreativeInterpretationAPIProvider.configured(
             apiURLValue: "http://api.lenspilot.example/v1/creative-interpretation",
