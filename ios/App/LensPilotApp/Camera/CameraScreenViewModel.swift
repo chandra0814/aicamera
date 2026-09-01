@@ -970,6 +970,7 @@ final class CameraScreenViewModel: ObservableObject {
                     .insecureAPIURL,
                     .missingHealthGate,
                     .requestEncodingFailed,
+                    .requestSigningFailed,
                     .invalidHTTPStatus(_),
                     .apiError(_),
                     .incompleteResponse(_),
@@ -1034,6 +1035,8 @@ final class CameraScreenViewModel: ObservableObject {
                 return "Unsafe creative API payload"
             case .requestEncodingFailed:
                 return "Creative API request could not be prepared"
+            case .requestSigningFailed:
+                return "Creative API request protection could not be prepared"
             case let .invalidHTTPStatus(statusCode):
                 return "Creative API request failed (\(statusCode))"
             case .apiError(_):
