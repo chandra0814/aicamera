@@ -20,6 +20,7 @@ const requiredKeys = [
   "LENSPILOT_METRICS_TOKEN",
   "LENSPILOT_MAX_METRIC_EVENTS",
   "LENSPILOT_REQUIRE_PRODUCTION_SAFETY",
+  "LENSPILOT_ENDPOINT_CHECK_TIMEOUT_MS",
   "LENSPILOT_CREATIVE_API_TOKEN",
   "LENSPILOT_CLIENT_SIGNING_SECRET",
   "LENSPILOT_REQUIRE_SIGNED_PHONE_REQUESTS",
@@ -49,6 +50,7 @@ assert(readPositiveInteger("LENSPILOT_RATE_LIMIT_MAX") <= 120, "Rate-limit max m
 assert(readPositiveInteger("LENSPILOT_SIGNATURE_TOLERANCE_MS") <= 300000, "Signature tolerance should not exceed five minutes.");
 assert(readPositiveInteger("LENSPILOT_SIGNATURE_REPLAY_MAX_ENTRIES") <= 1000, "Replay cache example should stay bounded.");
 assert(readPositiveInteger("LENSPILOT_MAX_METRIC_EVENTS") <= 500, "Metric event retention example should stay bounded.");
+assert(readPositiveInteger("LENSPILOT_ENDPOINT_CHECK_TIMEOUT_MS") <= 30000, "Endpoint check timeout example should stay bounded.");
 
 const secretLookingValues = [...envExample.entries()]
   .filter(([, value]) => /sk-[A-Za-z0-9_-]+|sk-proj-[A-Za-z0-9_-]+|client-token|metrics-token|signing-secret/i.test(value));

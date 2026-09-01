@@ -24,6 +24,7 @@ This implementation completes the MVP AI control skeleton, not the final product
 - Deployable Creative API Runtime: `backend/server.mjs` exposes `/health`, `/ready`, and `/v1/creative-interpretation` on plain Node with request body caps, optional CORS allow-listing, optional phone bearer authorization, and local in-memory rate limiting.
 - Creative API Production Preflight: `/ready` can now enforce `LENSPILOT_REQUIRE_PRODUCTION_SAFETY=true`, and `npm run preflight:production` validates server OpenAI configuration, phone bearer authorization, signed phone requests, metrics authorization, CORS policy, request caps, rate limits, and the single-phone privacy boundary without exposing secrets.
 - Creative API Config Template Guard: backend tests now validate `.env.example` for every server/iOS Creative API key, blank secret placeholders, production-safe default caps, signed-request settings, metrics settings, and the full iOS API route path.
+- Creative API Production Endpoint Check: `npm run check:production-endpoint` verifies a deployed backend's `/health`, `/ready`, and optional `/metrics` posture without sending prompts or calling OpenAI, and fails if production safety, signed requests, metrics protection, CORS, limits, or single-phone privacy regress.
 - Signed Phone Request Auth: the iOS Creative API provider can now add timestamped HMAC request signatures, and the backend can require them with replay protection so copied or stale phone requests are rejected before provider use.
 - Safe Operational Telemetry: `GET /metrics` now reports aggregate Creative API status counts, error-code counts, provider status counts, and bounded recent events without storing or returning request bodies, prompts, client IPs, authorization headers, raw photos, identity data, precise location, or raw learning events.
 - Creative API provider failures now return sanitized diagnostic metadata, including exhausted-credit classification, provider HTTP status, retryability, and billing-blocked flags, without exposing secrets or raw provider payloads to the phone.
@@ -70,7 +71,7 @@ This implementation completes the MVP AI control skeleton, not the final product
 - No trained aesthetic model yet.
 - No completed real iPhone target-match calibration dataset yet; the bundled seed manifest currently reports `needs_more_samples` until 24 reviewed real captures are imported.
 - No Core ML/TFLite production model bundle yet.
-- No deployed production Creative API host, Apple App Attest verification, managed edge rate limiting, durable monitoring sink, or key-rotation runbook yet; the backend now includes production-safety preflight, signed request enforcement, replay protection, and safe in-memory telemetry before deployment.
+- No deployed production Creative API host, Apple App Attest verification, managed edge rate limiting, durable monitoring sink, or key-rotation runbook yet; the backend now includes production-safety preflight, signed request enforcement, replay protection, safe in-memory telemetry, and a deployed-endpoint posture check before deployment.
 - No generative preview engine yet.
 - No embedding sync or cloud personalization sync yet.
 - No live production monitoring, endpoint health checks, or provider-specific quality analytics for public inspiration yet.
@@ -85,4 +86,4 @@ LensPilot must remain a reliable camera first. A deterministic AI core lets us p
 1. Collect real portrait, landscape, sky, clutter, backlight, horizon, motion, and night samples from iPhone captures.
 2. Use the calibration readiness report and AI Diagnostics to confirm all 24 reviewed captures satisfy the required domains, scenarios, and blind-review minimum.
 3. Tune benchmark thresholds, sub-score weights, and guidance-priority boosts against blind preference tests now that the app can load the manifest at runtime.
-4. Deploy the Creative API runtime with `LENSPILOT_REQUIRE_PRODUCTION_SAFETY=true` and signed request enforcement, then add Apple App Attest verification, managed endpoint checks, edge rate limits, provider-specific quality analytics, and key-rotation operations.
+4. Deploy the Creative API runtime with `LENSPILOT_REQUIRE_PRODUCTION_SAFETY=true` and signed request enforcement, run `npm run check:production-endpoint` against the deployed route, then add Apple App Attest verification, managed edge rate limits, provider-specific quality analytics, and key-rotation operations.

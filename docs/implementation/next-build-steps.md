@@ -61,6 +61,7 @@
 - The iOS Creative API provider can sign same-phone backend requests with `LENSPILOT_CREATIVE_API_SIGNING_SECRET`, and the backend can require matching timestamped HMAC signatures with replay protection through `LENSPILOT_CLIENT_SIGNING_SECRET` and `LENSPILOT_REQUIRE_SIGNED_PHONE_REQUESTS=true`.
 - The Creative API now exposes safe aggregate operational telemetry at `GET /metrics`, with bounded recent events and explicit no-retention flags for request bodies, prompt text, client IPs, auth headers, photos, identity data, precise location, and raw learning events.
 - `.env.example` now includes the full backend and iOS Creative API configuration surface, and backend tests fail if production-safety, signed-request, metrics, or phone-facing API keys drift out of the template.
+- `npm run check:production-endpoint` now verifies deployed `/health`, `/ready`, and optional `/metrics` posture without sending prompts or calling OpenAI, and fails closed if production safety, signed requests, CORS, limits, or single-phone privacy regress.
 - The iOS app now prefers `LENSPILOT_CREATIVE_API_URL` through `LensPilotCreativeInterpretationAPIProvider` from environment or app bundle build settings; direct OpenAI calls require the explicit local-development flag `LENSPILOT_ALLOW_DIRECT_OPENAI_PROVIDER=true`.
 - Target Match calibration readiness now reports reviewed real-capture counts, missing domains, and missing scenarios so production calibration cannot be mistaken for seed-fixture coverage.
 - AI Diagnostics now includes an in-app calibration readiness checklist with missing domains, missing scenarios, and a one-tap action that selects the next capture scenario on the same phone.
@@ -89,6 +90,7 @@
 - Production Creative API readiness can be made fail-closed before deployment by setting `LENSPILOT_REQUIRE_PRODUCTION_SAFETY=true`; readiness metadata remains safe and does not expose OpenAI keys or phone bearer tokens.
 - Signed Creative API request auth rejects missing, stale, invalid, and replayed same-phone calls before provider use; replay storage keeps bounded hashes only, not raw request bodies, prompts, photos, or request ids.
 - Creative API metrics can be disabled or protected with `LENSPILOT_METRICS_TOKEN`; production readiness requires metrics authorization whenever metrics are enabled.
+- Production endpoint checks use safe GET probes only and do not submit creative prompts, private references, live frames, learning events, or OpenAI credentials.
 - On iOS, learned profile persistence prefers Keychain encrypted, this-device-only storage and removes legacy UserDefaults bytes after migration or save.
 - Capture feedback records structured ratings, guidance outcomes, and selected correction reasons only; it does not store the captured photo as a learning event.
 - After-capture coaching uses score summaries and ranked-shot metadata only; it does not store or upload raw photos.

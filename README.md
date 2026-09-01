@@ -29,3 +29,12 @@ npm test
 ```
 
 The backend test also validates `.env.example` so production-safety settings, signed-request settings, metrics settings, and iOS API settings stay documented without sample secrets.
+
+After deployment, verify the live backend posture with:
+
+```bash
+cd backend
+npm run check:production-endpoint
+```
+
+The endpoint check reads `LENSPILOT_CREATIVE_API_URL`, probes `/health` and `/ready`, optionally probes `/metrics` when `LENSPILOT_METRICS_TOKEN` is available, and returns only safe pass/fail metadata.

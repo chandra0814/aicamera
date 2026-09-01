@@ -46,6 +46,17 @@ npm run preflight:production
 
 The preflight prints only safe configuration metadata and exits non-zero when production safety checks fail. It never prints the OpenAI key, phone bearer token, metrics bearer token, or signing secret.
 
+## Production Endpoint Check
+
+After deployment, set `LENSPILOT_CREATIVE_API_URL` to the phone-facing route and run:
+
+```bash
+cd backend
+npm run check:production-endpoint
+```
+
+The checker performs safe `GET` probes against `/health` and `/ready`, then checks that production safety is enforced, phone authorization is configured, signed requests are required, request/rate limits are bounded, wildcard CORS is blocked, and the single-phone privacy boundary is still reported. If `LENSPILOT_METRICS_TOKEN` is present, it also probes `/metrics` and verifies the telemetry retention boundary. It never sends a creative prompt or calls OpenAI.
+
 ## Metrics
 
 `GET /metrics` returns aggregate operational telemetry for the Creative API: response counts, status counts, safe error-code counts, provider status counts, and bounded recent events. It does not store or return request bodies, prompt text, client IPs, authorization headers, raw photos, identity data, precise location, or raw learning events.
@@ -71,7 +82,7 @@ npm test
 
 The validation starts the server on a random local port, checks health/readiness/CORS, verifies client authorization, verifies signed request and replay protection, exercises the creative route with a fake OpenAI transport, confirms rate limiting, validates production-safety readiness failures, and checks safe operational telemetry. It does not require a real OpenAI key.
 
-The backend test also validates the root `.env.example` template. It requires every server/iOS Creative API configuration key, keeps placeholder secrets blank, verifies the iOS URL points at `/v1/creative-interpretation`, and checks that example request caps, rate limits, signature windows, replay cache size, and telemetry retention remain production-safe.
+The backend test also validates the root `.env.example` template and the production endpoint checker. It requires every server/iOS Creative API configuration key, keeps placeholder secrets blank, verifies the iOS URL points at `/v1/creative-interpretation`, and checks that example request caps, rate limits, signature windows, replay cache size, endpoint-check timeout, and telemetry retention remain production-safe.
 
 ## Provider Errors
 
