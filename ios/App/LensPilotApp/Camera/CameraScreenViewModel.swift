@@ -1012,7 +1012,7 @@ final class CameraScreenViewModel: ObservableObject {
             case let .invalidHTTPStatus(statusCode):
                 return "OpenAI request failed (\(statusCode))"
             case .apiError(_):
-                return "OpenAI response failed"
+                return providerError.safeDiagnosticMessage
             case .incompleteResponse(_):
                 return "OpenAI response incomplete"
             case .missingOutputText, .invalidProviderJSON:
@@ -1037,7 +1037,7 @@ final class CameraScreenViewModel: ObservableObject {
             case let .invalidHTTPStatus(statusCode):
                 return "Creative API request failed (\(statusCode))"
             case .apiError(_):
-                return "Creative API response failed"
+                return apiProviderError.safeDiagnosticMessage
             case .incompleteResponse(_):
                 return "Creative API response incomplete"
             case .missingResult, .invalidProviderJSON:

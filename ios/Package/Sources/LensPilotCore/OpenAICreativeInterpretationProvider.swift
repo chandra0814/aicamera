@@ -15,6 +15,52 @@ public enum OpenAICreativeInterpretationProviderError: Error, Equatable, Sendabl
     case invalidProviderJSON
 }
 
+public extension OpenAICreativeInterpretationProviderError {
+    var safeDiagnosticMessage: String {
+        switch self {
+        case .missingAPIKey:
+            return "OpenAI API key unavailable"
+        case .unsafeRequest:
+            return "Unsafe creative payload"
+        case .requestEncodingFailed:
+            return "Creative request could not be prepared"
+        case let .invalidHTTPStatus(statusCode):
+            return statusCode == 429 ? "OpenAI rate or quota unavailable" : "OpenAI request failed (\(statusCode))"
+        case let .apiError(message):
+            if Self.isBillingBlockedMessage(message) {
+                return "OpenAI credits exhausted"
+            }
+            if message.contains("rate_limit") || message.contains("retryable") {
+                return "OpenAI rate-limited"
+            }
+            if message.contains("authorization") || message.contains("invalid_api_key") {
+                return "OpenAI authorization failed"
+            }
+            if message.contains("model_not_found") || message.contains("model_unavailable") {
+                return "OpenAI model unavailable"
+            }
+            return "OpenAI response failed"
+        case .incompleteResponse(_):
+            return "OpenAI response incomplete"
+        case .missingOutputText, .invalidProviderJSON:
+            return "OpenAI response could not be read"
+        }
+    }
+
+    var isProviderBillingBlocked: Bool {
+        guard case let .apiError(message) = self else { return false }
+
+        return Self.isBillingBlockedMessage(message)
+    }
+
+    private static func isBillingBlockedMessage(_ message: String) -> Bool {
+        message.contains("openai_credit_balance_exhausted")
+            || message.contains("credit_balance_exhausted")
+            || message.contains("insufficient_quota")
+            || message.contains("billing_blocked")
+    }
+}
+
 public struct OpenAIReasoningHTTPResponse: Equatable, Sendable {
     public let data: Data
     public let statusCode: Int
@@ -97,6 +143,9 @@ public struct OpenAICreativeInterpretationProvider: CreativeInterpretationReason
         let urlRequest = try makeURLRequest(for: request)
         let response = try await transport(urlRequest)
         guard (200..<300).contains(response.statusCode) else {
+            if let apiError = Self.decodeAPIError(from: response.data, statusCode: response.statusCode) {
+                throw apiError
+            }
             throw OpenAICreativeInterpretationProviderError.invalidHTTPStatus(response.statusCode)
         }
 
@@ -169,9 +218,7 @@ public struct OpenAICreativeInterpretationProvider: CreativeInterpretationReason
         }
 
         if let apiError = envelope.error {
-            throw OpenAICreativeInterpretationProviderError.apiError(
-                sanitizeError("\(apiError.code ?? "api_error"): \(apiError.message ?? "OpenAI response failed")")
-            )
+            throw makeAPIError(from: apiError, statusCode: nil)
         }
 
         if let status = envelope.status, status != "completed" {
@@ -193,6 +240,39 @@ public struct OpenAICreativeInterpretationProvider: CreativeInterpretationReason
         return CreativeInterpretationProviderResult(
             headline: decoded.headline,
             guidance: decoded.guidance
+        )
+    }
+
+    private static func decodeAPIError(from data: Data, statusCode: Int) -> OpenAICreativeInterpretationProviderError? {
+        guard let envelope = try? JSONDecoder().decode(ResponsesEnvelope.self, from: data),
+              let apiError = envelope.error else {
+            return nil
+        }
+
+        return makeAPIError(from: apiError, statusCode: statusCode)
+    }
+
+    private static func makeAPIError(
+        from apiError: ResponsesEnvelope.APIError,
+        statusCode: Int?
+    ) -> OpenAICreativeInterpretationProviderError {
+        let code = safeProviderErrorToken(apiError.code)
+        let type = safeProviderErrorToken(apiError.type)
+        var safeParts = [code ?? "api_error"]
+        if let statusCode {
+            safeParts.append("provider_status_\(statusCode)")
+        }
+        if let type {
+            safeParts.append(type)
+        }
+        if statusCode == 429 && (code == "credit_balance_exhausted" || type == "insufficient_quota") {
+            safeParts.insert("openai_credit_balance_exhausted", at: 0)
+            safeParts.append("billing_blocked")
+        }
+        safeParts.append(apiError.message ?? "OpenAI response failed")
+
+        return OpenAICreativeInterpretationProviderError.apiError(
+            sanitizeError(safeParts.joined(separator: ": "))
         )
     }
 
@@ -266,11 +346,43 @@ public struct OpenAICreativeInterpretationProvider: CreativeInterpretationReason
     }
 
     private static func sanitizeError(_ value: String) -> String {
-        let collapsed = value
+        let collapsed = redactSecretLikeTokens(value)
             .split(whereSeparator: \.isWhitespace)
             .joined(separator: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return String(collapsed.prefix(180))
+    }
+
+    private static func redactSecretLikeTokens(_ value: String) -> String {
+        value
+            .split(whereSeparator: \.isWhitespace)
+            .map { token -> String in
+                let normalized = token.lowercased()
+                if normalized.contains("openai_api_key")
+                    || normalized.hasPrefix("sk-")
+                    || normalized.contains("=sk-")
+                    || normalized.contains(":sk-")
+                    || normalized.contains("sk-proj-") {
+                    return "[redacted]"
+                }
+
+                return String(token)
+            }
+            .joined(separator: " ")
+    }
+
+    private static func safeProviderErrorToken(_ value: String?) -> String? {
+        let token = value?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .map { character -> Character in
+                character.isLetter || character.isNumber || character == "_" || character == "." || character == "-"
+                    ? character
+                    : "_"
+            }
+        guard let token = token, !token.isEmpty else { return nil }
+
+        return String(token.prefix(80))
     }
 }
 
@@ -307,8 +419,10 @@ private struct ResponsesEnvelope: Decodable {
     }
 
     struct APIError: Decodable {
+        let type: String?
         let code: String?
         let message: String?
+        let param: String?
     }
 }
 

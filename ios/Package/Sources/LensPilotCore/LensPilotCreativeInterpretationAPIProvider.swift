@@ -19,6 +19,58 @@ public enum LensPilotCreativeInterpretationAPIProviderError: Error, Equatable, S
     case invalidProviderJSON
 }
 
+public extension LensPilotCreativeInterpretationAPIProviderError {
+    var safeDiagnosticMessage: String {
+        switch self {
+        case .missingAPIURL:
+            return "Creative API URL unavailable"
+        case .invalidAPIURL:
+            return "Creative API URL invalid"
+        case .insecureAPIURL:
+            return "Creative API must use HTTPS"
+        case .missingHealthGate:
+            return "Creative API request is not health-gated"
+        case .unsafeRequest, .unsafeHealthGate:
+            return "Unsafe creative API payload"
+        case .requestEncodingFailed:
+            return "Creative API request could not be prepared"
+        case let .invalidHTTPStatus(statusCode):
+            return statusCode == 429 ? "Creative provider is rate-limited" : "Creative API request failed (\(statusCode))"
+        case let .apiError(message):
+            if Self.isBillingBlockedMessage(message) {
+                return "OpenAI credits exhausted"
+            }
+            if message.contains("openai_rate_limited") || message.contains("retryable") {
+                return "Creative provider is rate-limited"
+            }
+            if message.contains("openai_authorization_failed") {
+                return "Creative API authorization failed"
+            }
+            if message.contains("openai_model_unavailable") {
+                return "Creative provider model unavailable"
+            }
+            return "Creative API response failed"
+        case .incompleteResponse(_):
+            return "Creative API response incomplete"
+        case .missingResult, .invalidProviderJSON:
+            return "Creative API response could not be read"
+        }
+    }
+
+    var isProviderBillingBlocked: Bool {
+        guard case let .apiError(message) = self else { return false }
+
+        return Self.isBillingBlockedMessage(message)
+    }
+
+    private static func isBillingBlockedMessage(_ message: String) -> Bool {
+        message.contains("openai_credit_balance_exhausted")
+            || message.contains("credit_balance_exhausted")
+            || message.contains("insufficient_quota")
+            || message.contains("billing_blocked")
+    }
+}
+
 public struct LensPilotCreativeAPIHTTPResponse: Equatable, Sendable {
     public let data: Data
     public let statusCode: Int
@@ -250,11 +302,29 @@ public struct LensPilotCreativeInterpretationAPIProvider: HealthGatedCreativeInt
     }
 
     private static func sanitizeError(_ value: String) -> String {
-        let collapsed = value
+        let collapsed = redactSecretLikeTokens(value)
             .split(whereSeparator: \.isWhitespace)
             .joined(separator: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return String(collapsed.prefix(180))
+    }
+
+    private static func redactSecretLikeTokens(_ value: String) -> String {
+        value
+            .split(whereSeparator: \.isWhitespace)
+            .map { token -> String in
+                let normalized = token.lowercased()
+                if normalized.contains("openai_api_key")
+                    || normalized.hasPrefix("sk-")
+                    || normalized.contains("=sk-")
+                    || normalized.contains(":sk-")
+                    || normalized.contains("sk-proj-") {
+                    return "[redacted]"
+                }
+
+                return String(token)
+            }
+            .joined(separator: " ")
     }
 }
 

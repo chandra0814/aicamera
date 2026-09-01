@@ -1254,6 +1254,45 @@ final class AiCoreTests: XCTestCase {
         }
     }
 
+    func testOpenAICreativeInterpretationProviderClassifiesQuotaErrors() async throws {
+        let (creativePlan, healthSnapshot) = try makeCreativeInterpretationFixture()
+        let responseData = try JSONSerialization.data(withJSONObject: [
+            "error": [
+                "type": "insufficient_quota",
+                "code": "credit_balance_exhausted",
+                "message": "Billing details are sanitized before display. OPENAI_API_KEY=sk-test_should_not_display"
+            ]
+        ])
+        let provider = try OpenAICreativeInterpretationProvider(
+            apiKey: "sk-test_123",
+            transport: OpenAIRequestRecorder(data: responseData, statusCode: 429).transport
+        )
+
+        do {
+            _ = try await HealthGatedCreativeInterpretationAdapter(provider: provider).interpret(
+                for: creativePlan,
+                providerHealthSnapshot: healthSnapshot
+            )
+            XCTFail("Expected OpenAI quota errors to be classified before generic HTTP status.")
+        } catch let error as OpenAICreativeInterpretationProviderError {
+            guard case .apiError(let message) = error else {
+                XCTFail("Expected a sanitized OpenAI API error, got \(error).")
+                return
+            }
+
+            XCTAssertTrue(error.isProviderBillingBlocked)
+            XCTAssertEqual(error.safeDiagnosticMessage, "OpenAI credits exhausted")
+            XCTAssertTrue(message.contains("openai_credit_balance_exhausted"))
+            XCTAssertTrue(message.contains("provider_status_429"))
+            XCTAssertTrue(message.contains("credit_balance_exhausted"))
+            XCTAssertTrue(message.contains("insufficient_quota"))
+            XCTAssertTrue(message.contains("billing_blocked"))
+            XCTAssertTrue(message.contains("[redacted]"))
+            XCTAssertFalse(message.contains("sk-"))
+            XCTAssertFalse(message.contains("OPENAI_API_KEY"))
+        }
+    }
+
     func testLensPilotCreativeAPIProviderBuildsMobileSafeBackendRequest() async throws {
         let (creativePlan, healthSnapshot) = try makeCreativeInterpretationFixture()
         let providerOutput = try JSONSerialization.data(withJSONObject: [
@@ -1329,12 +1368,12 @@ final class AiCoreTests: XCTestCase {
         let providerError = try JSONSerialization.data(withJSONObject: [
             "error": [
                 "code": "openai_credit_balance_exhausted",
-                "message": "Creative provider quota is unavailable.",
                 "providerStatus": 429,
                 "providerErrorType": "insufficient_quota",
                 "providerErrorCode": "credit_balance_exhausted",
                 "retryable": false,
-                "blockedByBilling": true
+                "blockedByBilling": true,
+                "message": "Creative provider quota is unavailable. OPENAI_API_KEY=sk-test_should_not_display"
             ]
         ])
         let provider = try LensPilotCreativeInterpretationAPIProvider(
@@ -1356,6 +1395,9 @@ final class AiCoreTests: XCTestCase {
             XCTAssertTrue(message.contains("credit_balance_exhausted"))
             XCTAssertTrue(message.contains("insufficient_quota"))
             XCTAssertTrue(message.contains("billing_blocked"))
+            XCTAssertTrue(error.isProviderBillingBlocked)
+            XCTAssertEqual(error.safeDiagnosticMessage, "OpenAI credits exhausted")
+            XCTAssertTrue(message.contains("[redacted]"))
             XCTAssertFalse(message.contains("sk-"))
             XCTAssertFalse(message.contains("OPENAI_API_KEY"))
         }

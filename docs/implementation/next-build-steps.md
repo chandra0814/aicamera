@@ -81,6 +81,7 @@
 - Creative interpretation provider execution is health-gated; missing, unsafe, failed, or empty public-source health blocks the provider path before any brief is produced.
 - OpenAI creative guidance is API-backed through the LensPilot backend runtime; the same-phone camera loop still works without the API URL, and provider secrets are never accepted from or returned to the phone.
 - Creative API provider failures are safely classified for same-phone diagnostics, including exhausted-credit and retryability signals, without exposing provider secrets or raw provider payloads.
+- Same-phone Creative Plan and AI Diagnostics surfaces show clear, sanitized provider failure messages, including exhausted-credit blocks, while preserving the offline camera loop.
 - On iOS, learned profile persistence prefers Keychain encrypted, this-device-only storage and removes legacy UserDefaults bytes after migration or save.
 - Capture feedback records structured ratings, guidance outcomes, and selected correction reasons only; it does not store the captured photo as a learning event.
 - After-capture coaching uses score summaries and ranked-shot metadata only; it does not store or upload raw photos.

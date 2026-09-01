@@ -45,6 +45,7 @@
 - Backend `npm test` passes the deployable server wrapper smoke suite without requiring a real OpenAI key.
 - A live LensPilot Creative API smoke test reached OpenAI, but the provider completion is blocked by API billing credits: OpenAI returned `429 insufficient_quota` with `credit_balance_exhausted`. The backend now classifies this safely as `openai_credit_balance_exhausted` with `blockedByBilling: true` and `retryable: false`.
 - Local `.\scripts\test-all.ps1` passed after adding safe provider-error classification for the backend Creative API and iOS Creative API provider.
+- Swift package tests include regression coverage for same-phone provider diagnostics that classify exhausted credits and redact secret-looking tokens from OpenAI and LensPilot Creative API error messages.
 - Swift package tests still need GitHub/macOS CI for this workspace because Windows does not have Swift/Xcode installed.
 
 ## Not Runnable Here
