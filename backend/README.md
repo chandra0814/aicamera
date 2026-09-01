@@ -13,6 +13,7 @@ Default local URLs:
 
 - `GET /health`
 - `GET /ready`
+- `GET /metrics`
 - `POST /v1/creative-interpretation`
 
 ## Environment
@@ -27,6 +28,9 @@ Default local URLs:
 - `LENSPILOT_MAX_REQUEST_BYTES`: request body cap, default `65536`.
 - `LENSPILOT_RATE_LIMIT_WINDOW_MS`: local in-memory rate-limit window, default `60000`.
 - `LENSPILOT_RATE_LIMIT_MAX`: local in-memory request count per client per window, default `30`.
+- `LENSPILOT_ENABLE_METRICS`: set `false` to disable `GET /metrics`, default `true`.
+- `LENSPILOT_METRICS_TOKEN`: optional bearer token for `GET /metrics`; required when production safety is enforced and metrics are enabled.
+- `LENSPILOT_MAX_METRIC_EVENTS`: maximum safe recent events retained in memory, default `100`, capped at `500`.
 - `LENSPILOT_REQUIRE_PRODUCTION_SAFETY`: set `true` in deployed environments so `/ready` fails unless server OpenAI configuration, phone bearer authorization, CORS policy, request caps, rate limits, and the single-phone privacy boundary are all production-safe.
 
 ## Production Preflight
@@ -36,7 +40,13 @@ cd backend
 npm run preflight:production
 ```
 
-The preflight prints only safe configuration metadata and exits non-zero when production safety checks fail. It never prints the OpenAI key or phone bearer token.
+The preflight prints only safe configuration metadata and exits non-zero when production safety checks fail. It never prints the OpenAI key, phone bearer token, or metrics bearer token.
+
+## Metrics
+
+`GET /metrics` returns aggregate operational telemetry for the Creative API: response counts, status counts, safe error-code counts, provider status counts, and bounded recent events. It does not store or return request bodies, prompt text, client IPs, authorization headers, raw photos, identity data, precise location, or raw learning events.
+
+For production, set `LENSPILOT_METRICS_TOKEN` or disable metrics with `LENSPILOT_ENABLE_METRICS=false` before enabling `LENSPILOT_REQUIRE_PRODUCTION_SAFETY=true`.
 
 ## Validation
 
@@ -45,7 +55,7 @@ cd backend
 npm test
 ```
 
-The validation starts the server on a random local port, checks health/readiness/CORS, verifies client authorization, exercises the creative route with a fake OpenAI transport, confirms rate limiting, and validates production-safety readiness failures. It does not require a real OpenAI key.
+The validation starts the server on a random local port, checks health/readiness/CORS, verifies client authorization, exercises the creative route with a fake OpenAI transport, confirms rate limiting, validates production-safety readiness failures, and checks safe operational telemetry. It does not require a real OpenAI key.
 
 ## Provider Errors
 

@@ -11,10 +11,13 @@ export const lensPilotCreativeServerDefaults = {
   port: 8787,
   healthPath: "/health",
   readyPath: "/ready",
+  metricsPath: "/metrics",
   creativePath: lensPilotCreativeInterpretationApiDefaults.path,
   maxRequestBytes: 64 * 1024,
   rateLimitWindowMs: 60_000,
   rateLimitMaxRequests: 30,
+  metricsEnabled: true,
+  maxMetricEvents: 100,
   productionMaxRequestBytes: 64 * 1024,
   productionMaxRequestsPerWindow: 120,
   requireProductionSafety: false,
@@ -23,6 +26,7 @@ export const lensPilotCreativeServerDefaults = {
 export function createLensPilotCreativeHTTPServer(options = {}) {
   const environment = options.environment ?? globalThis.process?.env ?? {};
   const config = makeServerConfig(options, environment);
+  const nowMs = options.nowMs ?? Date.now;
   const creativeApi = createLensPilotCreativeInterpretationApi({
     ...options,
     environment,
@@ -30,7 +34,11 @@ export function createLensPilotCreativeHTTPServer(options = {}) {
   const rateLimiter = createMemoryRateLimiter({
     windowMs: config.rateLimitWindowMs,
     maxRequests: config.rateLimitMaxRequests,
-    now: options.nowMs ?? Date.now,
+    now: nowMs,
+  });
+  const telemetry = options.telemetry ?? createLensPilotCreativeOperationalTelemetry({
+    maxEvents: config.maxMetricEvents,
+    nowMs,
   });
 
   return http.createServer(async (request, response) => {
@@ -38,6 +46,7 @@ export function createLensPilotCreativeHTTPServer(options = {}) {
       config,
       creativeApi,
       rateLimiter,
+      telemetry,
     });
     writeNodeResponse(response, result);
   });
@@ -55,6 +64,7 @@ export async function handleLensPilotCreativeHTTPRoute(requestLike, options = {}
     maxRequests: config.rateLimitMaxRequests,
     now: options.nowMs ?? Date.now,
   });
+  const telemetry = options.telemetry;
 
   const method = String(requestLike?.method ?? "GET").toUpperCase();
   const url = requestURL(requestLike, config);
@@ -78,6 +88,7 @@ export async function handleLensPilotCreativeHTTPRoute(requestLike, options = {}
       service: "lenspilot-creative-api",
       apiVersion: lensPilotCreativeInterpretationApiDefaults.apiVersion,
       creativePath: config.creativePath,
+      metricsPath: config.metricsEnabled ? config.metricsPath : null,
       privacy: lensPilotCreativeInterpretationApiPrivacy,
     }, corsHeaders);
   }
@@ -101,12 +112,49 @@ export async function handleLensPilotCreativeHTTPRoute(requestLike, options = {}
       requestBody: {
         maxBytes: config.maxRequestBytes,
       },
+      telemetry: {
+        metricsEnabled: config.metricsEnabled,
+        metricsAuthorizationConfigured: Boolean(config.metricsAuthorizationConfigured),
+        maxRecentEvents: config.maxMetricEvents,
+      },
       cors: {
         allowedOriginsConfigured: config.allowedOrigins.length,
         wildcardAllowed: config.allowedOrigins.includes("*"),
       },
       productionSafety: deployment.productionSafety,
     }, corsHeaders);
+  }
+
+  if (path === config.metricsPath) {
+    if (!config.metricsEnabled) {
+      return jsonResponse(404, {
+        error: {
+          code: "not_found",
+          message: "LensPilot API route not found.",
+        },
+      }, corsHeaders);
+    }
+    if (config.requireProductionSafety && !config.metricsAuthorizationConfigured) {
+      return jsonResponse(503, {
+        error: {
+          code: "metrics_authorization_required",
+          message: "Creative API metrics require authorization in production mode.",
+        },
+      }, corsHeaders);
+    }
+    if (config.expectedMetricsToken) {
+      const expectedAuthorization = `Bearer ${config.expectedMetricsToken}`;
+      if (headerValue(headers, "authorization") !== expectedAuthorization) {
+        return jsonResponse(401, {
+          error: {
+            code: "unauthorized",
+            message: "Creative API metrics authorization failed.",
+          },
+        }, corsHeaders);
+      }
+    }
+
+    return jsonResponse(200, makeLensPilotCreativeMetricsResponse(config, telemetry), corsHeaders);
   }
 
   if (path !== config.creativePath) {
@@ -118,10 +166,21 @@ export async function handleLensPilotCreativeHTTPRoute(requestLike, options = {}
     }, corsHeaders);
   }
 
+  const telemetryStartedAt = telemetry?.markStart?.();
+  const completeCreativeRoute = (result) => {
+    recordLensPilotCreativeRouteTelemetry(telemetry, {
+      method,
+      path,
+      startedAt: telemetryStartedAt,
+      result,
+    });
+    return result;
+  };
+
   const clientKey = clientRateLimitKey(requestLike, headers);
   const rateLimit = rateLimiter.take(clientKey);
   if (!rateLimit.allowed) {
-    return jsonResponse(429, {
+    return completeCreativeRoute(jsonResponse(429, {
       error: {
         code: "rate_limited",
         message: "Too many creative guidance requests.",
@@ -132,19 +191,19 @@ export async function handleLensPilotCreativeHTTPRoute(requestLike, options = {}
       "x-ratelimit-limit": String(config.rateLimitMaxRequests),
       "x-ratelimit-remaining": "0",
       "x-ratelimit-reset": String(rateLimit.resetAt),
-    });
+    }));
   }
 
   let body;
   try {
     body = await collectRequestBody(requestLike, config.maxRequestBytes);
   } catch {
-    return jsonResponse(413, {
+    return completeCreativeRoute(jsonResponse(413, {
       error: {
         code: "request_body_too_large",
         message: "Creative API request body is too large.",
       },
-    }, corsHeaders);
+    }, corsHeaders));
   }
 
   const creativeResult = await creativeApi.handle({
@@ -153,7 +212,7 @@ export async function handleLensPilotCreativeHTTPRoute(requestLike, options = {}
     body,
   });
 
-  return {
+  return completeCreativeRoute({
     ...creativeResult,
     headers: {
       ...creativeResult.headers,
@@ -162,7 +221,7 @@ export async function handleLensPilotCreativeHTTPRoute(requestLike, options = {}
       "x-ratelimit-remaining": String(rateLimit.remaining),
       "x-ratelimit-reset": String(rateLimit.resetAt),
     },
-  };
+  });
 }
 
 function makeServerConfig(options, environment) {
@@ -178,6 +237,7 @@ function makeServerConfig(options, environment) {
     port,
     healthPath: cleanPath(options.healthPath) ?? lensPilotCreativeServerDefaults.healthPath,
     readyPath: cleanPath(options.readyPath) ?? lensPilotCreativeServerDefaults.readyPath,
+    metricsPath: cleanPath(options.metricsPath) ?? lensPilotCreativeServerDefaults.metricsPath,
     creativePath: cleanPath(options.creativePath) ?? lensPilotCreativeServerDefaults.creativePath,
     maxRequestBytes: parseIntegerOption(
       options.maxRequestBytes ?? environment.LENSPILOT_MAX_REQUEST_BYTES,
@@ -194,6 +254,16 @@ function makeServerConfig(options, environment) {
     allowedOrigins: parseAllowedOrigins(options.allowedOrigins ?? environment.LENSPILOT_ALLOWED_ORIGINS),
     openAIAPIKeyConfigured: Boolean(cleanOptional(options.openAIAPIKey ?? environment.OPENAI_API_KEY)),
     clientAuthorizationConfigured: Boolean(cleanOptional(options.expectedClientToken ?? environment.LENSPILOT_CREATIVE_API_TOKEN)),
+    metricsEnabled: parseBooleanOption(
+      options.metricsEnabled ?? environment.LENSPILOT_ENABLE_METRICS,
+      lensPilotCreativeServerDefaults.metricsEnabled
+    ),
+    expectedMetricsToken: cleanOptional(options.expectedMetricsToken ?? environment.LENSPILOT_METRICS_TOKEN),
+    metricsAuthorizationConfigured: Boolean(cleanOptional(options.expectedMetricsToken ?? environment.LENSPILOT_METRICS_TOKEN)),
+    maxMetricEvents: parseIntegerOption(
+      options.maxMetricEvents ?? environment.LENSPILOT_MAX_METRIC_EVENTS,
+      lensPilotCreativeServerDefaults.maxMetricEvents
+    ),
     requireProductionSafety: parseBooleanOption(
       options.requireProductionSafety ?? environment.LENSPILOT_REQUIRE_PRODUCTION_SAFETY,
       lensPilotCreativeServerDefaults.requireProductionSafety
@@ -211,16 +281,28 @@ export function describeLensPilotCreativeServerConfig(options = {}) {
     paths: {
       health: config.healthPath,
       ready: config.readyPath,
+      metrics: config.metricsEnabled ? config.metricsPath : null,
       creative: config.creativePath,
     },
     openAIConfigured: Boolean(config.openAIAPIKeyConfigured),
     clientAuthorizationConfigured: Boolean(config.clientAuthorizationConfigured),
+    metricsAuthorizationConfigured: Boolean(config.metricsAuthorizationConfigured),
     rateLimit: {
       windowMs: config.rateLimitWindowMs,
       maxRequests: config.rateLimitMaxRequests,
     },
     requestBody: {
       maxBytes: config.maxRequestBytes,
+    },
+    telemetry: {
+      metricsEnabled: config.metricsEnabled,
+      maxRecentEvents: config.maxMetricEvents,
+      storesRawRequestBody: false,
+      storesPromptText: false,
+      storesClientIP: false,
+      storesAuthorizationHeader: false,
+      storesRawPhoto: false,
+      storesRawLearningEvents: false,
     },
     cors: {
       allowedOriginsConfigured: config.allowedOrigins.length,
@@ -268,6 +350,14 @@ function makeProductionSafetyReport(config) {
       message: `Local rate limit is ${config.rateLimitMaxRequests} requests per ${config.rateLimitWindowMs} ms.`,
     }),
     makeProductionSafetyCheck({
+      id: "metrics_authorization",
+      passed: !config.metricsEnabled || config.metricsAuthorizationConfigured,
+      required: config.requireProductionSafety && config.metricsEnabled,
+      message: config.metricsEnabled
+        ? "Metrics route authorization is configured with LENSPILOT_METRICS_TOKEN."
+        : "Metrics route is disabled.",
+    }),
+    makeProductionSafetyCheck({
       id: "single_phone_privacy_boundary",
       passed: lensPilotCreativeInterpretationApiPrivacy.singlePhoneOnly === true &&
         lensPilotCreativeInterpretationApiPrivacy.acceptsClientOpenAIKey === false &&
@@ -303,6 +393,183 @@ function makeProductionSafetyCheck({ id, passed, required, message }) {
     required: Boolean(required),
     message,
   };
+}
+
+export function createLensPilotCreativeOperationalTelemetry(options = {}) {
+  const maxEvents = Math.max(0, Math.min(500, Math.trunc(options.maxEvents ?? lensPilotCreativeServerDefaults.maxMetricEvents)));
+  const nowMs = options.nowMs ?? Date.now;
+  const startedAt = nowMs();
+  const counters = {
+    totalRequests: 0,
+    creativeRequests: 0,
+    successfulResponses: 0,
+    clientErrors: 0,
+    providerErrors: 0,
+    serverErrors: 0,
+    unauthorizedRequests: 0,
+    unsafeRequests: 0,
+    rateLimitedRequests: 0,
+    oversizedRequests: 0,
+    billingBlockedProviderRequests: 0,
+    retryableProviderFailures: 0,
+  };
+  const statusCounts = {};
+  const errorCounts = {};
+  const providerStatusCounts = {};
+  const recentEvents = [];
+
+  return {
+    markStart() {
+      return nowMs();
+    },
+    record(event) {
+      const safeEvent = makeSafeTelemetryEvent(event, nowMs());
+      counters.totalRequests += 1;
+      if (safeEvent.path === lensPilotCreativeServerDefaults.creativePath || safeEvent.route === "creative_interpretation") {
+        counters.creativeRequests += 1;
+      }
+      if (safeEvent.status >= 200 && safeEvent.status < 300) counters.successfulResponses += 1;
+      if (safeEvent.status >= 400 && safeEvent.status < 500) counters.clientErrors += 1;
+      if (safeEvent.status >= 500) counters.serverErrors += 1;
+      incrementCounter(statusCounts, String(safeEvent.status));
+
+      if (safeEvent.errorCode) {
+        incrementCounter(errorCounts, safeEvent.errorCode);
+        if (safeEvent.errorCode === "unauthorized") counters.unauthorizedRequests += 1;
+        if (safeEvent.errorCode === "unsafe_request") counters.unsafeRequests += 1;
+        if (safeEvent.errorCode === "rate_limited") counters.rateLimitedRequests += 1;
+        if (safeEvent.errorCode === "request_body_too_large") counters.oversizedRequests += 1;
+        if (safeEvent.errorCode.startsWith("openai_")) counters.providerErrors += 1;
+      }
+      if (Number.isFinite(safeEvent.providerStatus)) {
+        incrementCounter(providerStatusCounts, String(safeEvent.providerStatus));
+        counters.providerErrors += safeEvent.errorCode?.startsWith("openai_") ? 0 : 1;
+      }
+      if (safeEvent.blockedByBilling) counters.billingBlockedProviderRequests += 1;
+      if (safeEvent.retryable) counters.retryableProviderFailures += 1;
+
+      if (maxEvents > 0) {
+        recentEvents.push(safeEvent);
+        while (recentEvents.length > maxEvents) recentEvents.shift();
+      }
+    },
+    snapshot() {
+      return {
+        uptimeMs: Math.max(0, nowMs() - startedAt),
+        totals: { ...counters },
+        statusCounts: sortRecordByKey(statusCounts),
+        errorCounts: sortRecordByKey(errorCounts),
+        providerStatusCounts: sortRecordByKey(providerStatusCounts),
+        recentEvents: recentEvents.map((event) => ({ ...event })),
+      };
+    },
+  };
+}
+
+function makeLensPilotCreativeMetricsResponse(config, telemetry) {
+  const snapshot = typeof telemetry?.snapshot === "function"
+    ? telemetry.snapshot()
+    : createLensPilotCreativeOperationalTelemetry({ maxEvents: 0 }).snapshot();
+
+  return {
+    service: "lenspilot-creative-api",
+    apiVersion: lensPilotCreativeInterpretationApiDefaults.apiVersion,
+    generatedAt: new Date().toISOString(),
+    paths: {
+      creative: config.creativePath,
+      metrics: config.metricsPath,
+    },
+    retention: {
+      storesRawRequestBody: false,
+      storesPromptText: false,
+      storesClientIP: false,
+      storesAuthorizationHeader: false,
+      storesRawPhoto: false,
+      storesRawLearningEvents: false,
+      storesIdentityData: false,
+      storesPreciseLocation: false,
+    },
+    privacy: lensPilotCreativeInterpretationApiPrivacy,
+    ...snapshot,
+  };
+}
+
+function recordLensPilotCreativeRouteTelemetry(telemetry, event) {
+  if (typeof telemetry?.record !== "function") return;
+
+  const status = Number.isFinite(event.result?.status) ? event.result.status : 0;
+  const parsedBody = parseJSONResultBody(event.result?.body);
+  const error = isRecord(parsedBody?.error) ? parsedBody.error : {};
+  const durationMs = Number.isFinite(event.startedAt)
+    ? Math.max(0, telemetry.markStart() - event.startedAt)
+    : undefined;
+
+  telemetry.record({
+    method: event.method,
+    path: event.path,
+    route: "creative_interpretation",
+    status,
+    durationMs,
+    errorCode: error.code,
+    providerStatus: error.providerStatus,
+    retryable: error.retryable,
+    blockedByBilling: error.blockedByBilling,
+  });
+}
+
+function makeSafeTelemetryEvent(event, checkedAt) {
+  const status = Number.isFinite(event.status) ? Math.trunc(event.status) : 0;
+  const durationMs = Number.isFinite(event.durationMs) ? Math.max(0, Math.trunc(event.durationMs)) : undefined;
+  const providerStatus = Number.isFinite(event.providerStatus) ? Math.trunc(event.providerStatus) : undefined;
+  const errorCode = cleanTelemetryToken(event.errorCode);
+
+  return Object.fromEntries(
+    Object.entries({
+      timestamp: new Date(checkedAt).toISOString(),
+      route: cleanTelemetryToken(event.route) ?? "unknown",
+      method: cleanTelemetryToken(event.method) ?? "GET",
+      path: event.path === lensPilotCreativeServerDefaults.creativePath
+        ? lensPilotCreativeServerDefaults.creativePath
+        : cleanTelemetryPath(event.path),
+      status,
+      outcome: status >= 200 && status < 300 ? "success" : "failure",
+      durationMs,
+      errorCode,
+      providerStatus,
+      retryable: typeof event.retryable === "boolean" ? event.retryable : undefined,
+      blockedByBilling: typeof event.blockedByBilling === "boolean" ? event.blockedByBilling : undefined,
+    }).filter(([, value]) => value !== undefined)
+  );
+}
+
+function parseJSONResultBody(body) {
+  if (typeof body !== "string") return undefined;
+  try {
+    return JSON.parse(body);
+  } catch {
+    return undefined;
+  }
+}
+
+function cleanTelemetryToken(value) {
+  const cleaned = cleanOptional(value);
+  if (!cleaned) return undefined;
+  const token = cleaned.toLowerCase().replace(/[^a-z0-9_.-]/g, "_").slice(0, 80);
+  return token.length > 0 ? token : undefined;
+}
+
+function cleanTelemetryPath(path) {
+  const cleaned = cleanOptional(path);
+  if (!cleaned) return "/";
+  return cleaned.startsWith("/") ? cleaned.slice(0, 96) : `/${cleaned}`.slice(0, 96);
+}
+
+function incrementCounter(record, key) {
+  record[key] = (record[key] ?? 0) + 1;
+}
+
+function sortRecordByKey(record) {
+  return Object.fromEntries(Object.entries(record).sort(([left], [right]) => left.localeCompare(right)));
 }
 
 function createMemoryRateLimiter({ windowMs, maxRequests, now }) {
@@ -495,6 +762,7 @@ if (isMainModule()) {
       port,
       healthPath: lensPilotCreativeServerDefaults.healthPath,
       readyPath: lensPilotCreativeServerDefaults.readyPath,
+      metricsPath: lensPilotCreativeServerDefaults.metricsPath,
       creativePath: lensPilotCreativeServerDefaults.creativePath,
     }));
   });

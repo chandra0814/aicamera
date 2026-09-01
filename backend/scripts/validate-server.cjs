@@ -133,6 +133,7 @@ async function main() {
   const safeProductionConfig = describeLensPilotCreativeServerConfig({
     openAIAPIKey: "sk-test-server-side",
     expectedClientToken: "client-token",
+    expectedMetricsToken: "metrics-token",
     allowedOrigins: ["https://app.lenspilot.example"],
     requireProductionSafety: true,
     rateLimitMaxRequests: 30,
@@ -166,11 +167,16 @@ async function main() {
     unsafeProductionConfig.productionSafety.failedRequiredChecks.includes("rate_limit_policy"),
     "Production preflight should enforce bounded rate limits."
   );
+  assert(
+    unsafeProductionConfig.productionSafety.failedRequiredChecks.includes("metrics_authorization"),
+    "Production preflight should require metrics authorization when metrics are enabled."
+  );
 
   await withServer(
     {
       openAIAPIKey: "sk-test-server-side",
       expectedClientToken: "client-token",
+      expectedMetricsToken: "metrics-token",
       allowedOrigins: ["https://app.lenspilot.example"],
       rateLimitMaxRequests: 10,
       fetchImpl: async () => ({
@@ -203,6 +209,8 @@ async function main() {
       assert(readyBody.openAIConfigured === true, "Ready route should report configured OpenAI state.");
       assert(readyBody.clientAuthorizationConfigured === true, "Ready route should report client auth state.");
       assert(readyBody.productionSafety.ready === true, "Ready route should include passing production safety metadata.");
+      assert(readyBody.telemetry.metricsEnabled === true, "Ready route should report metrics availability.");
+      assert(readyBody.telemetry.metricsAuthorizationConfigured === true, "Ready route should report metrics authorization state.");
 
       const preflight = await fetch(`${baseURL}${lensPilotCreativeServerDefaults.creativePath}`, {
         method: "OPTIONS",
@@ -239,6 +247,30 @@ async function main() {
       assert(creativeBody.result.headline === "Server Runtime Brief", "Creative route should return provider headline.");
       assert(creative.headers.get("x-ratelimit-limit") === "10", "Creative route should include rate limit headers.");
       assert(!JSON.stringify(creativeBody).includes("sk-test"), "Creative route must not expose secrets.");
+
+      const unauthorizedMetrics = await fetch(`${baseURL}${lensPilotCreativeServerDefaults.metricsPath}`);
+      assert(unauthorizedMetrics.status === 401, "Metrics route should enforce configured metrics authorization.");
+
+      const metrics = await fetch(`${baseURL}${lensPilotCreativeServerDefaults.metricsPath}`, {
+        headers: {
+          authorization: "Bearer metrics-token",
+        },
+      });
+      const metricsBody = await metrics.json();
+      const metricsText = JSON.stringify(metricsBody);
+      assert(metrics.status === 200, "Metrics route should return safe operational telemetry.");
+      assert(metricsBody.totals.creativeRequests >= 2, "Metrics should count creative API requests.");
+      assert(metricsBody.totals.successfulResponses >= 1, "Metrics should count successful creative API responses.");
+      assert(metricsBody.totals.unauthorizedRequests >= 1, "Metrics should count unauthorized creative API requests.");
+      assert(metricsBody.errorCounts.unauthorized >= 1, "Metrics should aggregate safe error codes.");
+      assert(metricsBody.retention.storesRawRequestBody === false, "Metrics should declare no raw request-body retention.");
+      assert(metricsBody.retention.storesPromptText === false, "Metrics should declare no prompt retention.");
+      assert(metricsBody.retention.storesClientIP === false, "Metrics should declare no client-IP retention.");
+      assert(metricsBody.retention.storesAuthorizationHeader === false, "Metrics should declare no authorization-header retention.");
+      assert(!metricsText.includes("sk-test"), "Metrics must not expose OpenAI keys.");
+      assert(!metricsText.includes("client-token"), "Metrics must not expose phone bearer tokens.");
+      assert(!metricsText.includes("metrics-token"), "Metrics must not expose metrics bearer tokens.");
+      assert(!metricsText.includes("cinematic portrait"), "Metrics must not expose prompt summaries.");
 
       const notFound = await fetch(`${baseURL}/unknown`);
       assert(notFound.status === 404, "Unknown routes should return 404.");
@@ -323,12 +355,17 @@ async function main() {
         readyBody.productionSafety.failedRequiredChecks.includes("cors_origin_policy"),
         "Ready route should report wildcard CORS as unsafe for production."
       );
+      assert(
+        readyBody.productionSafety.failedRequiredChecks.includes("metrics_authorization"),
+        "Ready route should report missing metrics authorization."
+      );
     }
   );
 
   await withServer(
     {
       openAIAPIKey: "sk-test-server-side",
+      expectedMetricsToken: "metrics-token",
       fetchImpl: async () => ({
         ok: false,
         status: 429,
@@ -359,6 +396,28 @@ async function main() {
       assert(quotaBlockedBody.error.providerErrorType === "insufficient_quota", "Server should expose sanitized provider error type.");
       assert(quotaBlockedBody.error.blockedByBilling === true, "Server should mark billing-blocked provider failures.");
       assert(!JSON.stringify(quotaBlockedBody).includes("sk-test"), "Classified provider errors must not leak secrets.");
+
+      const metrics = await fetch(`${baseURL}${lensPilotCreativeServerDefaults.metricsPath}`, {
+        headers: {
+          authorization: "Bearer metrics-token",
+        },
+      });
+      const metricsBody = await metrics.json();
+      assert(metricsBody.totals.providerErrors >= 1, "Metrics should count provider failures.");
+      assert(metricsBody.totals.billingBlockedProviderRequests >= 1, "Metrics should count billing-blocked provider failures.");
+      assert(metricsBody.providerStatusCounts["429"] >= 1, "Metrics should aggregate provider status safely.");
+      assert(metricsBody.errorCounts.openai_credit_balance_exhausted >= 1, "Metrics should aggregate safe provider error code.");
+    }
+  );
+
+  await withServer(
+    {
+      openAIAPIKey: "sk-test-server-side",
+      metricsEnabled: false,
+    },
+    async (baseURL) => {
+      const metrics = await fetch(`${baseURL}${lensPilotCreativeServerDefaults.metricsPath}`);
+      assert(metrics.status === 404, "Disabled metrics route should not be exposed.");
     }
   );
 
@@ -366,9 +425,11 @@ async function main() {
     creativeServer: true,
     healthPath: lensPilotCreativeServerDefaults.healthPath,
     readyPath: lensPilotCreativeServerDefaults.readyPath,
+    metricsPath: lensPilotCreativeServerDefaults.metricsPath,
     creativePath: lensPilotCreativeServerDefaults.creativePath,
     rateLimited: true,
     productionPreflight: true,
+    safeOperationalTelemetry: true,
     status: "passed",
   }, null, 2));
 }
