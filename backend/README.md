@@ -36,3 +36,7 @@ npm test
 ```
 
 The validation starts the server on a random local port, checks health/readiness/CORS, verifies client authorization, exercises the creative route with a fake OpenAI transport, and confirms rate limiting. It does not require a real OpenAI key.
+
+## Provider Errors
+
+OpenAI failures stay behind the LensPilot backend boundary. The API returns safe metadata such as `openai_credit_balance_exhausted`, provider HTTP status, sanitized provider error type/code, `retryable`, and `blockedByBilling`; it never forwards provider secrets, raw provider payloads, or client-supplied OpenAI keys back to the phone.

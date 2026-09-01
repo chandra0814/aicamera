@@ -352,10 +352,10 @@ async function handleCreativeInterpretationRequest(requestLike, config) {
   }
 
   if (!openAIResponse?.ok) {
+    const providerError = await readOpenAIErrorResponse(openAIResponse);
     return jsonResponse(502, {
       error: {
-        code: "openai_request_failed",
-        message: "Creative provider returned an unsuccessful status.",
+        ...classifyOpenAIProviderError(openAIResponse.status, providerError),
       },
     });
   }
@@ -543,6 +543,63 @@ async function readJSONResponse(response) {
   throw new Error("invalid_json_response");
 }
 
+async function readOpenAIErrorResponse(response) {
+  try {
+    return await readJSONResponse(response);
+  } catch {
+    return undefined;
+  }
+}
+
+function classifyOpenAIProviderError(status, payload) {
+  const providerStatus = Number.isFinite(status) ? status : undefined;
+  const providerErrorType = safeProviderErrorToken(payload?.error?.type);
+  const providerErrorCode = safeProviderErrorToken(payload?.error?.code);
+  const providerErrorParam = safeProviderErrorToken(payload?.error?.param);
+  const isQuotaBlocked = providerStatus === 429 &&
+    (providerErrorType === "insufficient_quota" || providerErrorCode === "credit_balance_exhausted");
+  const isRateLimited = providerStatus === 429 && !isQuotaBlocked;
+
+  let code = "openai_request_failed";
+  let message = "Creative provider returned an unsuccessful status.";
+  let retryable = providerStatus === undefined || providerStatus >= 500 || isRateLimited;
+  let blockedByBilling = false;
+
+  if (isQuotaBlocked) {
+    code = "openai_credit_balance_exhausted";
+    message = "Creative provider quota is unavailable.";
+    retryable = false;
+    blockedByBilling = true;
+  } else if (providerStatus === 401 || providerStatus === 403) {
+    code = "openai_authorization_failed";
+    message = "Creative provider authorization failed.";
+    retryable = false;
+  } else if (providerStatus === 404 || providerErrorCode === "model_not_found") {
+    code = "openai_model_unavailable";
+    message = "Creative provider model is unavailable.";
+    retryable = false;
+  } else if (isRateLimited) {
+    code = "openai_rate_limited";
+    message = "Creative provider is rate-limited.";
+  } else if (providerStatus >= 500) {
+    code = "openai_provider_unavailable";
+    message = "Creative provider is temporarily unavailable.";
+  }
+
+  return Object.fromEntries(
+    Object.entries({
+      code,
+      message,
+      providerStatus,
+      providerErrorType,
+      providerErrorCode,
+      providerErrorParam,
+      retryable,
+      blockedByBilling,
+    }).filter(([, value]) => value !== undefined)
+  );
+}
+
 function normalizeHeaders(headers) {
   if (!headers) return {};
   if (typeof headers.get === "function") {
@@ -601,6 +658,13 @@ function cleanOptional(value) {
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function safeProviderErrorToken(value) {
+  const cleaned = cleanOptional(value);
+  if (!cleaned) return undefined;
+  const token = cleaned.toLowerCase().replace(/[^a-z0-9_.-]/g, "_").slice(0, 80);
+  return token.length > 0 ? token : undefined;
 }
 
 function cleanProviderText(value, maxLength) {

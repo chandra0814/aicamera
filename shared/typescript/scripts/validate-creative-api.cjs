@@ -202,6 +202,37 @@ api.handle({
   });
   assert(missingServerKey.status === 500, "Creative API should fail closed without a server OpenAI key.");
 
+  const quotaBlockedApi = createLensPilotCreativeInterpretationApi({
+    openAIAPIKey: "sk-test-server-side",
+    fetchImpl: async () => ({
+      ok: false,
+      status: 429,
+      async json() {
+        return {
+          error: {
+            type: "insufficient_quota",
+            code: "credit_balance_exhausted",
+            message: "Provider billing details are not forwarded.",
+          },
+        };
+      },
+    }),
+  });
+  const quotaBlocked = await quotaBlockedApi.handle({
+    method: "POST",
+    headers: {},
+    body: JSON.stringify(safeApiRequest),
+  });
+  const quotaBlockedBody = JSON.parse(quotaBlocked.body);
+  assert(quotaBlocked.status === 502, "Creative API should keep provider failures behind the backend boundary.");
+  assert(quotaBlockedBody.error.code === "openai_credit_balance_exhausted", "Creative API should classify exhausted provider credits.");
+  assert(quotaBlockedBody.error.providerStatus === 429, "Creative API should expose only the provider status code.");
+  assert(quotaBlockedBody.error.providerErrorType === "insufficient_quota", "Creative API should expose sanitized provider error type.");
+  assert(quotaBlockedBody.error.providerErrorCode === "credit_balance_exhausted", "Creative API should expose sanitized provider error code.");
+  assert(quotaBlockedBody.error.blockedByBilling === true, "Creative API should mark billing-blocked provider failures.");
+  assert(quotaBlockedBody.error.retryable === false, "Creative API should not mark exhausted credits as retryable.");
+  assert(!quotaBlocked.body.includes("sk-test-server-side"), "Classified provider errors must not leak the server key.");
+
   const unsafeApiRequest = {
     ...safeApiRequest,
     request: {

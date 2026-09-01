@@ -122,6 +122,9 @@ public struct LensPilotCreativeInterpretationAPIProvider: HealthGatedCreativeInt
         let urlRequest = try makeURLRequest(for: request, healthGate: healthGate)
         let response = try await transport(urlRequest)
         guard (200..<300).contains(response.statusCode) else {
+            if let apiError = Self.decodeAPIError(from: response.data) {
+                throw apiError
+            }
             throw LensPilotCreativeInterpretationAPIProviderError.invalidHTTPStatus(response.statusCode)
         }
 
@@ -173,9 +176,7 @@ public struct LensPilotCreativeInterpretationAPIProvider: HealthGatedCreativeInt
         }
 
         if let apiError = envelope.error {
-            throw LensPilotCreativeInterpretationAPIProviderError.apiError(
-                sanitizeError("\(apiError.code ?? "creative_api_error"): \(apiError.message ?? "Creative API failed")")
-            )
+            throw makeAPIError(from: apiError)
         }
 
         if let status = envelope.status, status != "completed" {
@@ -187,6 +188,39 @@ public struct LensPilotCreativeInterpretationAPIProvider: HealthGatedCreativeInt
         }
 
         return result
+    }
+
+    private static func decodeAPIError(from data: Data) -> LensPilotCreativeInterpretationAPIProviderError? {
+        guard let envelope = try? JSONDecoder().decode(ResponseEnvelope.self, from: data),
+              let apiError = envelope.error else {
+            return nil
+        }
+
+        return makeAPIError(from: apiError)
+    }
+
+    private static func makeAPIError(from apiError: ResponseEnvelope.APIError) -> LensPilotCreativeInterpretationAPIProviderError {
+        var safeParts = [apiError.code ?? "creative_api_error"]
+        if let providerStatus = apiError.providerStatus {
+            safeParts.append("provider_status_\(providerStatus)")
+        }
+        if let providerErrorCode = apiError.providerErrorCode {
+            safeParts.append(providerErrorCode)
+        }
+        if let providerErrorType = apiError.providerErrorType {
+            safeParts.append(providerErrorType)
+        }
+        if apiError.blockedByBilling == true {
+            safeParts.append("billing_blocked")
+        }
+        if apiError.retryable == true {
+            safeParts.append("retryable")
+        }
+        safeParts.append(apiError.message ?? "Creative API failed")
+
+        return LensPilotCreativeInterpretationAPIProviderError.apiError(
+            sanitizeError(safeParts.joined(separator: ": "))
+        )
     }
 
     private static let urlSessionTransport: LensPilotCreativeAPITransport = { request in
@@ -256,5 +290,11 @@ private struct ResponseEnvelope: Decodable {
     struct APIError: Decodable {
         let code: String?
         let message: String?
+        let providerStatus: Int?
+        let providerErrorType: String?
+        let providerErrorCode: String?
+        let providerErrorParam: String?
+        let retryable: Bool?
+        let blockedByBilling: Bool?
     }
 }

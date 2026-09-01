@@ -262,6 +262,42 @@ async function main() {
     }
   );
 
+  await withServer(
+    {
+      openAIAPIKey: "sk-test-server-side",
+      fetchImpl: async () => ({
+        ok: false,
+        status: 429,
+        async json() {
+          return {
+            error: {
+              type: "insufficient_quota",
+              code: "credit_balance_exhausted",
+              message: "Provider billing details are not forwarded.",
+            },
+          };
+        },
+      }),
+    },
+    async (baseURL) => {
+      const quotaBlocked = await fetch(`${baseURL}${lensPilotCreativeServerDefaults.creativePath}`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(safeApiRequest),
+      });
+      const quotaBlockedBody = await quotaBlocked.json();
+      assert(quotaBlocked.status === 502, "Provider failures should stay behind the LensPilot API boundary.");
+      assert(quotaBlockedBody.error.code === "openai_credit_balance_exhausted", "Server should classify exhausted provider credits.");
+      assert(quotaBlockedBody.error.providerStatus === 429, "Server should expose only the provider status code.");
+      assert(quotaBlockedBody.error.providerErrorCode === "credit_balance_exhausted", "Server should expose sanitized provider error code.");
+      assert(quotaBlockedBody.error.providerErrorType === "insufficient_quota", "Server should expose sanitized provider error type.");
+      assert(quotaBlockedBody.error.blockedByBilling === true, "Server should mark billing-blocked provider failures.");
+      assert(!JSON.stringify(quotaBlockedBody).includes("sk-test"), "Classified provider errors must not leak secrets.");
+    }
+  );
+
   console.log(JSON.stringify({
     creativeServer: true,
     healthPath: lensPilotCreativeServerDefaults.healthPath,

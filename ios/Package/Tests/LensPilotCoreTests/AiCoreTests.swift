@@ -1319,6 +1319,48 @@ final class AiCoreTests: XCTestCase {
         XCTAssertFalse(bodyText.contains("sk-proj"))
     }
 
+    func testLensPilotCreativeAPIProviderSurfacesSanitizedProviderErrors() async throws {
+        let (creativePlan, healthSnapshot) = try makeCreativeInterpretationFixture()
+        let request = try CreativeInterpretationRequest(plan: creativePlan, maxResponseWords: 80)
+        let healthGate = CreativeInterpretationProviderHealthGate.make(
+            for: request,
+            healthSnapshot: healthSnapshot
+        )
+        let providerError = try JSONSerialization.data(withJSONObject: [
+            "error": [
+                "code": "openai_credit_balance_exhausted",
+                "message": "Creative provider quota is unavailable.",
+                "providerStatus": 429,
+                "providerErrorType": "insufficient_quota",
+                "providerErrorCode": "credit_balance_exhausted",
+                "retryable": false,
+                "blockedByBilling": true
+            ]
+        ])
+        let provider = try LensPilotCreativeInterpretationAPIProvider(
+            apiURL: URL(string: "https://api.lenspilot.example/v1/creative-interpretation")!,
+            transport: LensPilotCreativeAPIRequestRecorder(data: providerError, statusCode: 502).transport
+        )
+
+        do {
+            _ = try await provider.interpret(request: request, healthGate: healthGate)
+            XCTFail("Expected backend provider errors to be surfaced before generic HTTP status.")
+        } catch let error as LensPilotCreativeInterpretationAPIProviderError {
+            guard case .apiError(let message) = error else {
+                XCTFail("Expected a sanitized API error, got \(error).")
+                return
+            }
+
+            XCTAssertTrue(message.contains("openai_credit_balance_exhausted"))
+            XCTAssertTrue(message.contains("provider_status_429"))
+            XCTAssertTrue(message.contains("credit_balance_exhausted"))
+            XCTAssertTrue(message.contains("insufficient_quota"))
+            XCTAssertTrue(message.contains("billing_blocked"))
+            XCTAssertFalse(message.contains("sk-"))
+            XCTAssertFalse(message.contains("OPENAI_API_KEY"))
+        }
+    }
+
     func testLensPilotCreativeAPIProviderRejectsDirectUseWithoutHealthGate() async throws {
         let (creativePlan, _) = try makeCreativeInterpretationFixture()
         let request = try CreativeInterpretationRequest(plan: creativePlan)
