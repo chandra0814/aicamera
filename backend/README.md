@@ -35,7 +35,18 @@ Default local URLs:
 - `LENSPILOT_ENABLE_METRICS`: set `false` to disable `GET /metrics`, default `true`.
 - `LENSPILOT_METRICS_TOKEN`: optional bearer token for `GET /metrics`; required when production safety is enforced and metrics are enabled.
 - `LENSPILOT_MAX_METRIC_EVENTS`: maximum safe recent events retained in memory, default `100`, capped at `500`.
-- `LENSPILOT_REQUIRE_PRODUCTION_SAFETY`: set `true` in deployed environments so `/ready` fails unless server OpenAI configuration, phone bearer authorization, signed phone requests, metrics authorization, CORS policy, request caps, rate limits, and the single-phone privacy boundary are all production-safe.
+- `LENSPILOT_SECRET_ROTATION_MAX_AGE_DAYS`: maximum accepted age for production secret rotation metadata, default `90`.
+- `LENSPILOT_OPENAI_KEY_ROTATED_AT`: ISO date or timestamp for the last server OpenAI key rotation.
+- `LENSPILOT_CREATIVE_API_TOKEN_ROTATED_AT`: ISO date or timestamp for the last phone bearer token rotation.
+- `LENSPILOT_CLIENT_SIGNING_SECRET_ROTATED_AT`: ISO date or timestamp for the last phone request-signing secret rotation.
+- `LENSPILOT_METRICS_TOKEN_ROTATED_AT`: ISO date or timestamp for the last metrics token rotation.
+- `LENSPILOT_REQUIRE_PRODUCTION_SAFETY`: set `true` in deployed environments so `/ready` fails unless server OpenAI configuration, phone bearer authorization, signed phone requests, metrics authorization, secret rotation metadata, CORS policy, request caps, rate limits, and the single-phone privacy boundary are all production-safe.
+
+## Secret Rotation Metadata
+
+Production readiness requires fresh rotation metadata for the server OpenAI key, phone bearer token, phone request-signing secret, and metrics token when metrics are enabled. Set each `LENSPILOT_*_ROTATED_AT` value to an ISO date like `2026-09-01` or an ISO timestamp. `/ready` reports only safe metadata: whether each secret is configured, the last rotation timestamp, age in days, and pass/fail status.
+
+The rotation window must stay at or below `90` days in production. The metadata does not rotate keys by itself; it makes the deployable API fail closed until key rotation has happened and been recorded.
 
 ## Production Preflight
 
@@ -44,7 +55,7 @@ cd backend
 npm run preflight:production
 ```
 
-The preflight prints only safe configuration metadata and exits non-zero when production safety checks fail. It never prints the OpenAI key, phone bearer token, metrics bearer token, or signing secret.
+The preflight prints only safe configuration metadata and exits non-zero when production safety checks fail, including missing, invalid, stale, or over-wide secret rotation metadata. It never prints the OpenAI key, phone bearer token, metrics bearer token, or signing secret.
 
 ## Production Endpoint Check
 
@@ -55,7 +66,7 @@ cd backend
 npm run check:production-endpoint
 ```
 
-The checker performs safe `GET` probes against `/health` and `/ready`, then checks that production safety is enforced, phone authorization is configured, signed requests are required, request/rate limits are bounded, wildcard CORS is blocked, and the single-phone privacy boundary is still reported. If `LENSPILOT_METRICS_TOKEN` is present, it also probes `/metrics` and verifies the telemetry retention boundary. It never sends a creative prompt or calls OpenAI.
+The checker performs safe `GET` probes against `/health` and `/ready`, then checks that production safety is enforced, phone authorization is configured, signed requests are required, secret rotation metadata is fresh, request/rate limits are bounded, wildcard CORS is blocked, and the single-phone privacy boundary is still reported. If `LENSPILOT_METRICS_TOKEN` is present, it also probes `/metrics` and verifies the telemetry retention boundary. It never sends a creative prompt or calls OpenAI.
 
 ## Metrics
 
@@ -82,7 +93,7 @@ npm test
 
 The validation starts the server on a random local port, checks health/readiness/CORS, verifies client authorization, verifies signed request and replay protection, exercises the creative route with a fake OpenAI transport, confirms rate limiting, validates production-safety readiness failures, and checks safe operational telemetry. It does not require a real OpenAI key.
 
-The backend test also validates the root `.env.example` template and the production endpoint checker. It requires every server/iOS Creative API configuration key, keeps placeholder secrets blank, verifies the iOS URL points at `/v1/creative-interpretation`, and checks that example request caps, rate limits, signature windows, replay cache size, endpoint-check timeout, and telemetry retention remain production-safe.
+The backend test also validates the root `.env.example` template and the production endpoint checker. It requires every server/iOS Creative API configuration key, keeps placeholder secrets and rotation timestamps blank, verifies the iOS URL points at `/v1/creative-interpretation`, and checks that example request caps, rate limits, signature windows, replay cache size, endpoint-check timeout, secret rotation window, and telemetry retention remain production-safe.
 
 ## Provider Errors
 

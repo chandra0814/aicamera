@@ -21,6 +21,11 @@ const requiredKeys = [
   "LENSPILOT_MAX_METRIC_EVENTS",
   "LENSPILOT_REQUIRE_PRODUCTION_SAFETY",
   "LENSPILOT_ENDPOINT_CHECK_TIMEOUT_MS",
+  "LENSPILOT_SECRET_ROTATION_MAX_AGE_DAYS",
+  "LENSPILOT_OPENAI_KEY_ROTATED_AT",
+  "LENSPILOT_CREATIVE_API_TOKEN_ROTATED_AT",
+  "LENSPILOT_CLIENT_SIGNING_SECRET_ROTATED_AT",
+  "LENSPILOT_METRICS_TOKEN_ROTATED_AT",
   "LENSPILOT_CREATIVE_API_TOKEN",
   "LENSPILOT_CLIENT_SIGNING_SECRET",
   "LENSPILOT_REQUIRE_SIGNED_PHONE_REQUESTS",
@@ -40,6 +45,10 @@ assert(envExample.get("LENSPILOT_CREATIVE_API_TOKEN") === "", "Phone bearer toke
 assert(envExample.get("LENSPILOT_CLIENT_SIGNING_SECRET") === "", "Backend signing secret must stay blank in .env.example.");
 assert(envExample.get("LENSPILOT_CREATIVE_API_SIGNING_SECRET") === "", "iOS signing secret must stay blank in .env.example.");
 assert(envExample.get("LENSPILOT_METRICS_TOKEN") === "", "Metrics token must stay blank in .env.example.");
+assert(envExample.get("LENSPILOT_OPENAI_KEY_ROTATED_AT") === "", "OpenAI key rotation metadata should stay blank in .env.example.");
+assert(envExample.get("LENSPILOT_CREATIVE_API_TOKEN_ROTATED_AT") === "", "Phone token rotation metadata should stay blank in .env.example.");
+assert(envExample.get("LENSPILOT_CLIENT_SIGNING_SECRET_ROTATED_AT") === "", "Signing secret rotation metadata should stay blank in .env.example.");
+assert(envExample.get("LENSPILOT_METRICS_TOKEN_ROTATED_AT") === "", "Metrics token rotation metadata should stay blank in .env.example.");
 assert(envExample.get("LENSPILOT_REQUIRE_SIGNED_PHONE_REQUESTS") === "false", "Generic local template should not require signed requests by default.");
 assert(envExample.get("LENSPILOT_REQUIRE_PRODUCTION_SAFETY") === "false", "Generic local template should not enforce production safety by default.");
 assert(envExample.get("LENSPILOT_ALLOW_DIRECT_OPENAI_PROVIDER") === "false", "Direct iOS OpenAI provider must be disabled by default.");
@@ -51,6 +60,7 @@ assert(readPositiveInteger("LENSPILOT_SIGNATURE_TOLERANCE_MS") <= 300000, "Signa
 assert(readPositiveInteger("LENSPILOT_SIGNATURE_REPLAY_MAX_ENTRIES") <= 1000, "Replay cache example should stay bounded.");
 assert(readPositiveInteger("LENSPILOT_MAX_METRIC_EVENTS") <= 500, "Metric event retention example should stay bounded.");
 assert(readPositiveInteger("LENSPILOT_ENDPOINT_CHECK_TIMEOUT_MS") <= 30000, "Endpoint check timeout example should stay bounded.");
+assert(readPositiveInteger("LENSPILOT_SECRET_ROTATION_MAX_AGE_DAYS") <= 90, "Secret rotation freshness window should stay bounded.");
 
 const secretLookingValues = [...envExample.entries()]
   .filter(([, value]) => /sk-[A-Za-z0-9_-]+|sk-proj-[A-Za-z0-9_-]+|client-token|metrics-token|signing-secret/i.test(value));

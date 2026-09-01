@@ -67,6 +67,7 @@ const output = {
   signedRequestPolicy: report.signedRequestPolicy,
   requestBody: report.requestBody,
   telemetry: report.telemetry,
+  secretRotation: report.secretRotation,
   cors: report.cors,
   productionSafety: report.productionSafety,
   privacy: report.privacy,

@@ -17,6 +17,7 @@ async function runLensPilotProductionEndpointCheck(options = {}) {
   const ready = await fetchJSON(config.endpoints.ready, config);
   const readyBody = ready.body ?? {};
   const productionSafety = readyBody.productionSafety ?? {};
+  const secretRotation = readyBody.secretRotation ?? {};
   addCheck(checks, "ready_http_200", ready.statusCode === 200, "Ready endpoint returns HTTP 200.");
   addCheck(checks, "ready_status", readyBody.status === "ready", "Ready endpoint reports ready status.");
   addCheck(checks, "server_openai_key", readyBody.openAIConfigured === true, "Server-side OpenAI key is configured.");
@@ -82,6 +83,22 @@ async function runLensPilotProductionEndpointCheck(options = {}) {
     "metrics_authorization_or_disabled",
     readyBody.telemetry?.metricsEnabled === false || readyBody.telemetry?.metricsAuthorizationConfigured === true,
     "Metrics are disabled or protected by bearer authorization."
+  );
+  addCheck(
+    checks,
+    "secret_rotation_metadata",
+    secretRotation.ready === true &&
+      Array.isArray(secretRotation.failedRequiredChecks) &&
+      secretRotation.failedRequiredChecks.length === 0,
+    "Required secret rotation metadata is fresh."
+  );
+  addCheck(
+    checks,
+    "secret_rotation_window",
+    Number.isFinite(secretRotation.maxAgeDays) &&
+      secretRotation.maxAgeDays > 0 &&
+      secretRotation.maxAgeDays <= 90,
+    "Secret rotation freshness window is bounded."
   );
   addSinglePhonePrivacyChecks(checks, "ready", readyBody.privacy);
 

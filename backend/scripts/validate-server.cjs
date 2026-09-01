@@ -134,6 +134,9 @@ const safeApiRequest = {
   },
 };
 
+const rotationNow = "2026-09-01T00:00:00.000Z";
+const freshRotationDate = "2026-08-15T00:00:00.000Z";
+
 main().catch((error) => {
   console.error(error);
   process.exit(1);
@@ -148,10 +151,16 @@ async function main() {
     expectedMetricsToken: "metrics-token",
     allowedOrigins: ["https://app.lenspilot.example"],
     requireProductionSafety: true,
+    secretRotationNow: rotationNow,
+    openAIKeyRotatedAt: freshRotationDate,
+    clientTokenRotatedAt: freshRotationDate,
+    clientSigningSecretRotatedAt: freshRotationDate,
+    metricsTokenRotatedAt: freshRotationDate,
     rateLimitMaxRequests: 30,
     maxRequestBytes: 64 * 1024,
   });
   assert(safeProductionConfig.productionSafety.ready === true, "Production preflight should pass for protected configuration.");
+  assert(safeProductionConfig.secretRotation.ready === true, "Production preflight should pass fresh secret rotation metadata.");
   assert(safeProductionConfig.productionSafety.failedRequiredChecks.length === 0, "Protected production configuration should not report failures.");
   assert(!JSON.stringify(safeProductionConfig).includes("sk-test"), "Production preflight must not expose secrets.");
 
@@ -159,6 +168,7 @@ async function main() {
     openAIAPIKey: "sk-test-server-side",
     allowedOrigins: ["*"],
     requireProductionSafety: true,
+    secretRotationNow: rotationNow,
     rateLimitMaxRequests: 500,
     maxRequestBytes: 256 * 1024,
   });
@@ -186,6 +196,14 @@ async function main() {
   assert(
     unsafeProductionConfig.productionSafety.failedRequiredChecks.includes("metrics_authorization"),
     "Production preflight should require metrics authorization when metrics are enabled."
+  );
+  assert(
+    unsafeProductionConfig.productionSafety.failedRequiredChecks.includes("secret_rotation_metadata"),
+    "Production preflight should require fresh secret rotation metadata."
+  );
+  assert(
+    unsafeProductionConfig.secretRotation.failedRequiredChecks.includes("openai_api_key"),
+    "Secret rotation report should require OpenAI key rotation metadata in production."
   );
 
   await withServer(
@@ -224,6 +242,7 @@ async function main() {
       assert(ready.status === 200, "Ready route should return 200 when the server key is configured.");
       assert(readyBody.openAIConfigured === true, "Ready route should report configured OpenAI state.");
       assert(readyBody.clientAuthorizationConfigured === true, "Ready route should report client auth state.");
+      assert(readyBody.secretRotation.ready === true, "Ready route should include secret rotation readiness metadata.");
       assert(readyBody.productionSafety.ready === true, "Ready route should include passing production safety metadata.");
       assert(readyBody.telemetry.metricsEnabled === true, "Ready route should report metrics availability.");
       assert(readyBody.telemetry.metricsAuthorizationConfigured === true, "Ready route should report metrics authorization state.");
@@ -514,6 +533,11 @@ async function main() {
         readyBody.productionSafety.failedRequiredChecks.includes("metrics_authorization"),
         "Ready route should report missing metrics authorization."
       );
+      assert(
+        readyBody.productionSafety.failedRequiredChecks.includes("secret_rotation_metadata"),
+        "Ready route should report missing secret rotation metadata."
+      );
+      assert(readyBody.secretRotation.ready === false, "Unsafe production config should report stale or missing rotation metadata.");
     }
   );
 
@@ -586,6 +610,7 @@ async function main() {
     productionPreflight: true,
     safeOperationalTelemetry: true,
     signedPhoneRequests: true,
+    secretRotationMetadata: true,
     status: "passed",
   }, null, 2));
 }

@@ -63,6 +63,8 @@ async function main() {
     assert(failedChecks.has("signed_phone_requests"), "Unsafe readiness should fail signed requests.");
     assert(failedChecks.has("production_safety_required"), "Unsafe readiness should fail missing production enforcement.");
     assert(failedChecks.has("cors_origin_policy"), "Unsafe readiness should fail wildcard CORS.");
+    assert(failedChecks.has("secret_rotation_metadata"), "Unsafe readiness should fail missing rotation metadata.");
+    assert(failedChecks.has("secret_rotation_window"), "Unsafe readiness should fail an over-wide rotation window.");
   });
 
   const localConfig = makeLensPilotEndpointCheckConfig({
@@ -151,6 +153,59 @@ function productionReadyBody() {
       metricsEnabled: true,
       metricsAuthorizationConfigured: true,
       maxRecentEvents: 100,
+    },
+    secretRotation: {
+      required: true,
+      ready: true,
+      maxAgeDays: 90,
+      failedRequiredChecks: [],
+      warnings: [],
+      checks: [
+        {
+          id: "rotation_window",
+          status: "pass",
+          required: true,
+          configured: true,
+          maxAgeDays: 90,
+          message: "Rotation freshness window is 90 days.",
+        },
+        {
+          id: "openai_api_key",
+          status: "pass",
+          required: true,
+          configured: true,
+          lastRotatedAt: "2026-08-15T00:00:00.000Z",
+          ageDays: 17,
+          message: "Server OpenAI key rotation metadata is fresh.",
+        },
+        {
+          id: "phone_client_token",
+          status: "pass",
+          required: true,
+          configured: true,
+          lastRotatedAt: "2026-08-15T00:00:00.000Z",
+          ageDays: 17,
+          message: "Phone bearer token rotation metadata is fresh.",
+        },
+        {
+          id: "phone_signing_secret",
+          status: "pass",
+          required: true,
+          configured: true,
+          lastRotatedAt: "2026-08-15T00:00:00.000Z",
+          ageDays: 17,
+          message: "Phone request-signing secret rotation metadata is fresh.",
+        },
+        {
+          id: "metrics_token",
+          status: "pass",
+          required: true,
+          configured: true,
+          lastRotatedAt: "2026-08-15T00:00:00.000Z",
+          ageDays: 17,
+          message: "Metrics token rotation metadata is fresh.",
+        },
+      ],
     },
     cors: {
       allowedOriginsConfigured: 1,
@@ -249,6 +304,23 @@ async function withUnsafeReadyServer(run) {
         telemetry: {
           metricsEnabled: true,
           metricsAuthorizationConfigured: false,
+        },
+        secretRotation: {
+          required: true,
+          ready: false,
+          maxAgeDays: 365,
+          failedRequiredChecks: ["rotation_window", "phone_client_token", "phone_signing_secret", "metrics_token"],
+          warnings: [],
+          checks: [
+            {
+              id: "rotation_window",
+              status: "fail",
+              required: true,
+              configured: true,
+              maxAgeDays: 365,
+              message: "Rotation freshness window must not exceed 90 days.",
+            },
+          ],
         },
         cors: {
           allowedOriginsConfigured: 1,

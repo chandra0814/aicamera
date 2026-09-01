@@ -22,8 +22,10 @@ export const lensPilotCreativeServerDefaults = {
   signedRequestsRequired: false,
   signatureToleranceMs: 5 * 60 * 1000,
   signatureReplayMaxEntries: 1000,
+  secretRotationMaxAgeDays: 90,
   productionMaxRequestBytes: 64 * 1024,
   productionMaxRequestsPerWindow: 120,
+  productionMaxSecretRotationAgeDays: 90,
   requireProductionSafety: false,
 };
 
@@ -138,6 +140,7 @@ export async function handleLensPilotCreativeHTTPRoute(requestLike, options = {}
         metricsAuthorizationConfigured: Boolean(config.metricsAuthorizationConfigured),
         maxRecentEvents: config.maxMetricEvents,
       },
+      secretRotation: deployment.secretRotation,
       cors: {
         allowedOriginsConfigured: config.allowedOrigins.length,
         wildcardAllowed: config.allowedOrigins.includes("*"),
@@ -316,6 +319,15 @@ function makeServerConfig(options, environment) {
       options.maxMetricEvents ?? environment.LENSPILOT_MAX_METRIC_EVENTS,
       lensPilotCreativeServerDefaults.maxMetricEvents
     ),
+    secretRotationMaxAgeDays: parseIntegerOption(
+      options.secretRotationMaxAgeDays ?? environment.LENSPILOT_SECRET_ROTATION_MAX_AGE_DAYS,
+      lensPilotCreativeServerDefaults.secretRotationMaxAgeDays
+    ),
+    secretRotationNow: options.secretRotationNow,
+    openAIKeyRotatedAt: cleanOptional(options.openAIKeyRotatedAt ?? environment.LENSPILOT_OPENAI_KEY_ROTATED_AT),
+    clientTokenRotatedAt: cleanOptional(options.clientTokenRotatedAt ?? environment.LENSPILOT_CREATIVE_API_TOKEN_ROTATED_AT),
+    clientSigningSecretRotatedAt: cleanOptional(options.clientSigningSecretRotatedAt ?? environment.LENSPILOT_CLIENT_SIGNING_SECRET_ROTATED_AT),
+    metricsTokenRotatedAt: cleanOptional(options.metricsTokenRotatedAt ?? environment.LENSPILOT_METRICS_TOKEN_ROTATED_AT),
     requireProductionSafety: parseBooleanOption(
       options.requireProductionSafety ?? environment.LENSPILOT_REQUIRE_PRODUCTION_SAFETY,
       lensPilotCreativeServerDefaults.requireProductionSafety
@@ -326,6 +338,7 @@ function makeServerConfig(options, environment) {
 export function describeLensPilotCreativeServerConfig(options = {}) {
   const environment = options.environment ?? globalThis.process?.env ?? {};
   const config = options.config ?? makeServerConfig(options, environment);
+  const secretRotation = makeSecretRotationReport(config);
 
   return {
     service: "lenspilot-creative-api",
@@ -366,16 +379,18 @@ export function describeLensPilotCreativeServerConfig(options = {}) {
       storesRawPhoto: false,
       storesRawLearningEvents: false,
     },
+    secretRotation,
     cors: {
       allowedOriginsConfigured: config.allowedOrigins.length,
       wildcardAllowed: config.allowedOrigins.includes("*"),
     },
     privacy: lensPilotCreativeInterpretationApiPrivacy,
-    productionSafety: makeProductionSafetyReport(config),
+    productionSafety: makeProductionSafetyReport(config, { secretRotation }),
   };
 }
 
-function makeProductionSafetyReport(config) {
+function makeProductionSafetyReport(config, options = {}) {
+  const secretRotation = options.secretRotation ?? makeSecretRotationReport(config);
   const checks = [
     makeProductionSafetyCheck({
       id: "server_openai_key",
@@ -426,6 +441,12 @@ function makeProductionSafetyReport(config) {
         : "Metrics route is disabled.",
     }),
     makeProductionSafetyCheck({
+      id: "secret_rotation_metadata",
+      passed: secretRotation.ready,
+      required: config.requireProductionSafety,
+      message: "Required secret rotation metadata is fresh and bounded.",
+    }),
+    makeProductionSafetyCheck({
       id: "single_phone_privacy_boundary",
       passed: lensPilotCreativeInterpretationApiPrivacy.singlePhoneOnly === true &&
         lensPilotCreativeInterpretationApiPrivacy.acceptsClientOpenAIKey === false &&
@@ -452,6 +473,190 @@ function makeProductionSafetyReport(config) {
     warnings,
     checks,
   };
+}
+
+function makeSecretRotationReport(config) {
+  const maxAgeDays = parseIntegerOption(
+    config.secretRotationMaxAgeDays,
+    lensPilotCreativeServerDefaults.secretRotationMaxAgeDays
+  );
+  const nowMs = resolveSecretRotationNowMs(config.secretRotationNow);
+  const productionRequired = Boolean(config.requireProductionSafety);
+  const checks = [
+    makeSecretRotationWindowCheck({
+      maxAgeDays,
+      required: productionRequired,
+    }),
+    makeSecretRotationCheck({
+      id: "openai_api_key",
+      configured: config.openAIAPIKeyConfigured,
+      required: productionRequired,
+      rotatedAt: config.openAIKeyRotatedAt,
+      maxAgeDays,
+      nowMs,
+      message: "Server OpenAI key rotation metadata is fresh.",
+    }),
+    makeSecretRotationCheck({
+      id: "phone_client_token",
+      configured: config.clientAuthorizationConfigured,
+      required: productionRequired,
+      rotatedAt: config.clientTokenRotatedAt,
+      maxAgeDays,
+      nowMs,
+      message: "Phone bearer token rotation metadata is fresh.",
+    }),
+    makeSecretRotationCheck({
+      id: "phone_signing_secret",
+      configured: config.clientSignatureConfigured,
+      required: productionRequired,
+      rotatedAt: config.clientSigningSecretRotatedAt,
+      maxAgeDays,
+      nowMs,
+      message: "Phone request-signing secret rotation metadata is fresh.",
+    }),
+    makeSecretRotationCheck({
+      id: "metrics_token",
+      configured: config.metricsAuthorizationConfigured,
+      required: productionRequired && config.metricsEnabled,
+      rotatedAt: config.metricsTokenRotatedAt,
+      maxAgeDays,
+      nowMs,
+      message: config.metricsEnabled
+        ? "Metrics token rotation metadata is fresh."
+        : "Metrics token rotation metadata is not required while metrics are disabled.",
+    }),
+  ];
+  const failedRequiredChecks = checks
+    .filter((check) => check.required && check.status !== "pass")
+    .map((check) => check.id);
+  const warnings = checks
+    .filter((check) => !check.required && check.status === "warn")
+    .map((check) => check.id);
+
+  return {
+    required: productionRequired,
+    ready: failedRequiredChecks.length === 0,
+    maxAgeDays,
+    failedRequiredChecks,
+    warnings,
+    checks,
+  };
+}
+
+function makeSecretRotationWindowCheck({ maxAgeDays, required }) {
+  const passed = maxAgeDays <= lensPilotCreativeServerDefaults.productionMaxSecretRotationAgeDays;
+  return {
+    id: "rotation_window",
+    status: passed ? "pass" : required ? "fail" : "warn",
+    required: Boolean(required),
+    configured: true,
+    maxAgeDays,
+    message: passed
+      ? `Rotation freshness window is ${maxAgeDays} days.`
+      : `Rotation freshness window must not exceed ${lensPilotCreativeServerDefaults.productionMaxSecretRotationAgeDays} days.`,
+  };
+}
+
+function makeSecretRotationCheck({
+  id,
+  configured,
+  required,
+  rotatedAt,
+  maxAgeDays,
+  nowMs,
+  message,
+}) {
+  const base = {
+    id,
+    required: Boolean(required),
+    configured: Boolean(configured),
+    lastRotatedAt: null,
+    ageDays: null,
+  };
+
+  if (!configured && !required) {
+    return {
+      ...base,
+      status: "skip",
+      message: "Secret is not configured and rotation metadata is not required.",
+    };
+  }
+
+  if (!configured && required) {
+    return {
+      ...base,
+      status: "fail",
+      message: "Required secret is not configured, so rotation metadata cannot be verified.",
+    };
+  }
+
+  const parsed = parseSecretRotationDate(rotatedAt);
+  if (!parsed.valid) {
+    return {
+      ...base,
+      status: required ? "fail" : "warn",
+      message: parsed.reason === "invalid_rotation_date"
+        ? "Last rotation date is invalid."
+        : "Last rotation date is not configured.",
+    };
+  }
+
+  const ageMs = nowMs - parsed.timeMs;
+  if (ageMs < -60_000) {
+    return {
+      ...base,
+      status: required ? "fail" : "warn",
+      lastRotatedAt: parsed.lastRotatedAt,
+      message: "Last rotation date is in the future.",
+    };
+  }
+
+  const ageDays = Math.max(0, Math.floor(ageMs / 86_400_000));
+  const fresh = ageDays <= maxAgeDays;
+  return {
+    ...base,
+    status: fresh ? "pass" : required ? "fail" : "warn",
+    lastRotatedAt: parsed.lastRotatedAt,
+    ageDays,
+    message: fresh ? message : `Last rotation metadata is older than ${maxAgeDays} days.`,
+  };
+}
+
+function parseSecretRotationDate(value) {
+  const cleaned = cleanOptional(value);
+  if (!cleaned) {
+    return {
+      valid: false,
+      reason: "missing_rotation_date",
+    };
+  }
+
+  const normalized = /^\d{4}-\d{2}-\d{2}$/.test(cleaned)
+    ? `${cleaned}T00:00:00.000Z`
+    : cleaned;
+  const timeMs = Date.parse(normalized);
+  if (!Number.isFinite(timeMs)) {
+    return {
+      valid: false,
+      reason: "invalid_rotation_date",
+    };
+  }
+
+  return {
+    valid: true,
+    timeMs,
+    lastRotatedAt: new Date(timeMs).toISOString(),
+  };
+}
+
+function resolveSecretRotationNowMs(value) {
+  if (value instanceof Date && Number.isFinite(value.getTime())) return value.getTime();
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const parsed = Date.parse(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return Date.now();
 }
 
 function makeProductionSafetyCheck({ id, passed, required, message }) {
