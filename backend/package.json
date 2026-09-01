@@ -6,7 +6,9 @@
   "scripts": {
     "start": "node server.mjs",
     "preflight:production": "node -e \"eval(require('node:fs').readFileSync('scripts/preflight-production.cjs','utf8'))\"",
-    "test": "node -e \"eval(require('node:fs').readFileSync('scripts/validate-server.cjs','utf8'))\""
+    "test": "npm run test:server && npm run test:env-example",
+    "test:server": "node -e \"eval(require('node:fs').readFileSync('scripts/validate-server.cjs','utf8'))\"",
+    "test:env-example": "node -e \"eval(require('node:fs').readFileSync('scripts/validate-env-example.cjs','utf8'))\""
   },
   "engines": {
     "node": ">=20"

@@ -71,6 +71,8 @@ npm test
 
 The validation starts the server on a random local port, checks health/readiness/CORS, verifies client authorization, verifies signed request and replay protection, exercises the creative route with a fake OpenAI transport, confirms rate limiting, validates production-safety readiness failures, and checks safe operational telemetry. It does not require a real OpenAI key.
 
+The backend test also validates the root `.env.example` template. It requires every server/iOS Creative API configuration key, keeps placeholder secrets blank, verifies the iOS URL points at `/v1/creative-interpretation`, and checks that example request caps, rate limits, signature windows, replay cache size, and telemetry retention remain production-safe.
+
 ## Provider Errors
 
 OpenAI failures stay behind the LensPilot backend boundary. The API returns safe metadata such as `openai_credit_balance_exhausted`, provider HTTP status, sanitized provider error type/code, `retryable`, and `blockedByBilling`; it never forwards provider secrets, raw provider payloads, or client-supplied OpenAI keys back to the phone.

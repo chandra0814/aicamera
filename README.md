@@ -9,7 +9,7 @@ LensPilot AI camera prototype with a single-phone iOS capture loop, shared AI co
 - Route contract: `POST /v1/creative-interpretation`
 - Health checks: `GET /health` and `GET /ready`
 - Server-only secret: `OPENAI_API_KEY`
-- Phone-facing config: `LENSPILOT_CREATIVE_API_URL` and optional `LENSPILOT_CREATIVE_API_TOKEN`, supplied through environment or app bundle build settings
+- Phone-facing config: `LENSPILOT_CREATIVE_API_URL`, optional `LENSPILOT_CREATIVE_API_TOKEN`, and optional request-signing secret supplied through environment or app bundle build settings
 - Local placeholders: see `.env.example`
 
 The iOS app keeps working without the API URL. Direct OpenAI calls from the app require the explicit local-development flag `LENSPILOT_ALLOW_DIRECT_OPENAI_PROVIDER=true`.
@@ -27,3 +27,5 @@ Validate the full deployable server wrapper with:
 cd backend
 npm test
 ```
+
+The backend test also validates `.env.example` so production-safety settings, signed-request settings, metrics settings, and iOS API settings stay documented without sample secrets.
