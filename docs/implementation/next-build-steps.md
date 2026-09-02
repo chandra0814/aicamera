@@ -3,11 +3,12 @@
 ## Immediate iOS Work
 
 1. Open `ios/Package` from Xcode on macOS and run the `LensPilotCoreTests` test target.
-2. Use the in-app calibration queue to collect 24 guided real captures across portrait, landscape, sky, clutter, backlight, horizon, motion, and night scenarios; AI Diagnostics now reports calibration readiness until this coverage is complete.
-3. Use the in-app share control to export each selected `iphone_capture_candidate` JSON, then add blind preference labels from the in-app tag control.
-4. Check collection gaps with `npm run calibration:readiness`, then import reviewed app exports with `npm run calibration:import-reviewed -- --sample <reviewed-sample.json> --write`.
-5. Calibrate the on-device metric weights and guidance priorities against those reviewed samples; the app now loads the bundled manifest into `LensPilotAiCore`.
-6. For API-backed creative guidance, create the production Creative API service from `render.yaml`, enter the `sync: false` secret values and fresh `LENSPILOT_*_ROTATED_AT` metadata, then configure the phone build with `LENSPILOT_CREATIVE_API_URL` and, if used, a non-OpenAI `LENSPILOT_CREATIVE_API_TOKEN`. Keep `LENSPILOT_ALLOW_DIRECT_OPENAI_PROVIDER=false` outside local development.
+2. From `shared/typescript`, run `npm run calibration:session-plan` and use `docs/implementation/calibration-field-runbook.md` to drive the real iPhone field session.
+3. Use the in-app calibration queue to collect 24 guided real captures across portrait, landscape, sky, clutter, backlight, horizon, motion, and night scenarios; AI Diagnostics now reports calibration readiness until this coverage is complete.
+4. Use the in-app share control to export each selected `iphone_capture_candidate` JSON, then add blind preference labels from the in-app tag control.
+5. Check collection gaps with `npm run calibration:readiness`, then import reviewed app exports with `npm run calibration:import-reviewed -- --sample <reviewed-sample.json> --write`.
+6. Calibrate the on-device metric weights and guidance priorities against those reviewed samples; the app now loads the bundled manifest into `LensPilotAiCore`.
+7. For API-backed creative guidance, keep the production Creative API service from `render.yaml` configured with `sync: false` secret values and fresh `LENSPILOT_*_ROTATED_AT` metadata, then configure the phone build with `LENSPILOT_CREATIVE_API_URL` and, if used, a non-OpenAI `LENSPILOT_CREATIVE_API_TOKEN`. Keep `LENSPILOT_ALLOW_DIRECT_OPENAI_PROVIDER=false` outside local development.
 
 ## Completed Single-Phone Runtime Work
 
@@ -72,6 +73,7 @@
 - AI Diagnostics now reports the phone's redacted Creative API configuration status, including whether the backend URL is resolved, HTTPS, phone bearer auth is present, signed requests are present, direct OpenAI is disabled, and no secrets are exposed.
 - Target Match calibration readiness now reports reviewed real-capture counts, missing domains, and missing scenarios so production calibration cannot be mistaken for seed-fixture coverage.
 - AI Diagnostics now includes an in-app calibration readiness checklist with missing domains, missing scenarios, and a one-tap action that selects the next capture scenario on the same phone.
+- `npm run calibration:session-plan` now generates a 24-slot single-phone field checklist from the calibration manifest, including reference-popup checks, blind-review rules, and import commands.
 
 ## Single-Phone Verification Checklist
 
@@ -108,6 +110,7 @@
 - Calibration export metadata may include the selected queue scenario id, but it still excludes raw photos, live frames, identity labels, and online-source data.
 - Calibration readiness only passes after same-phone real captures meet the required review count, domain coverage, and scenario coverage.
 - The diagnostics checklist can select the next missing calibration scenario without leaving the single-phone app flow.
+- The calibration session plan is CI-validated to stay aligned with the manifest, preserve all eight scenarios, avoid two-device assumptions, and keep raw photos, live frames, private references, identity data, cloud analysis, and generative edits out of calibration.
 
 ## MVP Boundary
 

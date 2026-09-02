@@ -23,6 +23,7 @@
   - Target Match calibration manifest validation, including candidate-sample privacy checks
   - Target Match calibration readiness reporting for missing real-capture counts, domains, and scenarios
   - collector-friendly calibration readiness checklist validation in human and JSON modes
+  - single-phone calibration session-plan validation for 24 field slots, reference-popup checks, blind-review requirements, manifest scenario alignment, and privacy-safe calibration export rules
   - reviewed candidate promotion into labeled `iphone_capture` calibration samples
   - reviewed-sample importer readiness summaries after manifest writes
   - guided calibration queue validation for eight real-capture scenarios, 24 target captures, supported domains, manifest `requiredScenarios` alignment, and sanitized local progress
@@ -63,6 +64,7 @@
 - Local `.\scripts\test-all.ps1` passed after adding safe provider-error classification for the backend Creative API and iOS Creative API provider.
 - Swift package tests include regression coverage for same-phone provider diagnostics that classify exhausted credits and redact secret-looking tokens from OpenAI and LensPilot Creative API error messages.
 - Local `.\scripts\test-all.ps1` passed after adding redacted same-phone Creative API configuration diagnostics; Windows still skips Swift/Xcode locally.
+- Local `.\scripts\test-all.ps1` passed after adding the calibration session-plan CLI and validator; Windows still skips Swift/Xcode locally.
 - Swift package tests still need GitHub/macOS CI for this workspace because Windows does not have Swift/Xcode installed.
 
 ## Not Runnable Here
