@@ -69,6 +69,7 @@
 - `.env.example` now includes the full backend and iOS Creative API configuration surface, and backend tests fail if production-safety, signed-request, metrics, secret-rotation metadata, or phone-facing API keys drift out of the template.
 - `npm run check:production-endpoint` now verifies deployed `/health`, `/ready`, and optional `/metrics` posture without sending prompts or calling OpenAI, and fails closed if production safety, signed requests, fresh secret-rotation metadata, CORS, limits, or single-phone privacy regress.
 - The iOS app now prefers `LENSPILOT_CREATIVE_API_URL` through `LensPilotCreativeInterpretationAPIProvider` from environment or app bundle build settings; direct OpenAI calls require the explicit local-development flag `LENSPILOT_ALLOW_DIRECT_OPENAI_PROVIDER=true`.
+- AI Diagnostics now reports the phone's redacted Creative API configuration status, including whether the backend URL is resolved, HTTPS, phone bearer auth is present, signed requests are present, direct OpenAI is disabled, and no secrets are exposed.
 - Target Match calibration readiness now reports reviewed real-capture counts, missing domains, and missing scenarios so production calibration cannot be mistaken for seed-fixture coverage.
 - AI Diagnostics now includes an in-app calibration readiness checklist with missing domains, missing scenarios, and a one-tap action that selects the next capture scenario on the same phone.
 
@@ -100,6 +101,7 @@
 - Creative API metrics can be disabled or protected with `LENSPILOT_METRICS_TOKEN`; production readiness requires metrics authorization whenever metrics are enabled.
 - Production endpoint checks use safe GET probes only and do not submit creative prompts, private references, live frames, learning events, or OpenAI credentials.
 - On iOS, learned profile persistence prefers Keychain encrypted, this-device-only storage and removes legacy UserDefaults bytes after migration or save.
+- On iOS, Creative API configuration diagnostics expose only safe booleans and endpoint host/path metadata; phone bearer tokens, signing secrets, URL query strings, metrics tokens, and OpenAI keys are never shown or serialized.
 - Capture feedback records structured ratings, guidance outcomes, and selected correction reasons only; it does not store the captured photo as a learning event.
 - After-capture coaching uses score summaries and ranked-shot metadata only; it does not store or upload raw photos.
 - Calibration queue progress stores selected scenario IDs and counts only; photos remain outside the queue state and exports stay user-triggered.

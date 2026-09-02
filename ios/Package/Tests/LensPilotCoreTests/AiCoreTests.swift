@@ -373,6 +373,12 @@ final class AiCoreTests: XCTestCase {
             referencePhoto: Self.referencePhoto(cloudAnalysisUsed: false, showCameraPopup: true),
             onlineReferencePlan: plan,
             creativeInterpretationPlan: creativePlan,
+            creativeAPIConfigurationStatus: LensPilotCreativeInterpretationAPIProvider.configurationStatus(
+                apiURLValue: "https://lenspilot.example/v1/creative-interpretation?token=should_not_be_reported",
+                clientTokenValue: "phone-client-token-should-not-be-reported",
+                signingSecretValue: "phone-signing-secret-should-not-be-reported",
+                source: .bundle
+            ),
             onlineInspirationHealthSnapshot: healthSnapshot,
             calibrationReadinessReport: Self.readyCalibrationReadinessReport(),
             personalProfile: profile,
@@ -387,6 +393,7 @@ final class AiCoreTests: XCTestCase {
             "reference_popup",
             "online_reference_plan",
             "creative_interpretation",
+            "creative_api_configuration",
             "online_provider_health",
             "calibration_readiness",
             "local_learning",
@@ -445,6 +452,13 @@ final class AiCoreTests: XCTestCase {
                 )
             ),
             onlineInspirationHealthSnapshot: unsafeHealthSnapshot,
+            creativeAPIConfigurationStatus: LensPilotCreativeInterpretationAPIProvider.configurationStatus(
+                apiURLValue: "http://lenspilot.example/v1/creative-interpretation",
+                clientTokenValue: nil,
+                signingSecretValue: nil,
+                directOpenAIProviderAllowed: true,
+                source: .bundle
+            ),
             personalProfile: .empty(consent: .disabled),
             personalProfileStoreProtection: .localFile,
             captureCoachingSummary: nil,
@@ -454,8 +468,55 @@ final class AiCoreTests: XCTestCase {
         XCTAssertEqual(report.overallStatus, .blocked)
         XCTAssertEqual(report.checks.first { $0.id == "reference_popup" }?.status, .blocked)
         XCTAssertEqual(report.checks.first { $0.id == "creative_interpretation" }?.status, .blocked)
+        XCTAssertEqual(report.checks.first { $0.id == "creative_api_configuration" }?.status, .blocked)
         XCTAssertEqual(report.checks.first { $0.id == "online_provider_health" }?.status, .blocked)
         XCTAssertTrue(report.privacy.singlePhoneOnly)
+    }
+
+    func testLensPilotCreativeAPIConfigurationStatusIsRedactedAndProductionSafe() throws {
+        let protected = LensPilotCreativeInterpretationAPIProvider.configurationStatus(
+            apiURLValue: "https://lenspilot.example/v1/creative-interpretation?token=leaky-query",
+            clientTokenValue: "phone-client-token-secret",
+            signingSecretValue: "phone-signing-secret",
+            source: .bundle
+        )
+
+        XCTAssertEqual(protected.readiness, .protected)
+        XCTAssertEqual(protected.source, .bundle)
+        XCTAssertEqual(protected.endpointHost, "lenspilot.example")
+        XCTAssertEqual(protected.endpointPath, "/v1/creative-interpretation")
+        XCTAssertTrue(protected.usesHTTPS)
+        XCTAssertTrue(protected.hasClientToken)
+        XCTAssertTrue(protected.hasSigningSecret)
+        XCTAssertFalse(protected.allowsDirectOpenAIProvider)
+        XCTAssertTrue(protected.privacy.keepsOpenAIKeyOnServer)
+        XCTAssertFalse(protected.privacy.acceptsClientOpenAIKey)
+        XCTAssertEqual(protected.diagnosticDetail, "Signed backend ready")
+
+        let encoded = try XCTUnwrap(String(data: try JSONEncoder().encode(protected), encoding: .utf8))
+        XCTAssertFalse(encoded.contains("phone-client-token-secret"))
+        XCTAssertFalse(encoded.contains("phone-signing-secret"))
+        XCTAssertFalse(encoded.contains("leaky-query"))
+
+        let unresolved = LensPilotCreativeInterpretationAPIProvider.configurationStatus(
+            apiURLValue: "$(LENSPILOT_CREATIVE_API_URL)",
+            clientTokenValue: "$(LENSPILOT_CREATIVE_API_TOKEN)",
+            signingSecretValue: "$(LENSPILOT_CREATIVE_API_SIGNING_SECRET)",
+            source: .bundle
+        )
+        XCTAssertEqual(unresolved.readiness, .offline)
+        XCTAssertEqual(unresolved.diagnosticDetail, "Generated config missing")
+        XCTAssertTrue(unresolved.warnings.contains(.unresolvedBuildSetting))
+
+        let directOpenAI = LensPilotCreativeInterpretationAPIProvider.configurationStatus(
+            apiURLValue: "https://lenspilot.example/v1/creative-interpretation",
+            clientTokenValue: "phone-client-token-secret",
+            signingSecretValue: "phone-signing-secret",
+            directOpenAIProviderAllowed: true,
+            source: .environment
+        )
+        XCTAssertEqual(directOpenAI.readiness, .blocked)
+        XCTAssertEqual(directOpenAI.diagnosticDetail, "Direct OpenAI enabled")
     }
 
     func testCalibrationCaptureQueueGuidesRequiredRealCaptureScenarios() {

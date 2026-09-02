@@ -647,6 +647,12 @@ const diagnosticsReport = makeSinglePhoneAiDiagnosticsReport({
   referencePhoto: referencePhotoFixture(false, true),
   onlineReferencePlan: plan,
   creativeInterpretationPlan: creativePlan,
+  creativeAPIConfigurationStatus: makeLensPilotCreativeAPIConfigurationStatus({
+    apiURLValue: "https://lenspilot.example/v1/creative-interpretation?token=should_not_be_reported",
+    clientTokenValue: "phone-client-token-should-not-be-reported",
+    signingSecretValue: "phone-signing-secret-should-not-be-reported",
+    source: "bundle",
+  }),
   onlineInspirationHealthSnapshot: availableProviderHealthSnapshot,
   calibrationReadinessReport: calibrationReadinessReportFixture(true),
   personalProfile: diagnosticProfile,
@@ -655,13 +661,24 @@ const diagnosticsReport = makeSinglePhoneAiDiagnosticsReport({
   generatedAt: "2026-08-29T00:00:00.000Z",
 });
 assert(diagnosticsReport.overallStatus === "passed", "Single-phone diagnostics should pass when every local flow is healthy.");
-assert(diagnosticsReport.checks.length === 9, "Single-phone diagnostics should cover the expected AI test cases.");
+assert(diagnosticsReport.checks.length === 10, "Single-phone diagnostics should cover the expected AI test cases.");
 assert(diagnosticsReport.checks.every((check) => check.status === "passed"), "Every healthy diagnostic check should pass.");
 assert(diagnosticsReport.checks.find((check) => check.id === "creative_interpretation").detail === `${creativePlan.suggestions.length} suggestions`, "Diagnostics should verify creative interpretation.");
+assert(diagnosticsReport.checks.find((check) => check.id === "creative_api_configuration").detail === "Signed backend ready", "Diagnostics should verify protected Creative API configuration.");
 assert(diagnosticsReport.checks.find((check) => check.id === "calibration_readiness").detail === "24/24 captures", "Diagnostics should confirm real-capture calibration readiness.");
 assert(diagnosticsReport.checks.find((check) => check.id === "learning_store").detail === "Keychain encrypted", "Diagnostics should confirm encrypted learning storage.");
 assert(diagnosticsReport.privacy.singlePhoneOnly === true, "Diagnostics report must stay single-phone.");
 assert(diagnosticsReport.privacy.uploadsLiveCameraFrame === false, "Diagnostics report must not upload live camera frames.");
+const encodedCreativeAPIStatus = JSON.stringify(diagnosticsReport.checks)
+  + JSON.stringify(makeLensPilotCreativeAPIConfigurationStatus({
+    apiURLValue: "https://lenspilot.example/v1/creative-interpretation?token=leaky-query",
+    clientTokenValue: "phone-client-token-secret",
+    signingSecretValue: "phone-signing-secret",
+    source: "bundle",
+  }));
+assert(!encodedCreativeAPIStatus.includes("phone-client-token-secret"), "Creative API diagnostics must not serialize phone tokens.");
+assert(!encodedCreativeAPIStatus.includes("phone-signing-secret"), "Creative API diagnostics must not serialize signing secrets.");
+assert(!encodedCreativeAPIStatus.includes("leaky-query"), "Creative API diagnostics must not serialize URL query secrets.");
 
 const unsafeHealthSnapshot = {
   ...availableProviderHealthSnapshot,
@@ -683,6 +700,13 @@ const blockedDiagnosticsReport = makeSinglePhoneAiDiagnosticsReport({
     },
   },
   onlineInspirationHealthSnapshot: unsafeHealthSnapshot,
+  creativeAPIConfigurationStatus: makeLensPilotCreativeAPIConfigurationStatus({
+    apiURLValue: "http://lenspilot.example/v1/creative-interpretation",
+    clientTokenValue: undefined,
+    signingSecretValue: undefined,
+    directOpenAIProviderAllowed: true,
+    source: "bundle",
+  }),
   personalProfile: diagnosticProfile,
   captureCoachingSummary: captureCoachingSummaryFixture(),
   generatedAt: "2026-08-29T00:00:00.000Z",
@@ -690,6 +714,7 @@ const blockedDiagnosticsReport = makeSinglePhoneAiDiagnosticsReport({
 assert(blockedDiagnosticsReport.overallStatus === "blocked", "Single-phone diagnostics should block unsafe payloads.");
 assert(blockedDiagnosticsReport.checks.find((check) => check.id === "reference_popup").status === "blocked", "Diagnostics should block cloud-analyzed references.");
 assert(blockedDiagnosticsReport.checks.find((check) => check.id === "creative_interpretation").status === "blocked", "Diagnostics should block creative plans that send private photos.");
+assert(blockedDiagnosticsReport.checks.find((check) => check.id === "creative_api_configuration").status === "blocked", "Diagnostics should block direct OpenAI production configuration.");
 assert(blockedDiagnosticsReport.checks.find((check) => check.id === "online_provider_health").status === "blocked", "Diagnostics should block provider health that uploads camera frames.");
 
 const thumbnailCache = makeThumbnailMemoryCache(1);
@@ -1498,6 +1523,7 @@ function makeSinglePhoneAiDiagnosticsReport({
   referencePhoto,
   onlineReferencePlan,
   creativeInterpretationPlan,
+  creativeAPIConfigurationStatus = makeLensPilotCreativeAPIConfigurationStatus(),
   onlineInspirationHealthSnapshot,
   calibrationReadinessReport,
   personalProfile,
@@ -1515,6 +1541,7 @@ function makeSinglePhoneAiDiagnosticsReport({
     referencePopupDiagnosticCheck(referencePhoto),
     onlineReferencePlanDiagnosticCheck(onlineReferencePlan),
     creativeInterpretationDiagnosticCheck(creativeInterpretationPlan),
+    creativeAPIConfigurationDiagnosticCheck(creativeAPIConfigurationStatus),
     onlineProviderHealthDiagnosticCheck(onlineInspirationHealthSnapshot),
     calibrationReadinessDiagnosticCheck(calibrationReadinessReport),
     localLearningDiagnosticCheck(personalProfile),
@@ -1534,6 +1561,202 @@ function makeSinglePhoneAiDiagnosticsReport({
       sendsPreciseLocation: false,
     },
   };
+}
+
+function makeLensPilotCreativeAPIConfigurationStatus({
+  apiURLValue,
+  clientTokenValue,
+  signingSecretValue,
+  directOpenAIProviderAllowed = false,
+  source = "environment",
+} = {}) {
+  const warnings = [];
+  if (directOpenAIProviderAllowed) warnings.push("direct_openai_provider_allowed");
+  if (
+    containsUnresolvedBuildSetting(apiURLValue) ||
+    containsUnresolvedBuildSetting(clientTokenValue) ||
+    containsUnresolvedBuildSetting(signingSecretValue)
+  ) {
+    warnings.push("unresolved_build_setting");
+  }
+
+  const cleanedURL = cleanedConfigValue(apiURLValue);
+  if (!cleanedURL) {
+    warnings.push("missing_api_url");
+    return {
+      source: cleanedOptional(apiURLValue) ? source : "none",
+      readiness: directOpenAIProviderAllowed ? "blocked" : "offline",
+      endpointHost: null,
+      endpointPath: null,
+      usesHTTPS: false,
+      hasClientToken: false,
+      hasSigningSecret: false,
+      allowsDirectOpenAIProvider: directOpenAIProviderAllowed,
+      warnings,
+      privacy: lensPilotCreativeAPIConfigurationPrivacy(),
+    };
+  }
+
+  let apiURL;
+  try {
+    apiURL = new URL(cleanedURL);
+  } catch {
+    warnings.push("invalid_api_url");
+    return {
+      source,
+      readiness: "blocked",
+      endpointHost: null,
+      endpointPath: null,
+      usesHTTPS: false,
+      hasClientToken: false,
+      hasSigningSecret: false,
+      allowsDirectOpenAIProvider: directOpenAIProviderAllowed,
+      warnings,
+      privacy: lensPilotCreativeAPIConfigurationPrivacy(),
+    };
+  }
+
+  const scheme = apiURL.protocol.replace(":", "").toLowerCase();
+  if (!["https", "http"].includes(scheme) || !apiURL.hostname) {
+    warnings.push("invalid_api_url");
+    return {
+      source,
+      readiness: "blocked",
+      endpointHost: null,
+      endpointPath: null,
+      usesHTTPS: false,
+      hasClientToken: false,
+      hasSigningSecret: false,
+      allowsDirectOpenAIProvider: directOpenAIProviderAllowed,
+      warnings,
+      privacy: lensPilotCreativeAPIConfigurationPrivacy(),
+    };
+  }
+
+  const usesHTTPS = scheme === "https";
+  const isLocalDevelopmentAPI = !usesHTTPS && isLocalDevelopmentHost(apiURL.hostname);
+  if (isLocalDevelopmentAPI) {
+    warnings.push("local_development_api_url");
+  } else if (!usesHTTPS) {
+    warnings.push("insecure_api_url");
+  }
+
+  const hasClientToken = Boolean(cleanedConfigValue(clientTokenValue));
+  const hasSigningSecret = Boolean(cleanedConfigValue(signingSecretValue));
+  if (!hasClientToken) warnings.push("missing_client_token");
+  if (!hasSigningSecret) warnings.push("missing_signing_secret");
+
+  const readiness = directOpenAIProviderAllowed || warnings.includes("insecure_api_url")
+    ? "blocked"
+    : usesHTTPS && hasClientToken && hasSigningSecret
+      ? "protected"
+      : "needs_protection";
+
+  return {
+    source,
+    readiness,
+    endpointHost: apiURL.hostname,
+    endpointPath: normalizedSigningPath(apiURL.pathname),
+    usesHTTPS,
+    hasClientToken,
+    hasSigningSecret,
+    allowsDirectOpenAIProvider: directOpenAIProviderAllowed,
+    warnings,
+    privacy: lensPilotCreativeAPIConfigurationPrivacy(),
+  };
+}
+
+function lensPilotCreativeAPIConfigurationPrivacy() {
+  return {
+    singlePhoneOnly: true,
+    keepsOpenAIKeyOnServer: true,
+    acceptsClientOpenAIKey: false,
+    uploadsLiveCameraFrame: false,
+    sendsPrivatePhoto: false,
+    sendsIdentityData: false,
+    sendsPreciseLocation: false,
+    sendsRawLearningEvents: false,
+  };
+}
+
+function cleanedOptional(value) {
+  const trimmed = typeof value === "string" ? value.trim() : "";
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function cleanedConfigValue(value) {
+  const cleaned = cleanedOptional(value);
+  if (!cleaned || containsUnresolvedBuildSetting(cleaned)) return undefined;
+  return cleaned;
+}
+
+function containsUnresolvedBuildSetting(value) {
+  const cleaned = cleanedOptional(value);
+  return Boolean(cleaned?.includes("$(") || cleaned?.includes("${"));
+}
+
+function isLocalDevelopmentHost(host) {
+  return ["localhost", "127.0.0.1", "::1"].includes(host.toLowerCase());
+}
+
+function normalizedSigningPath(path) {
+  const cleaned = typeof path === "string" ? path.trim() : "";
+  const withSlash = cleaned.startsWith("/") ? cleaned : `/${cleaned}`;
+  const trimmed = withSlash.replace(/\/+$/g, "");
+  return trimmed || "/";
+}
+
+function creativeAPIConfigurationDiagnosticCheck(configuration) {
+  const privacy = configuration.privacy ?? {};
+  const isSafe = privacy.singlePhoneOnly &&
+    privacy.keepsOpenAIKeyOnServer &&
+    !privacy.acceptsClientOpenAIKey &&
+    !privacy.uploadsLiveCameraFrame &&
+    !privacy.sendsPrivatePhoto &&
+    !privacy.sendsIdentityData &&
+    !privacy.sendsPreciseLocation &&
+    !privacy.sendsRawLearningEvents;
+
+  if (!isSafe) {
+    return {
+      id: "creative_api_configuration",
+      title: "Creative API",
+      status: "blocked",
+      detail: "Unsafe API privacy",
+    };
+  }
+
+  return {
+    id: "creative_api_configuration",
+    title: "Creative API",
+    status: configuration.readiness === "protected"
+      ? "passed"
+      : configuration.readiness === "blocked"
+        ? "blocked"
+        : "attention",
+    detail: creativeAPIConfigurationDiagnosticDetail(configuration),
+  };
+}
+
+function creativeAPIConfigurationDiagnosticDetail(configuration) {
+  switch (configuration.readiness) {
+    case "protected":
+      return "Signed backend ready";
+    case "offline":
+      return configuration.warnings.includes("unresolved_build_setting") ? "Generated config missing" : "Offline camera mode";
+    case "needs_protection":
+      if (configuration.warnings.includes("local_development_api_url")) return "Local backend only";
+      if (configuration.warnings.includes("missing_signing_secret")) return "Add request signing";
+      if (configuration.warnings.includes("missing_client_token")) return "Add phone auth";
+      return "Needs phone protection";
+    case "blocked":
+      if (configuration.warnings.includes("direct_openai_provider_allowed")) return "Direct OpenAI enabled";
+      if (configuration.warnings.includes("insecure_api_url")) return "HTTPS required";
+      if (configuration.warnings.includes("invalid_api_url")) return "Invalid backend URL";
+      return "Unsafe backend config";
+    default:
+      return "Unknown config";
+  }
 }
 
 function creativeInterpretationDiagnosticCheck(plan) {

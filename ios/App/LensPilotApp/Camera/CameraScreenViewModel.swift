@@ -444,6 +444,7 @@ final class CameraScreenViewModel: ObservableObject {
             referencePhoto: directorState.referencePhoto,
             onlineReferencePlan: onlineReferencePlan,
             creativeInterpretationPlan: creativeInterpretationPlan,
+            creativeAPIConfigurationStatus: LensPilotCreativeInterpretationAPIProvider.configurationStatusFromBundle(),
             onlineInspirationHealthSnapshot: onlineInspirationHealthSnapshot,
             calibrationReadinessReport: calibrationReadinessReport,
             personalProfile: personalProfile,
@@ -912,21 +913,12 @@ final class CameraScreenViewModel: ObservableObject {
             return HealthGatedCreativeInterpretationAdapter(provider: apiProvider)
         }
 
-        if Self.allowsDirectOpenAIProvider(),
+        if LensPilotCreativeInterpretationAPIProvider.allowsDirectOpenAIProvider(),
            let openAIProvider = OpenAICreativeInterpretationProvider.configuredFromEnvironment() {
             return HealthGatedCreativeInterpretationAdapter(provider: openAIProvider)
         }
 
         return HealthGatedCreativeInterpretationAdapter()
-    }
-
-    private static func allowsDirectOpenAIProvider(
-        _ environment: [String: String] = ProcessInfo.processInfo.environment
-    ) -> Bool {
-        let setting = environment["LENSPILOT_ALLOW_DIRECT_OPENAI_PROVIDER"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        return ["1", "true", "yes", "on"].contains(setting ?? "")
     }
 
     private static func isCreativeInterpretationSafetyBlock(_ error: Error) -> Bool {

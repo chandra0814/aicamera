@@ -88,6 +88,143 @@ public struct LensPilotCreativeAPIHTTPResponse: Equatable, Sendable {
     }
 }
 
+public struct LensPilotCreativeAPIConfigurationStatus: Codable, Equatable, Sendable {
+    public let source: Source
+    public let readiness: Readiness
+    public let endpointHost: String?
+    public let endpointPath: String?
+    public let usesHTTPS: Bool
+    public let hasClientToken: Bool
+    public let hasSigningSecret: Bool
+    public let allowsDirectOpenAIProvider: Bool
+    public let warnings: [Warning]
+    public let privacy: Privacy
+
+    public init(
+        source: Source,
+        readiness: Readiness,
+        endpointHost: String? = nil,
+        endpointPath: String? = nil,
+        usesHTTPS: Bool = false,
+        hasClientToken: Bool = false,
+        hasSigningSecret: Bool = false,
+        allowsDirectOpenAIProvider: Bool = false,
+        warnings: [Warning] = [],
+        privacy: Privacy = Privacy()
+    ) {
+        self.source = source
+        self.readiness = readiness
+        self.endpointHost = endpointHost
+        self.endpointPath = endpointPath
+        self.usesHTTPS = usesHTTPS
+        self.hasClientToken = hasClientToken
+        self.hasSigningSecret = hasSigningSecret
+        self.allowsDirectOpenAIProvider = allowsDirectOpenAIProvider
+        self.warnings = warnings
+        self.privacy = privacy
+    }
+
+    public static var offline: LensPilotCreativeAPIConfigurationStatus {
+        LensPilotCreativeAPIConfigurationStatus(
+            source: .none,
+            readiness: .offline,
+            warnings: [.missingAPIURL]
+        )
+    }
+}
+
+public extension LensPilotCreativeAPIConfigurationStatus {
+    enum Source: String, Codable, Equatable, Sendable {
+        case none
+        case environment
+        case bundle
+    }
+
+    enum Readiness: String, Codable, Equatable, Sendable {
+        case offline
+        case protected
+        case needsProtection = "needs_protection"
+        case blocked
+    }
+
+    enum Warning: String, Codable, Equatable, Sendable {
+        case missingAPIURL = "missing_api_url"
+        case unresolvedBuildSetting = "unresolved_build_setting"
+        case invalidAPIURL = "invalid_api_url"
+        case insecureAPIURL = "insecure_api_url"
+        case localDevelopmentAPIURL = "local_development_api_url"
+        case missingClientToken = "missing_client_token"
+        case missingSigningSecret = "missing_signing_secret"
+        case directOpenAIProviderAllowed = "direct_openai_provider_allowed"
+    }
+
+    struct Privacy: Codable, Equatable, Sendable {
+        public let singlePhoneOnly: Bool
+        public let keepsOpenAIKeyOnServer: Bool
+        public let acceptsClientOpenAIKey: Bool
+        public let uploadsLiveCameraFrame: Bool
+        public let sendsPrivatePhoto: Bool
+        public let sendsIdentityData: Bool
+        public let sendsPreciseLocation: Bool
+        public let sendsRawLearningEvents: Bool
+
+        public init(
+            singlePhoneOnly: Bool = true,
+            keepsOpenAIKeyOnServer: Bool = true,
+            acceptsClientOpenAIKey: Bool = false,
+            uploadsLiveCameraFrame: Bool = false,
+            sendsPrivatePhoto: Bool = false,
+            sendsIdentityData: Bool = false,
+            sendsPreciseLocation: Bool = false,
+            sendsRawLearningEvents: Bool = false
+        ) {
+            self.singlePhoneOnly = singlePhoneOnly
+            self.keepsOpenAIKeyOnServer = keepsOpenAIKeyOnServer
+            self.acceptsClientOpenAIKey = acceptsClientOpenAIKey
+            self.uploadsLiveCameraFrame = uploadsLiveCameraFrame
+            self.sendsPrivatePhoto = sendsPrivatePhoto
+            self.sendsIdentityData = sendsIdentityData
+            self.sendsPreciseLocation = sendsPreciseLocation
+            self.sendsRawLearningEvents = sendsRawLearningEvents
+        }
+    }
+
+    var isProtectedForProduction: Bool {
+        readiness == .protected
+    }
+
+    var diagnosticDetail: String {
+        switch readiness {
+        case .protected:
+            return "Signed backend ready"
+        case .offline:
+            return warnings.contains(.unresolvedBuildSetting) ? "Generated config missing" : "Offline camera mode"
+        case .needsProtection:
+            if warnings.contains(.localDevelopmentAPIURL) {
+                return "Local backend only"
+            }
+            if warnings.contains(.missingSigningSecret) {
+                return "Add request signing"
+            }
+            if warnings.contains(.missingClientToken) {
+                return "Add phone auth"
+            }
+            return "Needs phone protection"
+        case .blocked:
+            if warnings.contains(.directOpenAIProviderAllowed) {
+                return "Direct OpenAI enabled"
+            }
+            if warnings.contains(.insecureAPIURL) {
+                return "HTTPS required"
+            }
+            if warnings.contains(.invalidAPIURL) {
+                return "Invalid backend URL"
+            }
+            return "Unsafe backend config"
+        }
+    }
+}
+
 public typealias LensPilotCreativeAPITransport = @Sendable (URLRequest) async throws -> LensPilotCreativeAPIHTTPResponse
 
 public struct LensPilotCreativeInterpretationAPIProvider: HealthGatedCreativeInterpretationReasoningProvider {
@@ -129,6 +266,125 @@ public struct LensPilotCreativeInterpretationAPIProvider: HealthGatedCreativeInt
         self.clock = clock
         self.requestIDGenerator = requestIDGenerator
         self.transport = transport ?? Self.urlSessionTransport
+    }
+
+    public static func configurationStatusFromEnvironment(
+        _ environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> LensPilotCreativeAPIConfigurationStatus {
+        configurationStatus(
+            apiURLValue: environment["LENSPILOT_CREATIVE_API_URL"],
+            clientTokenValue: environment["LENSPILOT_CREATIVE_API_TOKEN"],
+            signingSecretValue: environment["LENSPILOT_CREATIVE_API_SIGNING_SECRET"],
+            directOpenAIProviderAllowed: allowsDirectOpenAIProvider(environment),
+            source: .environment
+        )
+    }
+
+    public static func configurationStatusFromBundle(
+        _ bundle: Bundle = .main,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> LensPilotCreativeAPIConfigurationStatus {
+        let environmentStatus = configurationStatusFromEnvironment(environment)
+        if environmentStatus.source != .none || environmentStatus.allowsDirectOpenAIProvider {
+            return environmentStatus
+        }
+
+        return configurationStatus(
+            apiURLValue: bundle.object(forInfoDictionaryKey: "LENSPILOT_CREATIVE_API_URL") as? String,
+            clientTokenValue: bundle.object(forInfoDictionaryKey: "LENSPILOT_CREATIVE_API_TOKEN") as? String,
+            signingSecretValue: bundle.object(forInfoDictionaryKey: "LENSPILOT_CREATIVE_API_SIGNING_SECRET") as? String,
+            directOpenAIProviderAllowed: environmentStatus.allowsDirectOpenAIProvider,
+            source: .bundle
+        )
+    }
+
+    public static func configurationStatus(
+        apiURLValue: String?,
+        clientTokenValue: String?,
+        signingSecretValue: String? = nil,
+        directOpenAIProviderAllowed: Bool = false,
+        source: LensPilotCreativeAPIConfigurationStatus.Source
+    ) -> LensPilotCreativeAPIConfigurationStatus {
+        var warnings: [LensPilotCreativeAPIConfigurationStatus.Warning] = []
+        if directOpenAIProviderAllowed {
+            warnings.append(.directOpenAIProviderAllowed)
+        }
+        if containsUnresolvedBuildSetting(apiURLValue)
+            || containsUnresolvedBuildSetting(clientTokenValue)
+            || containsUnresolvedBuildSetting(signingSecretValue) {
+            warnings.append(.unresolvedBuildSetting)
+        }
+
+        guard let rawURL = cleanedConfigValue(apiURLValue) else {
+            warnings.append(.missingAPIURL)
+            return LensPilotCreativeAPIConfigurationStatus(
+                source: cleanedOptional(apiURLValue) == nil ? .none : source,
+                readiness: directOpenAIProviderAllowed ? .blocked : .offline,
+                allowsDirectOpenAIProvider: directOpenAIProviderAllowed,
+                warnings: warnings
+            )
+        }
+
+        guard let apiURL = URL(string: rawURL),
+              let scheme = apiURL.scheme?.lowercased(),
+              ["https", "http"].contains(scheme),
+              let host = apiURL.host,
+              !host.isEmpty else {
+            warnings.append(.invalidAPIURL)
+            return LensPilotCreativeAPIConfigurationStatus(
+                source: source,
+                readiness: .blocked,
+                allowsDirectOpenAIProvider: directOpenAIProviderAllowed,
+                warnings: warnings
+            )
+        }
+
+        let usesHTTPS = scheme == "https"
+        let isLocalDevelopmentAPI = !usesHTTPS && isLocalDevelopmentHost(host)
+        if isLocalDevelopmentAPI {
+            warnings.append(.localDevelopmentAPIURL)
+        } else if !usesHTTPS {
+            warnings.append(.insecureAPIURL)
+        }
+
+        let hasClientToken = cleanedConfigValue(clientTokenValue) != nil
+        let hasSigningSecret = cleanedConfigValue(signingSecretValue) != nil
+        if !hasClientToken {
+            warnings.append(.missingClientToken)
+        }
+        if !hasSigningSecret {
+            warnings.append(.missingSigningSecret)
+        }
+
+        let readiness: LensPilotCreativeAPIConfigurationStatus.Readiness
+        if directOpenAIProviderAllowed || warnings.contains(.insecureAPIURL) {
+            readiness = .blocked
+        } else if usesHTTPS && hasClientToken && hasSigningSecret {
+            readiness = .protected
+        } else {
+            readiness = .needsProtection
+        }
+
+        return LensPilotCreativeAPIConfigurationStatus(
+            source: source,
+            readiness: readiness,
+            endpointHost: host,
+            endpointPath: normalizedSigningPath(apiURL.path),
+            usesHTTPS: usesHTTPS,
+            hasClientToken: hasClientToken,
+            hasSigningSecret: hasSigningSecret,
+            allowsDirectOpenAIProvider: directOpenAIProviderAllowed,
+            warnings: warnings
+        )
+    }
+
+    public static func allowsDirectOpenAIProvider(
+        _ environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Bool {
+        let setting = environment["LENSPILOT_ALLOW_DIRECT_OPENAI_PROVIDER"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return ["1", "true", "yes", "on"].contains(setting ?? "")
     }
 
     public static func configuredFromEnvironment(
@@ -365,6 +621,11 @@ public struct LensPilotCreativeInterpretationAPIProvider: HealthGatedCreativeInt
             return nil
         }
         return cleaned
+    }
+
+    private static func containsUnresolvedBuildSetting(_ value: String?) -> Bool {
+        guard let cleaned = cleanedOptional(value) else { return false }
+        return cleaned.contains("$(") || cleaned.contains("${")
     }
 
     private static func isLocalDevelopmentHost(_ host: String) -> Bool {

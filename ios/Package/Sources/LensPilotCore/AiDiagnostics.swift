@@ -23,6 +23,7 @@ public struct SinglePhoneAiDiagnosticsReport: Codable, Equatable, Sendable {
         referencePhoto: ReferencePhotoState?,
         onlineReferencePlan: OnlineReferencePlan?,
         creativeInterpretationPlan: CreativeInterpretationPlan? = nil,
+        creativeAPIConfigurationStatus: LensPilotCreativeAPIConfigurationStatus = .offline,
         onlineInspirationHealthSnapshot: OnlineInspirationHealthSnapshot?,
         calibrationReadinessReport: TargetMatchCalibrationManifest.CalibrationReadinessReport? = nil,
         personalProfile: PersonalVisualPreferenceProfile,
@@ -37,6 +38,7 @@ public struct SinglePhoneAiDiagnosticsReport: Codable, Equatable, Sendable {
                 referencePopupCheck(referencePhoto: referencePhoto),
                 onlineReferencePlanCheck(onlineReferencePlan),
                 creativeInterpretationCheck(creativeInterpretationPlan),
+                creativeAPIConfigurationCheck(creativeAPIConfigurationStatus),
                 onlineProviderHealthCheck(onlineInspirationHealthSnapshot),
                 calibrationReadinessCheck(calibrationReadinessReport),
                 localLearningCheck(profile: personalProfile),
@@ -70,6 +72,45 @@ public struct SinglePhoneAiDiagnosticsReport: Codable, Equatable, Sendable {
             title: "Creative Plan",
             status: payloadAudit.safeToSend ? .passed : .blocked,
             detail: detail
+        )
+    }
+
+    private static func creativeAPIConfigurationCheck(
+        _ configuration: LensPilotCreativeAPIConfigurationStatus
+    ) -> Check {
+        let privacy = configuration.privacy
+        guard privacy.singlePhoneOnly,
+              privacy.keepsOpenAIKeyOnServer,
+              !privacy.acceptsClientOpenAIKey,
+              !privacy.uploadsLiveCameraFrame,
+              !privacy.sendsPrivatePhoto,
+              !privacy.sendsIdentityData,
+              !privacy.sendsPreciseLocation,
+              !privacy.sendsRawLearningEvents
+        else {
+            return Check(
+                id: "creative_api_configuration",
+                title: "Creative API",
+                status: .blocked,
+                detail: "Unsafe API privacy"
+            )
+        }
+
+        let status: Status
+        switch configuration.readiness {
+        case .protected:
+            status = .passed
+        case .offline, .needsProtection:
+            status = .attention
+        case .blocked:
+            status = .blocked
+        }
+
+        return Check(
+            id: "creative_api_configuration",
+            title: "Creative API",
+            status: status,
+            detail: configuration.diagnosticDetail
         )
     }
 
