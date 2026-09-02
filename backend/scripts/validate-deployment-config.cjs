@@ -83,6 +83,11 @@ assertIncludes(testsWorkflow, "LENSPILOT_REQUIRE_SIGNED_PHONE_REQUESTS=true", "C
 assertIncludes(testsWorkflow, "LENSPILOT_CLIENT_SIGNING_SECRET", "Container smoke test should configure phone request signing.");
 assertIncludes(testsWorkflow, "LENSPILOT_METRICS_TOKEN", "Container smoke test should verify protected metrics.");
 assertIncludes(testsWorkflow, 'fetchJSON("/ready")', "Container smoke test should verify the ready endpoint.");
+assertIncludes(testsWorkflow, "Create fixture iOS Creative API config", "iOS app workflow should build with a generated fixture config.");
+assertIncludes(testsWorkflow, "npm run ios-config:generate", "iOS app workflow should exercise the iOS config generator before xcodebuild.");
+assertIncludes(testsWorkflow, "LensPilotSecrets.generated.xcconfig", "iOS app workflow should prove the optional generated config path works.");
+assertIncludes(testsWorkflow, "sk-ci-never-export-this", "iOS app workflow should include a fake server-only key in its fixture.");
+assertIncludes(testsWorkflow, "Generated iOS config included a server-only secret.", "iOS app workflow should fail if server-only fixture secrets reach iOS config.");
 
 assertIncludes(productionEnvGenerator, "OPENAI_API_KEY=", "Production env generator should keep OpenAI key entry blank.");
 assertIncludes(productionEnvGenerator, "RENDER_DEPLOY_HOOK_URL=", "Production env generator should include the Render deploy hook key.");

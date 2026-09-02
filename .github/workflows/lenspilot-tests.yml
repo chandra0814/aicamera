@@ -189,6 +189,35 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Create fixture iOS Creative API config
+        working-directory: backend
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require("fs");
+          fs.writeFileSync("/tmp/lenspilot-ci-production.env", [
+            "OPENAI_API_KEY=sk-ci-never-export-this",
+            "LENSPILOT_CREATIVE_API_URL=",
+            "LENSPILOT_CREATIVE_API_TOKEN=lp_phone_ci_1234567890123456789012345678901234567890123",
+            "LENSPILOT_CLIENT_SIGNING_SECRET=lp_signing_ci_1234567890123456789012345678901234567890123",
+            "LENSPILOT_METRICS_TOKEN=lp_metrics_ci_1234567890123456789012345678901234567890123",
+            "",
+          ].join("\n"));
+          NODE
+          npm run ios-config:generate -- \
+            --env-file /tmp/lenspilot-ci-production.env \
+            --creative-api-url https://ci.lenspilot.example \
+            --output ../ios/App/LensPilotApp/Config/LensPilotSecrets.generated.xcconfig
+          if grep -E "OPENAI_API_KEY|sk-|LENSPILOT_METRICS_TOKEN|lp_metrics_" ../ios/App/LensPilotApp/Config/LensPilotSecrets.generated.xcconfig; then
+            echo "Generated iOS config included a server-only secret."
+            exit 1
+          fi
+
       - name: Build LensPilot app target
         shell: bash
         run: |
