@@ -49,6 +49,122 @@ jobs:
         working-directory: backend
         run: npm test
 
+  creative-api-container:
+    name: Creative API container smoke
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Build and smoke test deploy image
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          docker build -t lenspilot-creative-api-ci ./backend
+
+          container_name="lenspilot-creative-api-ci"
+          rotated_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+
+          cleanup() {
+            status=$?
+            if [ "$status" -ne 0 ]; then
+              docker logs "$container_name" || true
+            fi
+            docker rm -f "$container_name" >/dev/null 2>&1 || true
+            exit "$status"
+          }
+          trap cleanup EXIT
+
+          docker run \
+            --detach \
+            --name "$container_name" \
+            --publish 127.0.0.1:8787:8787 \
+            --env OPENAI_API_KEY=ci-openai-placeholder \
+            --env LENSPILOT_ALLOWED_ORIGINS=https://app.lenspilot.example \
+            --env LENSPILOT_CREATIVE_API_TOKEN=ci-phone-token \
+            --env LENSPILOT_CLIENT_SIGNING_SECRET=ci-phone-signing-secret \
+            --env LENSPILOT_METRICS_TOKEN=ci-metrics-token \
+            --env LENSPILOT_REQUIRE_PRODUCTION_SAFETY=true \
+            --env LENSPILOT_REQUIRE_SIGNED_PHONE_REQUESTS=true \
+            --env LENSPILOT_SECRET_ROTATION_MAX_AGE_DAYS=90 \
+            --env LENSPILOT_OPENAI_KEY_ROTATED_AT="$rotated_at" \
+            --env LENSPILOT_CREATIVE_API_TOKEN_ROTATED_AT="$rotated_at" \
+            --env LENSPILOT_CLIENT_SIGNING_SECRET_ROTATED_AT="$rotated_at" \
+            --env LENSPILOT_METRICS_TOKEN_ROTATED_AT="$rotated_at" \
+            lenspilot-creative-api-ci
+
+          for _ in {1..30}; do
+            if node -e "fetch('http://127.0.0.1:8787/health').then((response)=>process.exit(response.ok?0:1)).catch(()=>process.exit(1));"; then
+              break
+            fi
+            sleep 1
+          done
+
+          node <<'NODE'
+          const baseURL = "http://127.0.0.1:8787";
+
+          function assert(condition, message) {
+            if (!condition) throw new Error(message);
+          }
+
+          async function fetchJSON(path, options = {}) {
+            const response = await fetch(`${baseURL}${path}`, {
+              headers: {
+                accept: "application/json",
+                ...options.headers,
+              },
+            });
+            const body = await response.json().catch(() => null);
+            return { response, body };
+          }
+
+          const health = await fetchJSON("/health");
+          assert(health.response.status === 200, "Health endpoint should return 200.");
+          assert(health.body?.service === "lenspilot-creative-api", "Health endpoint should identify the service.");
+          assert(health.body?.privacy?.singlePhoneOnly === true, "Health privacy should report single-phone operation.");
+          assert(health.body?.privacy?.acceptsClientOpenAIKey === false, "Health privacy should reject client OpenAI keys.");
+
+          const ready = await fetchJSON("/ready");
+          assert(ready.response.status === 200, "Ready endpoint should return 200 for protected CI config.");
+          assert(ready.body?.status === "ready", "Ready endpoint should report ready.");
+          assert(ready.body?.openAIConfigured === true, "Ready endpoint should report configured OpenAI state.");
+          assert(ready.body?.clientAuthorizationConfigured === true, "Ready endpoint should report phone authorization.");
+          assert(ready.body?.clientSignatureConfigured === true, "Ready endpoint should report phone request signing.");
+          assert(ready.body?.signedRequestsRequired === true, "Ready endpoint should require signed phone requests.");
+          assert(ready.body?.productionSafety?.ready === true, "Production safety should pass in the deploy container.");
+          assert(ready.body?.secretRotation?.ready === true, "Secret rotation metadata should pass in the deploy container.");
+
+          const unauthorizedMetrics = await fetchJSON("/metrics");
+          assert(unauthorizedMetrics.response.status === 401, "Metrics should reject missing authorization.");
+
+          const metrics = await fetchJSON("/metrics", {
+            headers: {
+              authorization: "Bearer ci-metrics-token",
+            },
+          });
+          assert(metrics.response.status === 200, "Metrics should accept the configured token.");
+          assert(metrics.body?.retention?.storesRawRequestBody === false, "Metrics must not store raw request bodies.");
+          assert(metrics.body?.retention?.storesPromptText === false, "Metrics must not store prompt text.");
+          assert(metrics.body?.retention?.storesAuthorizationHeader === false, "Metrics must not store auth headers.");
+          assert(metrics.body?.privacy?.singlePhoneOnly === true, "Metrics privacy should report single-phone operation.");
+
+          console.log(JSON.stringify({
+            creativeApiContainerSmoke: true,
+            health: health.response.status,
+            ready: ready.response.status,
+            metricsProtected: unauthorizedMetrics.response.status,
+            metricsAuthorized: metrics.response.status,
+            productionSafety: ready.body.productionSafety.ready,
+            status: "passed",
+          }, null, 2));
+          NODE
+
   swift-package:
     name: Swift package tests
     runs-on: macos-15

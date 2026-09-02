@@ -7,6 +7,7 @@
 - `.env.example` validation for all server-side, phone-facing, signed-request, metrics, secret-rotation metadata, and iOS Creative API configuration keys, with blank secret placeholders and production-safe example limits.
 - Production endpoint check validation for safe deployed `/health`, `/ready`, and optional `/metrics` probes, including unsafe-readiness rejection, secret-rotation metadata enforcement, and metrics-token redaction.
 - Deployment config validation for `backend/Dockerfile`, `backend/.dockerignore`, `render.yaml`, and the manual/daily GitHub production endpoint-check workflow.
+- GitHub Actions Creative API container smoke coverage for `backend/Dockerfile`, including production-safety readiness, signed-phone-request configuration, fresh rotation metadata, and protected `/metrics`.
 - `npm run validate` inside `shared/typescript`, covering:
   - `singlePhoneOnly` invariant
   - identity recognition disabled
@@ -39,6 +40,7 @@
 - `AiBenchmarkTests` on macOS CI, covering the deterministic single-phone guidance benchmark suite.
 - GitHub Actions `iOS app build`, covering the SwiftUI app target, local package dependency wiring, camera screen, reference picker, popup, and result review compilation.
 - GitHub Actions backend server validation, covering the deployable `backend/server.mjs` wrapper around the mobile-safe Creative API handler, production-safety preflight checks, signed request replay protection, secret-rotation readiness metadata, deployment config validation, and safe metrics redaction checks.
+- GitHub Actions Creative API container smoke, covering Docker image build, container startup, `/health`, `/ready`, protected `/metrics`, production-safety readiness, and single-phone privacy metadata.
 
 ## Latest Verification
 
@@ -47,7 +49,8 @@
 - GitHub Actions run #65 passed AI fixture validation, Swift package tests, and the iOS app build for commit `ce343ee`.
 - Local `.\scripts\test-all.ps1` passed JSON validation, TypeScript AI fixture validation, deterministic Target Preview validation, preview adjustment validation, after-capture coaching validation, six deterministic AI guidance benchmarks, Target Match calibration validation with readiness reporting, calibration readiness checklist validation, calibration promotion validation, reviewed importer readiness-summary validation, guided calibration queue validation, reviewed import normalization, Personal Visual AI validation, local learning insight validation, creative interpretation validation, creative payload audit validation, health-gated creative provider validation, OpenAI creative-provider payload and parser validation, mobile-safe LensPilot Creative API validation, backend Creative API server runtime validation, `.env.example` config-template validation, production endpoint check validation, local profile storage validation, capture-feedback correction learning validation, single-phone AI diagnostics, multi-provider public inspiration validation, and secret-rotation readiness metadata checks on Windows after Creative API wiring.
 - Backend `npm run preflight:production` passes with dummy protected configuration and fresh rotation dates, reporting only safe secret-rotation metadata and production-safety checks.
-- Backend `npm test` passes the deployable server wrapper smoke suite without requiring a real OpenAI key.
+- Backend `npm test` passes the deployable server wrapper smoke suite and deployment-config validator without requiring a real OpenAI key.
+- Local `.\scripts\test-all.ps1` passed after adding GitHub CI deploy-container smoke coverage and deployment-config enforcement for that workflow.
 - A live LensPilot Creative API smoke test reached OpenAI, but the provider completion is blocked by API billing credits: OpenAI returned `429 insufficient_quota` with `credit_balance_exhausted`. The backend now classifies this safely as `openai_credit_balance_exhausted` with `blockedByBilling: true` and `retryable: false`.
 - Local `.\scripts\test-all.ps1` passed after adding safe provider-error classification for the backend Creative API and iOS Creative API provider.
 - Swift package tests include regression coverage for same-phone provider diagnostics that classify exhausted credits and redact secret-looking tokens from OpenAI and LensPilot Creative API error messages.
@@ -56,7 +59,7 @@
 ## Not Runnable Here
 
 - `swift test` for the iOS Swift package, because the Swift toolchain and Xcode are not installed in this Windows workspace.
-- Docker image build smoke for `backend/Dockerfile`, because Docker Desktop/daemon is not running in this Windows workspace. Static deployment config validation passes locally and in backend tests.
+- Local Docker image build smoke for `backend/Dockerfile`, because Docker Desktop/daemon is not running in this Windows workspace. GitHub Actions now runs this container smoke on Ubuntu after push.
 
 ## Test Command
 

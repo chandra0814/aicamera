@@ -43,3 +43,5 @@ npm run check:production-endpoint
 The endpoint check reads `LENSPILOT_CREATIVE_API_URL`, probes `/health` and `/ready`, verifies production safety including fresh secret-rotation metadata, optionally probes `/metrics` when `LENSPILOT_METRICS_TOKEN` is available, and returns only safe pass/fail metadata.
 
 GitHub also includes a manual and scheduled `LensPilot Production Endpoint Check` workflow. Add the deployed route as the repository secret `LENSPILOT_CREATIVE_API_URL`; add `LENSPILOT_METRICS_TOKEN` too if you want the workflow to probe `/metrics`.
+
+The main `LensPilot Tests` workflow also builds `backend/Dockerfile`, starts the Creative API container with production safety enabled, verifies `/health` and `/ready`, and confirms `/metrics` requires authorization.

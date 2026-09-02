@@ -8,6 +8,7 @@ const dockerfile = readText(path.join(backendRoot, "Dockerfile"));
 const dockerignore = readText(path.join(backendRoot, ".dockerignore"));
 const renderYaml = readText(path.join(repoRoot, "render.yaml"));
 const endpointWorkflow = readText(path.join(repoRoot, ".github", "workflows", "lenspilot-production-endpoint-check.yml"));
+const testsWorkflow = readText(path.join(repoRoot, ".github", "workflows", "lenspilot-tests.yml"));
 
 assertIncludes(dockerfile, "FROM node:20-alpine", "Dockerfile should use the supported Node 20 runtime.");
 assertIncludes(dockerfile, "LENSPILOT_API_HOST=0.0.0.0", "Dockerfile should bind the API to the container network interface.");
@@ -55,11 +56,21 @@ assertIncludes(endpointWorkflow, "LENSPILOT_CREATIVE_API_URL", "Production endpo
 assertIncludes(endpointWorkflow, "LENSPILOT_METRICS_TOKEN", "Production endpoint workflow should pass the optional metrics token.");
 assertIncludes(endpointWorkflow, "npm run check:production-endpoint", "Production endpoint workflow should run the safe endpoint checker.");
 
+assertIncludes(testsWorkflow, "Creative API container smoke", "Main test workflow should smoke test the deploy container.");
+assertIncludes(testsWorkflow, "docker build -t lenspilot-creative-api-ci ./backend", "Container smoke test should build the backend Docker image.");
+assertIncludes(testsWorkflow, "--publish 127.0.0.1:8787:8787", "Container smoke test should expose the backend only on localhost.");
+assertIncludes(testsWorkflow, "LENSPILOT_REQUIRE_PRODUCTION_SAFETY=true", "Container smoke test should run with production safety enabled.");
+assertIncludes(testsWorkflow, "LENSPILOT_REQUIRE_SIGNED_PHONE_REQUESTS=true", "Container smoke test should require signed phone requests.");
+assertIncludes(testsWorkflow, "LENSPILOT_CLIENT_SIGNING_SECRET", "Container smoke test should configure phone request signing.");
+assertIncludes(testsWorkflow, "LENSPILOT_METRICS_TOKEN", "Container smoke test should verify protected metrics.");
+assertIncludes(testsWorkflow, 'fetchJSON("/ready")', "Container smoke test should verify the ready endpoint.");
+
 console.log(JSON.stringify({
   deploymentConfig: true,
   dockerfile: true,
   renderBlueprint: true,
   productionEndpointWorkflow: true,
+  containerSmokeWorkflow: true,
   status: "passed",
 }, null, 2));
 
