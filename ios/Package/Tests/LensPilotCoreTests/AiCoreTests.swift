@@ -451,7 +451,6 @@ final class AiCoreTests: XCTestCase {
                     allowsGenerativeOutput: false
                 )
             ),
-            onlineInspirationHealthSnapshot: unsafeHealthSnapshot,
             creativeAPIConfigurationStatus: LensPilotCreativeInterpretationAPIProvider.configurationStatus(
                 apiURLValue: "http://lenspilot.example/v1/creative-interpretation",
                 clientTokenValue: nil,
@@ -459,6 +458,7 @@ final class AiCoreTests: XCTestCase {
                 directOpenAIProviderAllowed: true,
                 source: .bundle
             ),
+            onlineInspirationHealthSnapshot: unsafeHealthSnapshot,
             personalProfile: .empty(consent: .disabled),
             personalProfileStoreProtection: .localFile,
             captureCoachingSummary: nil,
