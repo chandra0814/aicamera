@@ -8,6 +8,7 @@ const dockerfile = readText(path.join(backendRoot, "Dockerfile"));
 const dockerignore = readText(path.join(backendRoot, ".dockerignore"));
 const packageJson = JSON.parse(readText(path.join(backendRoot, "package.json")));
 const productionEnvGenerator = readText(path.join(backendRoot, "scripts", "generate-production-env.cjs"));
+const renderDeployScript = readText(path.join(backendRoot, "scripts", "deploy-render.cjs"));
 const renderYaml = readText(path.join(repoRoot, "render.yaml"));
 const endpointWorkflow = readText(path.join(repoRoot, ".github", "workflows", "lenspilot-production-endpoint-check.yml"));
 const renderDeployWorkflow = readText(path.join(repoRoot, ".github", "workflows", "lenspilot-render-deploy.yml"));
@@ -84,8 +85,16 @@ assertIncludes(productionEnvGenerator, "LENSPILOT_CREATIVE_API_URL=", "Productio
 assertIncludes(productionEnvGenerator, "LENSPILOT_CREATIVE_API_SIGNING_SECRET", "Production env generator should include the iOS signing-secret key.");
 assertIncludes(productionEnvGenerator, "generatedSecretNames", "Production env generator should report secret names without values.");
 assertIncludes(productionEnvGenerator, "openAIAPIKeyIncluded: false", "Production env generator should report that it does not include the OpenAI key.");
+assertIncludes(renderDeployScript, "RENDER_DEPLOY_HOOK_URL", "Render deploy script should require a deploy hook URL.");
+assertIncludes(renderDeployScript, "LENSPILOT_CREATIVE_API_URL", "Render deploy script should require a Creative API URL.");
+assertIncludes(renderDeployScript, "runLensPilotProductionEndpointCheck", "Render deploy script should reuse the safe production endpoint checker.");
+assertIncludes(renderDeployScript, "render_deploy_hook_failed", "Render deploy script should classify deploy hook failures without printing secrets.");
+assertIncludes(renderDeployScript, "deployId: extractDeployId", "Render deploy script should report only the safe deploy id from the hook response.");
+assertIncludes(packageJson.scripts["deploy:render"], "deploy-render.cjs", "package.json should expose local Render deployment.");
 assertIncludes(packageJson.scripts["production-env:generate"], "generate-production-env.cjs", "package.json should expose production-env generation.");
+assertIncludes(packageJson.scripts["test:render-deploy"], "validate-render-deploy.cjs", "package.json should test local Render deployment.");
 assertIncludes(packageJson.scripts["test:production-env-generator"], "validate-production-env-generator.cjs", "package.json should test production-env generation.");
+assert(packageJson.scripts.test.includes("test:render-deploy"), "Backend test suite should include local Render deploy validation.");
 assert(packageJson.scripts.test.includes("test:production-env-generator"), "Backend test suite should include production-env generator validation.");
 
 console.log(JSON.stringify({
@@ -94,6 +103,7 @@ console.log(JSON.stringify({
   renderBlueprint: true,
   productionEndpointWorkflow: true,
   renderDeployWorkflow: true,
+  renderDeployScript: true,
   containerSmokeWorkflow: true,
   productionEnvGenerator: true,
   status: "passed",

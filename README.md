@@ -56,3 +56,12 @@ GitHub also includes a manual and scheduled `LensPilot Production Endpoint Check
 The main `LensPilot Tests` workflow also builds `backend/Dockerfile`, starts the Creative API container with production safety enabled, verifies `/health` and `/ready`, and confirms `/metrics` requires authorization.
 
 GitHub also includes a manual `LensPilot Render Deploy` workflow. Add `RENDER_DEPLOY_HOOK_URL` and `LENSPILOT_CREATIVE_API_URL` as repository secrets, then run the workflow to trigger Render and wait until the deployed backend passes the safe endpoint check.
+
+For a local deploy trigger, export the same values into your shell and run:
+
+```bash
+cd backend
+npm run deploy:render
+```
+
+The local deploy command posts to the Render deploy hook, waits for the deployed API URL to report ready, and keeps the hook URL, phone token, metrics token, and OpenAI key out of command output.

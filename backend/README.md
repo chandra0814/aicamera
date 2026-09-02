@@ -101,6 +101,15 @@ GitHub Actions also includes `LensPilot Production Endpoint Check`. Configure th
 
 GitHub Actions includes `LensPilot Render Deploy`. Configure the repository secrets `RENDER_DEPLOY_HOOK_URL` and `LENSPILOT_CREATIVE_API_URL`, plus `LENSPILOT_METRICS_TOKEN` when metrics probing is desired. Running the workflow triggers the Render deploy hook and retries `npm run check:production-endpoint` until the deployed backend reports a safe ready state or the deployment wait expires.
 
+The same deploy path can be triggered locally when those values are available in the shell:
+
+```bash
+cd backend
+npm run deploy:render
+```
+
+The command triggers the Render deploy hook with `POST`, then reuses the safe production endpoint checker until the deployed `LENSPILOT_CREATIVE_API_URL` reports ready. Output includes only safe deployment and readiness metadata, not the deploy hook URL, OpenAI key, phone token, metrics token, or signing secret.
+
 ## Metrics
 
 `GET /metrics` returns aggregate operational telemetry for the Creative API: response counts, status counts, safe error-code counts, provider status counts, and bounded recent events. It does not store or return request bodies, prompt text, client IPs, authorization headers, raw photos, identity data, precise location, or raw learning events.
@@ -126,7 +135,7 @@ npm test
 
 The validation starts the server on a random local port, checks health/readiness/CORS, verifies client authorization, verifies signed request and replay protection, exercises the creative route with a fake OpenAI transport, confirms rate limiting, validates production-safety readiness failures, and checks safe operational telemetry. It does not require a real OpenAI key.
 
-The backend test also validates the root `.env.example` template, production deployment config, production env generator, Render deploy workflow, and the production endpoint checker. It requires every server/iOS Creative API configuration key, keeps placeholder secrets and rotation timestamps blank, verifies the iOS URL points at `/v1/creative-interpretation`, verifies the Docker/Render/GitHub endpoint-check configuration, and checks that example request caps, rate limits, signature windows, replay cache size, endpoint-check timeout, secret rotation window, and telemetry retention remain production-safe.
+The backend test also validates the root `.env.example` template, production deployment config, production env generator, local Render deploy command, Render deploy workflow, and the production endpoint checker. It requires every server/iOS Creative API configuration key, keeps placeholder secrets and rotation timestamps blank, verifies the iOS URL points at `/v1/creative-interpretation`, verifies the Docker/Render/GitHub endpoint-check configuration, and checks that example request caps, rate limits, signature windows, replay cache size, endpoint-check timeout, secret rotation window, and telemetry retention remain production-safe.
 
 ## Provider Errors
 

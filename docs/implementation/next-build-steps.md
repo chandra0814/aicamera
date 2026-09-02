@@ -60,6 +60,7 @@
 - The backend now has a container deployment path through `backend/Dockerfile`, a Render blueprint in `render.yaml`, and a manual/daily GitHub workflow for safe production endpoint checks.
 - GitHub Actions now builds the Creative API Docker image and smoke-tests the deploy container with production safety, signed request configuration, fresh rotation metadata, and protected metrics.
 - The repo now includes a manual GitHub `LensPilot Render Deploy` workflow that triggers a Render deploy hook and waits for the live Creative API endpoint check to pass.
+- The backend now includes `npm run deploy:render`, a local deploy trigger that posts to the Render deploy hook and waits for the live Creative API endpoint check to pass without printing secrets.
 - `npm run production-env:generate` now creates a gitignored local production-values file with generated phone, signing, metrics, and rotation metadata values while leaving account-specific host values blank.
 - Creative API deployments can now opt into production-safety enforcement with `LENSPILOT_REQUIRE_PRODUCTION_SAFETY=true`; `/ready` and `npm run preflight:production` fail closed until server OpenAI configuration, phone bearer authorization, signed phone requests, metrics authorization, fresh secret-rotation metadata, CORS policy, request caps, rate limits, and the single-phone privacy boundary are safe.
 - The iOS Creative API provider can sign same-phone backend requests with `LENSPILOT_CREATIVE_API_SIGNING_SECRET`, and the backend can require matching timestamped HMAC signatures with replay protection through `LENSPILOT_CLIENT_SIGNING_SECRET` and `LENSPILOT_REQUIRE_SIGNED_PHONE_REQUESTS=true`.
@@ -93,7 +94,7 @@
 - Same-phone Creative Plan and AI Diagnostics surfaces show clear, sanitized provider failure messages, including exhausted-credit blocks, while preserving the offline camera loop.
 - Production Creative API readiness can be made fail-closed before deployment by setting `LENSPILOT_REQUIRE_PRODUCTION_SAFETY=true`; readiness metadata remains safe and does not expose OpenAI keys or phone bearer tokens.
 - Production readiness requires fresh `LENSPILOT_*_ROTATED_AT` metadata for configured secrets and keeps the accepted rotation window at or below 90 days.
-- Deployment config marks production secrets as `sync: false`; the GitHub production endpoint workflow requires only the deployed Creative API URL plus an optional metrics token, and the Render deploy workflow requires only a deploy hook URL plus the deployed Creative API URL.
+- Deployment config marks production secrets as `sync: false`; the GitHub production endpoint workflow requires only the deployed Creative API URL plus an optional metrics token, and the Render deploy workflow/local deploy command require only a deploy hook URL plus the deployed Creative API URL.
 - Signed Creative API request auth rejects missing, stale, invalid, and replayed same-phone calls before provider use; replay storage keeps bounded hashes only, not raw request bodies, prompts, photos, or request ids.
 - Creative API metrics can be disabled or protected with `LENSPILOT_METRICS_TOKEN`; production readiness requires metrics authorization whenever metrics are enabled.
 - Production endpoint checks use safe GET probes only and do not submit creative prompts, private references, live frames, learning events, or OpenAI credentials.
