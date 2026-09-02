@@ -6,11 +6,13 @@
   "scripts": {
     "start": "node server.mjs",
     "check:production-endpoint": "node -e \"const fs=require('node:fs'); const m={exports:{}}; const api=Function('module','exports','require',fs.readFileSync('scripts/check-production-endpoint.cjs','utf8')+'\\nreturn module.exports;')(m,m.exports,require); api.runLensPilotProductionEndpointCheck().then((r)=>{console.log(JSON.stringify(r,null,2)); if(r.status!=='ready') process.exitCode=1;}).catch((e)=>{console.error(JSON.stringify({productionEndpointCheck:true,status:'error',error:{code:String(e&&e.message||'endpoint_check_failed').replace(/[^a-z0-9_]/gi,'_').toLowerCase().slice(0,80),message:'LensPilot production endpoint check could not run.'}},null,2)); process.exitCode=1;});\"",
+    "production-env:generate": "node -e \"const fs=require('node:fs'); const path=require('node:path'); const m={exports:{}}; const api=Function('module','exports','require','__dirname','__filename',fs.readFileSync('scripts/generate-production-env.cjs','utf8')+'\\nreturn module.exports;')(m,m.exports,require,path.resolve('scripts'),path.resolve('scripts/generate-production-env.cjs')); api.run(process.argv.slice(1));\" --",
     "preflight:production": "node -e \"eval(require('node:fs').readFileSync('scripts/preflight-production.cjs','utf8'))\"",
-    "test": "npm run test:server && npm run test:env-example && npm run test:endpoint-check && npm run test:deployment-config",
+    "test": "npm run test:server && npm run test:env-example && npm run test:endpoint-check && npm run test:production-env-generator && npm run test:deployment-config",
     "test:server": "node -e \"eval(require('node:fs').readFileSync('scripts/validate-server.cjs','utf8'))\"",
     "test:env-example": "node -e \"eval(require('node:fs').readFileSync('scripts/validate-env-example.cjs','utf8'))\"",
     "test:endpoint-check": "node -e \"eval(require('node:fs').readFileSync('scripts/validate-endpoint-check.cjs','utf8'))\"",
+    "test:production-env-generator": "node -e \"eval(require('node:fs').readFileSync('scripts/validate-production-env-generator.cjs','utf8'))\"",
     "test:deployment-config": "node -e \"eval(require('node:fs').readFileSync('scripts/validate-deployment-config.cjs','utf8'))\""
   },
   "engines": {

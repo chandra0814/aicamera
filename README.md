@@ -33,6 +33,15 @@ npm test
 
 The backend test also validates `.env.example` so production-safety settings, signed-request settings, metrics settings, secret-rotation metadata, and iOS API settings stay documented without sample secrets.
 
+Generate a local, gitignored production-values file with:
+
+```bash
+cd backend
+npm run production-env:generate
+```
+
+This writes `backend/.env.production.generated` with phone, signing, metrics, and rotation values, while leaving `OPENAI_API_KEY`, `RENDER_DEPLOY_HOOK_URL`, and `LENSPILOT_CREATIVE_API_URL` blank for the real host/account values.
+
 After deployment, verify the live backend posture with:
 
 ```bash
@@ -45,3 +54,5 @@ The endpoint check reads `LENSPILOT_CREATIVE_API_URL`, probes `/health` and `/re
 GitHub also includes a manual and scheduled `LensPilot Production Endpoint Check` workflow. Add the deployed route as the repository secret `LENSPILOT_CREATIVE_API_URL`; add `LENSPILOT_METRICS_TOKEN` too if you want the workflow to probe `/metrics`.
 
 The main `LensPilot Tests` workflow also builds `backend/Dockerfile`, starts the Creative API container with production safety enabled, verifies `/health` and `/ready`, and confirms `/metrics` requires authorization.
+
+GitHub also includes a manual `LensPilot Render Deploy` workflow. Add `RENDER_DEPLOY_HOOK_URL` and `LENSPILOT_CREATIVE_API_URL` as repository secrets, then run the workflow to trigger Render and wait until the deployed backend passes the safe endpoint check.

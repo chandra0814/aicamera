@@ -57,6 +57,15 @@ npm run preflight:production
 
 The preflight prints only safe configuration metadata and exits non-zero when production safety checks fail, including missing, invalid, stale, or over-wide secret rotation metadata. It never prints the OpenAI key, phone bearer token, metrics bearer token, or signing secret.
 
+## Production Values File
+
+```bash
+cd backend
+npm run production-env:generate
+```
+
+This writes `backend/.env.production.generated`, which is ignored by git. The file contains generated phone bearer, request-signing, metrics, and rotation metadata values. It intentionally leaves `OPENAI_API_KEY`, `RENDER_DEPLOY_HOOK_URL`, and `LENSPILOT_CREATIVE_API_URL` blank because those must come from the real OpenAI project, Render service, and deployed API URL.
+
 ## Container Deployment
 
 The backend can be deployed from `backend/Dockerfile`. The container runs `node server.mjs` as the unprivileged `node` user, binds to `0.0.0.0`, exposes port `8787`, and includes a `/health` container health check.
@@ -88,6 +97,10 @@ The checker performs safe `GET` probes against `/health` and `/ready`, then chec
 
 GitHub Actions also includes `LensPilot Production Endpoint Check`. Configure the repository secret `LENSPILOT_CREATIVE_API_URL` with the deployed `/v1/creative-interpretation` route, and optionally configure `LENSPILOT_METRICS_TOKEN` so the workflow can probe `/metrics`. The workflow can be run manually and also runs daily.
 
+## Render Deploy Workflow
+
+GitHub Actions includes `LensPilot Render Deploy`. Configure the repository secrets `RENDER_DEPLOY_HOOK_URL` and `LENSPILOT_CREATIVE_API_URL`, plus `LENSPILOT_METRICS_TOKEN` when metrics probing is desired. Running the workflow triggers the Render deploy hook and retries `npm run check:production-endpoint` until the deployed backend reports a safe ready state or the deployment wait expires.
+
 ## Metrics
 
 `GET /metrics` returns aggregate operational telemetry for the Creative API: response counts, status counts, safe error-code counts, provider status counts, and bounded recent events. It does not store or return request bodies, prompt text, client IPs, authorization headers, raw photos, identity data, precise location, or raw learning events.
@@ -113,7 +126,7 @@ npm test
 
 The validation starts the server on a random local port, checks health/readiness/CORS, verifies client authorization, verifies signed request and replay protection, exercises the creative route with a fake OpenAI transport, confirms rate limiting, validates production-safety readiness failures, and checks safe operational telemetry. It does not require a real OpenAI key.
 
-The backend test also validates the root `.env.example` template, production deployment config, and the production endpoint checker. It requires every server/iOS Creative API configuration key, keeps placeholder secrets and rotation timestamps blank, verifies the iOS URL points at `/v1/creative-interpretation`, verifies the Docker/Render/GitHub endpoint-check configuration, and checks that example request caps, rate limits, signature windows, replay cache size, endpoint-check timeout, secret rotation window, and telemetry retention remain production-safe.
+The backend test also validates the root `.env.example` template, production deployment config, production env generator, Render deploy workflow, and the production endpoint checker. It requires every server/iOS Creative API configuration key, keeps placeholder secrets and rotation timestamps blank, verifies the iOS URL points at `/v1/creative-interpretation`, verifies the Docker/Render/GitHub endpoint-check configuration, and checks that example request caps, rate limits, signature windows, replay cache size, endpoint-check timeout, secret rotation window, and telemetry retention remain production-safe.
 
 ## Provider Errors
 
