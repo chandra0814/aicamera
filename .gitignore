@@ -1,3 +1,4 @@
 .env
 .env.*
 !.env.example
+ios/App/LensPilotApp/Config/*.generated.xcconfig

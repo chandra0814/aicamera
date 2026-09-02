@@ -42,6 +42,15 @@ npm run production-env:generate
 
 This writes `backend/.env.production.generated` with phone, signing, metrics, and rotation values, while leaving `OPENAI_API_KEY`, `RENDER_DEPLOY_HOOK_URL`, and `LENSPILOT_CREATIVE_API_URL` blank for the real host/account values.
 
+Generate the local iOS build config after the backend is deployed:
+
+```bash
+cd backend
+npm run ios-config:generate -- --creative-api-url https://lenspilot-creative-api.onrender.com
+```
+
+This writes `ios/App/LensPilotApp/Config/LensPilotSecrets.generated.xcconfig`, which is ignored by git and loaded by the tracked `LensPilotConfig.xcconfig`. The generated file contains only the phone-facing Creative API route, phone bearer token, and request-signing secret; it does not include `OPENAI_API_KEY`, the Render deploy hook, or the metrics token. The Xcode project still builds in CI without that local file because the include is optional.
+
 After deployment, verify the live backend posture with:
 
 ```bash

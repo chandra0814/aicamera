@@ -30,6 +30,7 @@
 		202020202020202020202007 /* LensPilotApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LensPilotApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		202020202020202020202008 /* target-match-calibration.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = "target-match-calibration.json"; path = "../../../tests/calibration/target-match-calibration.json"; sourceTree = SOURCE_ROOT; };
 		202020202020202020202009 /* SpeechIntentController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechIntentController.swift; sourceTree = "<group>"; };
+		202020202020202020202010 /* LensPilotConfig.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = LensPilotConfig.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -53,6 +54,7 @@
 				404040404040404040404002 /* App */,
 				404040404040404040404003 /* Camera */,
 				404040404040404040404004 /* Reference */,
+				404040404040404040404007 /* Config */,
 				404040404040404040404005 /* Support */,
 				404040404040404040404006 /* Products */,
 			);
@@ -83,6 +85,14 @@
 				202020202020202020202005 /* ReferenceViewer.swift */,
 			);
 			path = Reference;
+			sourceTree = "<group>";
+		};
+		404040404040404040404007 /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				202020202020202020202010 /* LensPilotConfig.xcconfig */,
+			);
+			path = Config;
 			sourceTree = "<group>";
 		};
 		404040404040404040404005 /* Support */ = {
@@ -309,6 +319,7 @@
 		};
 		808080808080808080808005 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 202020202020202020202010 /* LensPilotConfig.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
@@ -334,6 +345,7 @@
 		};
 		808080808080808080808006 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 202020202020202020202010 /* LensPilotConfig.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;

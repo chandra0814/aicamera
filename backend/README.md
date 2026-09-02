@@ -66,6 +66,19 @@ npm run production-env:generate
 
 This writes `backend/.env.production.generated`, which is ignored by git. The file contains generated phone bearer, request-signing, metrics, and rotation metadata values. It intentionally leaves `OPENAI_API_KEY`, `RENDER_DEPLOY_HOOK_URL`, and `LENSPILOT_CREATIVE_API_URL` blank because those must come from the real OpenAI project, Render service, and deployed API URL.
 
+## iOS Production Build Config
+
+After the backend is deployed, generate the ignored Xcode config that points the single-phone app at the live Creative API:
+
+```bash
+cd backend
+npm run ios-config:generate -- --creative-api-url https://lenspilot-creative-api.onrender.com
+```
+
+The command reads `backend/.env.production.generated`, normalizes the URL to `/v1/creative-interpretation`, and writes `ios/App/LensPilotApp/Config/LensPilotSecrets.generated.xcconfig`. That local file contains only `LENSPILOT_CREATIVE_API_URL`, `LENSPILOT_CREATIVE_API_TOKEN`, and `LENSPILOT_CREATIVE_API_SIGNING_SECRET`. It does not include the server `OPENAI_API_KEY`, Render deploy hook, or metrics token, and it does not print secret values.
+
+The tracked Xcode config at `ios/App/LensPilotApp/Config/LensPilotConfig.xcconfig` keeps safe defaults and optionally includes the generated local config. CI and simulator builds without local secrets still compile, while signed device builds can use the deployed Creative API once the local config exists.
+
 ## Container Deployment
 
 The backend can be deployed from `backend/Dockerfile`. The container runs `node server.mjs` as the unprivileged `node` user, binds to `0.0.0.0`, exposes port `8787`, and includes a `/health` container health check.
