@@ -58,6 +58,7 @@
 - The repo now includes a mobile-safe Creative API handler at `backend/api/creative-interpretation.mjs`; it owns the server-side OpenAI key, rejects client-supplied OpenAI keys, validates the phone's request envelope, and returns only a safe creative-provider result.
 - The repo now includes a deployable plain-Node Creative API runtime at `backend/server.mjs` with `/health`, `/ready`, request body caps, optional CORS allow-listing, optional phone bearer authorization, and local in-memory rate limiting.
 - The backend now has a container deployment path through `backend/Dockerfile`, a Render blueprint in `render.yaml`, and a manual/daily GitHub workflow for safe production endpoint checks.
+- The Render blueprint explicitly uses the free web-service compute plan so account setup can avoid Render's paid-instance card gate during MVP validation.
 - GitHub Actions now builds the Creative API Docker image and smoke-tests the deploy container with production safety, signed request configuration, fresh rotation metadata, and protected metrics.
 - The repo now includes a manual GitHub `LensPilot Render Deploy` workflow that triggers a Render deploy hook and waits for the live Creative API endpoint check to pass.
 - The backend now includes `npm run deploy:render`, a local deploy trigger that posts to the Render deploy hook and waits for the live Creative API endpoint check to pass without printing secrets.

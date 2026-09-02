@@ -43,6 +43,7 @@ for (const key of [
 
 for (const line of [
   "runtime: docker",
+  "plan: free",
   "dockerfilePath: ./backend/Dockerfile",
   "dockerContext: ./backend",
   "healthCheckPath: /health",
