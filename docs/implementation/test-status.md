@@ -6,6 +6,7 @@
 - Backend Creative API server validation with local HTTP health/readiness checks, CORS allow-list checks, phone bearer authorization, signed phone request and replay protection, fake-provider creative route execution, rate-limit checks, production-safety readiness failures, secret-rotation metadata checks, and safe operational telemetry checks.
 - `.env.example` validation for all server-side, phone-facing, signed-request, metrics, secret-rotation metadata, and iOS Creative API configuration keys, with blank secret placeholders and production-safe example limits.
 - Production endpoint check validation for safe deployed `/health`, `/ready`, and optional `/metrics` probes, including unsafe-readiness rejection, secret-rotation metadata enforcement, and metrics-token redaction.
+- Production readiness now exposes the same single-phone privacy boundary on `/ready` as `/health` and `/metrics`, so live endpoint checks can verify privacy posture across every safe probe.
 - Deployment config validation for `backend/Dockerfile`, `backend/.dockerignore`, `render.yaml`, and the manual/daily GitHub production endpoint-check workflow.
 - Deployment config validation now requires the Render Blueprint web service to stay on `plan: free` for MVP deployment setup.
 - GitHub Actions Creative API container smoke coverage for `backend/Dockerfile`, including production-safety readiness, signed-phone-request configuration, fresh rotation metadata, and protected `/metrics`.

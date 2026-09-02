@@ -140,6 +140,7 @@ export async function handleLensPilotCreativeHTTPRoute(requestLike, options = {}
         metricsAuthorizationConfigured: Boolean(config.metricsAuthorizationConfigured),
         maxRecentEvents: config.maxMetricEvents,
       },
+      privacy: lensPilotCreativeInterpretationApiPrivacy,
       secretRotation: deployment.secretRotation,
       cors: {
         allowedOriginsConfigured: config.allowedOrigins.length,

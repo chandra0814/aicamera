@@ -246,6 +246,8 @@ async function main() {
       assert(readyBody.productionSafety.ready === true, "Ready route should include passing production safety metadata.");
       assert(readyBody.telemetry.metricsEnabled === true, "Ready route should report metrics availability.");
       assert(readyBody.telemetry.metricsAuthorizationConfigured === true, "Ready route should report metrics authorization state.");
+      assert(readyBody.privacy.singlePhoneOnly === true, "Ready route should expose the single-phone privacy boundary.");
+      assert(readyBody.privacy.sendsPrivatePhoto === false, "Ready route should report that private photos are not uploaded.");
 
       const preflight = await fetch(`${baseURL}${lensPilotCreativeServerDefaults.creativePath}`, {
         method: "OPTIONS",
