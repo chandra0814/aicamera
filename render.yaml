@@ -1,0 +1,57 @@
+services:
+  - type: web
+    name: lenspilot-creative-api
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: LENSPILOT_API_HOST
+        value: 0.0.0.0
+      - key: LENSPILOT_API_PORT
+        value: 8787
+      - key: LENSPILOT_OPENAI_MODEL
+        value: gpt-5.6-luna
+      - key: LENSPILOT_OPENAI_WEB_SEARCH
+        value: true
+      - key: LENSPILOT_MAX_REQUEST_BYTES
+        value: 65536
+      - key: LENSPILOT_RATE_LIMIT_WINDOW_MS
+        value: 60000
+      - key: LENSPILOT_RATE_LIMIT_MAX
+        value: 30
+      - key: LENSPILOT_ENABLE_METRICS
+        value: true
+      - key: LENSPILOT_MAX_METRIC_EVENTS
+        value: 100
+      - key: LENSPILOT_REQUIRE_PRODUCTION_SAFETY
+        value: true
+      - key: LENSPILOT_REQUIRE_SIGNED_PHONE_REQUESTS
+        value: true
+      - key: LENSPILOT_SIGNATURE_TOLERANCE_MS
+        value: 300000
+      - key: LENSPILOT_SIGNATURE_REPLAY_MAX_ENTRIES
+        value: 1000
+      - key: LENSPILOT_SECRET_ROTATION_MAX_AGE_DAYS
+        value: 90
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: LENSPILOT_ALLOWED_ORIGINS
+        sync: false
+      - key: LENSPILOT_CREATIVE_API_TOKEN
+        sync: false
+      - key: LENSPILOT_CLIENT_SIGNING_SECRET
+        sync: false
+      - key: LENSPILOT_METRICS_TOKEN
+        sync: false
+      - key: LENSPILOT_OPENAI_KEY_ROTATED_AT
+        sync: false
+      - key: LENSPILOT_CREATIVE_API_TOKEN_ROTATED_AT
+        sync: false
+      - key: LENSPILOT_CLIENT_SIGNING_SECRET_ROTATED_AT
+        sync: false
+      - key: LENSPILOT_METRICS_TOKEN_ROTATED_AT
+        sync: false

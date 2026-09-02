@@ -6,6 +6,7 @@
 - Backend Creative API server validation with local HTTP health/readiness checks, CORS allow-list checks, phone bearer authorization, signed phone request and replay protection, fake-provider creative route execution, rate-limit checks, production-safety readiness failures, secret-rotation metadata checks, and safe operational telemetry checks.
 - `.env.example` validation for all server-side, phone-facing, signed-request, metrics, secret-rotation metadata, and iOS Creative API configuration keys, with blank secret placeholders and production-safe example limits.
 - Production endpoint check validation for safe deployed `/health`, `/ready`, and optional `/metrics` probes, including unsafe-readiness rejection, secret-rotation metadata enforcement, and metrics-token redaction.
+- Deployment config validation for `backend/Dockerfile`, `backend/.dockerignore`, `render.yaml`, and the manual/daily GitHub production endpoint-check workflow.
 - `npm run validate` inside `shared/typescript`, covering:
   - `singlePhoneOnly` invariant
   - identity recognition disabled
@@ -37,7 +38,7 @@
 - `LensPilotDirectorTests` on macOS CI, covering same-phone reference popup activation, popup selection into the full reference viewer, and returning from full reference view back to the popup.
 - `AiBenchmarkTests` on macOS CI, covering the deterministic single-phone guidance benchmark suite.
 - GitHub Actions `iOS app build`, covering the SwiftUI app target, local package dependency wiring, camera screen, reference picker, popup, and result review compilation.
-- GitHub Actions backend server validation, covering the deployable `backend/server.mjs` wrapper around the mobile-safe Creative API handler, production-safety preflight checks, signed request replay protection, secret-rotation readiness metadata, and safe metrics redaction checks.
+- GitHub Actions backend server validation, covering the deployable `backend/server.mjs` wrapper around the mobile-safe Creative API handler, production-safety preflight checks, signed request replay protection, secret-rotation readiness metadata, deployment config validation, and safe metrics redaction checks.
 
 ## Latest Verification
 
@@ -55,6 +56,7 @@
 ## Not Runnable Here
 
 - `swift test` for the iOS Swift package, because the Swift toolchain and Xcode are not installed in this Windows workspace.
+- Docker image build smoke for `backend/Dockerfile`, because Docker Desktop/daemon is not running in this Windows workspace. Static deployment config validation passes locally and in backend tests.
 
 ## Test Command
 

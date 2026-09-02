@@ -6,6 +6,8 @@ LensPilot AI camera prototype with a single-phone iOS capture loop, shared AI co
 
 - Server handler: `backend/api/creative-interpretation.mjs`
 - Deployable Node runtime: `backend/server.mjs`
+- Container deployment: `backend/Dockerfile`
+- Render blueprint: `render.yaml`
 - Route contract: `POST /v1/creative-interpretation`
 - Health checks: `GET /health` and `GET /ready`
 - Server-only secret: `OPENAI_API_KEY`
@@ -39,3 +41,5 @@ npm run check:production-endpoint
 ```
 
 The endpoint check reads `LENSPILOT_CREATIVE_API_URL`, probes `/health` and `/ready`, verifies production safety including fresh secret-rotation metadata, optionally probes `/metrics` when `LENSPILOT_METRICS_TOKEN` is available, and returns only safe pass/fail metadata.
+
+GitHub also includes a manual and scheduled `LensPilot Production Endpoint Check` workflow. Add the deployed route as the repository secret `LENSPILOT_CREATIVE_API_URL`; add `LENSPILOT_METRICS_TOKEN` too if you want the workflow to probe `/metrics`.

@@ -57,6 +57,24 @@ npm run preflight:production
 
 The preflight prints only safe configuration metadata and exits non-zero when production safety checks fail, including missing, invalid, stale, or over-wide secret rotation metadata. It never prints the OpenAI key, phone bearer token, metrics bearer token, or signing secret.
 
+## Container Deployment
+
+The backend can be deployed from `backend/Dockerfile`. The container runs `node server.mjs` as the unprivileged `node` user, binds to `0.0.0.0`, exposes port `8787`, and includes a `/health` container health check.
+
+`render.yaml` provides the first production blueprint. Before creating the Render service, enter real environment values for:
+
+- `OPENAI_API_KEY`
+- `LENSPILOT_ALLOWED_ORIGINS`
+- `LENSPILOT_CREATIVE_API_TOKEN`
+- `LENSPILOT_CLIENT_SIGNING_SECRET`
+- `LENSPILOT_METRICS_TOKEN`
+- `LENSPILOT_OPENAI_KEY_ROTATED_AT`
+- `LENSPILOT_CREATIVE_API_TOKEN_ROTATED_AT`
+- `LENSPILOT_CLIENT_SIGNING_SECRET_ROTATED_AT`
+- `LENSPILOT_METRICS_TOKEN_ROTATED_AT`
+
+The blueprint marks those values `sync: false` so they are not committed to the repo. Production safety is enabled in the blueprint, signed phone requests are required, metrics stay protected, and the rotation window remains `90` days.
+
 ## Production Endpoint Check
 
 After deployment, set `LENSPILOT_CREATIVE_API_URL` to the phone-facing route and run:
@@ -67,6 +85,8 @@ npm run check:production-endpoint
 ```
 
 The checker performs safe `GET` probes against `/health` and `/ready`, then checks that production safety is enforced, phone authorization is configured, signed requests are required, secret rotation metadata is fresh, request/rate limits are bounded, wildcard CORS is blocked, and the single-phone privacy boundary is still reported. If `LENSPILOT_METRICS_TOKEN` is present, it also probes `/metrics` and verifies the telemetry retention boundary. It never sends a creative prompt or calls OpenAI.
+
+GitHub Actions also includes `LensPilot Production Endpoint Check`. Configure the repository secret `LENSPILOT_CREATIVE_API_URL` with the deployed `/v1/creative-interpretation` route, and optionally configure `LENSPILOT_METRICS_TOKEN` so the workflow can probe `/metrics`. The workflow can be run manually and also runs daily.
 
 ## Metrics
 
@@ -93,7 +113,7 @@ npm test
 
 The validation starts the server on a random local port, checks health/readiness/CORS, verifies client authorization, verifies signed request and replay protection, exercises the creative route with a fake OpenAI transport, confirms rate limiting, validates production-safety readiness failures, and checks safe operational telemetry. It does not require a real OpenAI key.
 
-The backend test also validates the root `.env.example` template and the production endpoint checker. It requires every server/iOS Creative API configuration key, keeps placeholder secrets and rotation timestamps blank, verifies the iOS URL points at `/v1/creative-interpretation`, and checks that example request caps, rate limits, signature windows, replay cache size, endpoint-check timeout, secret rotation window, and telemetry retention remain production-safe.
+The backend test also validates the root `.env.example` template, production deployment config, and the production endpoint checker. It requires every server/iOS Creative API configuration key, keeps placeholder secrets and rotation timestamps blank, verifies the iOS URL points at `/v1/creative-interpretation`, verifies the Docker/Render/GitHub endpoint-check configuration, and checks that example request caps, rate limits, signature windows, replay cache size, endpoint-check timeout, secret rotation window, and telemetry retention remain production-safe.
 
 ## Provider Errors
 

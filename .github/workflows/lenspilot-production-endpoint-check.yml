@@ -1,0 +1,37 @@
+name: LensPilot Production Endpoint Check
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 9 * * *"
+
+jobs:
+  production-endpoint:
+    name: Production endpoint check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Check required endpoint configuration
+        env:
+          LENSPILOT_CREATIVE_API_URL: ${{ secrets.LENSPILOT_CREATIVE_API_URL }}
+        shell: bash
+        run: |
+          if [ -z "$LENSPILOT_CREATIVE_API_URL" ]; then
+            echo "LENSPILOT_CREATIVE_API_URL secret is required to check the deployed backend."
+            exit 1
+          fi
+
+      - name: Run safe production endpoint check
+        working-directory: backend
+        env:
+          LENSPILOT_CREATIVE_API_URL: ${{ secrets.LENSPILOT_CREATIVE_API_URL }}
+          LENSPILOT_METRICS_TOKEN: ${{ secrets.LENSPILOT_METRICS_TOKEN }}
+          LENSPILOT_ENDPOINT_CHECK_TIMEOUT_MS: "30000"
+        run: npm run check:production-endpoint

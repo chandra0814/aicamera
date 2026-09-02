@@ -7,7 +7,7 @@
 3. Use the in-app share control to export each selected `iphone_capture_candidate` JSON, then add blind preference labels from the in-app tag control.
 4. Check collection gaps with `npm run calibration:readiness`, then import reviewed app exports with `npm run calibration:import-reviewed -- --sample <reviewed-sample.json> --write`.
 5. Calibrate the on-device metric weights and guidance priorities against those reviewed samples; the app now loads the bundled manifest into `LensPilotAiCore`.
-6. For API-backed creative guidance, deploy `backend/server.mjs` with server-only `OPENAI_API_KEY`, signed phone requests, and fresh `LENSPILOT_*_ROTATED_AT` metadata; configure the phone build with `LENSPILOT_CREATIVE_API_URL` and, if used, a non-OpenAI `LENSPILOT_CREATIVE_API_TOKEN`. Keep `LENSPILOT_ALLOW_DIRECT_OPENAI_PROVIDER=false` outside local development.
+6. For API-backed creative guidance, create the production Creative API service from `render.yaml`, enter the `sync: false` secret values and fresh `LENSPILOT_*_ROTATED_AT` metadata, then configure the phone build with `LENSPILOT_CREATIVE_API_URL` and, if used, a non-OpenAI `LENSPILOT_CREATIVE_API_TOKEN`. Keep `LENSPILOT_ALLOW_DIRECT_OPENAI_PROVIDER=false` outside local development.
 
 ## Completed Single-Phone Runtime Work
 
@@ -57,6 +57,7 @@
 - Creative interpretation now has an optional OpenAI Responses API provider behind that health gate; it sends only audited prompt/ShotSpec/profile/public-reference summaries, requests strict JSON output, disables response storage with `store: false`, and blocks unsafe provider output before showing guidance.
 - The repo now includes a mobile-safe Creative API handler at `backend/api/creative-interpretation.mjs`; it owns the server-side OpenAI key, rejects client-supplied OpenAI keys, validates the phone's request envelope, and returns only a safe creative-provider result.
 - The repo now includes a deployable plain-Node Creative API runtime at `backend/server.mjs` with `/health`, `/ready`, request body caps, optional CORS allow-listing, optional phone bearer authorization, and local in-memory rate limiting.
+- The backend now has a container deployment path through `backend/Dockerfile`, a Render blueprint in `render.yaml`, and a manual/daily GitHub workflow for safe production endpoint checks.
 - Creative API deployments can now opt into production-safety enforcement with `LENSPILOT_REQUIRE_PRODUCTION_SAFETY=true`; `/ready` and `npm run preflight:production` fail closed until server OpenAI configuration, phone bearer authorization, signed phone requests, metrics authorization, fresh secret-rotation metadata, CORS policy, request caps, rate limits, and the single-phone privacy boundary are safe.
 - The iOS Creative API provider can sign same-phone backend requests with `LENSPILOT_CREATIVE_API_SIGNING_SECRET`, and the backend can require matching timestamped HMAC signatures with replay protection through `LENSPILOT_CLIENT_SIGNING_SECRET` and `LENSPILOT_REQUIRE_SIGNED_PHONE_REQUESTS=true`.
 - The Creative API now exposes safe aggregate operational telemetry at `GET /metrics`, with bounded recent events and explicit no-retention flags for request bodies, prompt text, client IPs, auth headers, photos, identity data, precise location, and raw learning events.
@@ -89,6 +90,7 @@
 - Same-phone Creative Plan and AI Diagnostics surfaces show clear, sanitized provider failure messages, including exhausted-credit blocks, while preserving the offline camera loop.
 - Production Creative API readiness can be made fail-closed before deployment by setting `LENSPILOT_REQUIRE_PRODUCTION_SAFETY=true`; readiness metadata remains safe and does not expose OpenAI keys or phone bearer tokens.
 - Production readiness requires fresh `LENSPILOT_*_ROTATED_AT` metadata for configured secrets and keeps the accepted rotation window at or below 90 days.
+- Deployment config marks production secrets as `sync: false`, and the GitHub production endpoint workflow requires only the deployed Creative API URL plus an optional metrics token.
 - Signed Creative API request auth rejects missing, stale, invalid, and replayed same-phone calls before provider use; replay storage keeps bounded hashes only, not raw request bodies, prompts, photos, or request ids.
 - Creative API metrics can be disabled or protected with `LENSPILOT_METRICS_TOKEN`; production readiness requires metrics authorization whenever metrics are enabled.
 - Production endpoint checks use safe GET probes only and do not submit creative prompts, private references, live frames, learning events, or OpenAI credentials.
