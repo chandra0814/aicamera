@@ -41,6 +41,15 @@ npm run calibration:readiness
 npm run validate
 ```
 
+For a folder of reviewed exports, validate and import the batch in one manifest write:
+
+```powershell
+npm run calibration:import-reviewed-batch -- --dir <reviewed-export-folder> --json
+npm run calibration:import-reviewed-batch -- --dir <reviewed-export-folder> --write
+npm run calibration:readiness
+npm run validate
+```
+
 Repeat until readiness reports `ready`, 24/24 reviewed captures, no missing domains, and no missing scenarios.
 
 ## After 24 Reviewed Captures

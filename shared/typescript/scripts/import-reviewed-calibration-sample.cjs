@@ -1,5 +1,4 @@
 const fs = require("node:fs");
-const os = require("node:os");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 
@@ -65,7 +64,7 @@ function runCli(argv) {
       const manifestPath = resolveInputPath(options.manifestPath ?? defaultManifestPath);
       const manifest = readJson(manifestPath);
       const nextManifest = appendReviewedSample(manifest, reviewedSample);
-      const readinessReport = validateManifest(nextManifest);
+      const readinessReport = validateManifest(nextManifest, manifestPath);
       fs.writeFileSync(manifestPath, `${JSON.stringify(nextManifest, null, 2)}\n`);
       console.error(`Imported reviewed calibration sample ${reviewedSample.id} into ${manifestPath}.`);
       printReadinessSummary(readinessReport);
@@ -144,30 +143,33 @@ function validateCalibrationScenarioId(scenarioId, sampleId) {
   assert(Object.hasOwn(calibrationScenarios, scenarioId), `${sampleId}: unsupported calibrationScenarioId ${scenarioId}.`);
 }
 
-function validateManifest(manifest) {
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "lenspilot-calibration-import-"));
+function validateManifest(manifest, sourceManifestPath = defaultManifestPath) {
+  const resolvedSourceManifestPath = resolveInputPath(sourceManifestPath);
+  const tempManifestPath = path.join(
+    path.dirname(resolvedSourceManifestPath),
+    `.target-match-calibration.import-${process.pid}-${Date.now()}.json`
+  );
 
   try {
-    const manifestPath = path.join(tempDir, "target-match-calibration.json");
-    fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+    fs.writeFileSync(tempManifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 
     const validator = spawnSync(process.execPath, [
       "-e",
-      `const fs = require("node:fs"); process.argv[2] = ${JSON.stringify(manifestPath)}; eval(fs.readFileSync("scripts/validate-ai-calibration.cjs", "utf8"));`,
+      `const fs = require("node:fs"); process.argv[2] = ${JSON.stringify(tempManifestPath)}; eval(fs.readFileSync("scripts/validate-ai-calibration.cjs", "utf8"));`,
     ], {
       cwd: path.join(repoRoot, "shared/typescript"),
       encoding: "utf8",
     });
 
     if (validator.status !== 0) {
-      process.stdout.write(validator.stdout);
-      process.stderr.write(validator.stderr);
-      process.exit(validator.status ?? 1);
+      throw new Error(validator.error?.message ?? validator.stderr ?? "Calibration validation failed.");
     }
 
     return JSON.parse(validator.stdout);
   } finally {
-    fs.rmSync(tempDir, { recursive: true, force: true });
+    if (fs.existsSync(tempManifestPath)) {
+      fs.unlinkSync(tempManifestPath);
+    }
   }
 }
 
@@ -273,5 +275,6 @@ Options:
 module.exports = {
   appendReviewedSample,
   normalizeReviewedSample,
+  validateManifest,
   validateReviewedSample,
 };

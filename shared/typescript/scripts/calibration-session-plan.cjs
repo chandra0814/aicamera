@@ -162,6 +162,7 @@ function makeSessionPlan(manifest, manifestPath) {
       readiness: "npm run calibration:readiness",
       sessionPlan: "npm run calibration:session-plan",
       importReviewed: "npm run calibration:import-reviewed -- --sample <reviewed-sample.json> --write",
+      importReviewedBatch: "npm run calibration:import-reviewed-batch -- --dir <reviewed-export-folder> --write",
       validate: "npm run validate",
     },
     collectionSteps: [
@@ -266,6 +267,7 @@ function formatMarkdown(plan) {
     `- \`${plan.commands.sessionPlan}\``,
     `- \`${plan.commands.readiness}\``,
     `- \`${plan.commands.importReviewed}\``,
+    `- \`${plan.commands.importReviewedBatch}\``,
     `- \`${plan.commands.validate}\``,
     "",
     "## Field Rules",

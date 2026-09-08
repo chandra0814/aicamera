@@ -36,6 +36,7 @@ if (expectedNextScenarioId) {
   assert(plan.nextSlot === null, "Complete session plan should not recommend another capture.");
 }
 assert(plan.commands.importReviewed.includes("calibration:import-reviewed"), "Session plan should include the reviewed-sample import command.");
+assert(plan.commands.importReviewedBatch.includes("calibration:import-reviewed-batch"), "Session plan should include the reviewed-sample batch import command.");
 assert(plan.commands.readiness === "npm run calibration:readiness", "Session plan should include the readiness command.");
 assert(plan.privacy.singlePhoneOnly === true, "Session plan must stay single-phone only.");
 assert(plan.privacy.requiresSecondPhone === false, "Session plan must not require a second phone.");
