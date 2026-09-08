@@ -9,9 +9,11 @@ Native Android camera foundation for Android 10+ (API 29). Kotlin, Jetpack Compo
 - Front/back camera switch, supported-camera flash, composition grid, last-photo review.
 - Camera permission request, settings recovery, camera/capture errors, in-progress shutter lock.
 - Opt-in local storage of grid preference; app backups disabled.
+- Visible local shot ideas for general, portrait, landscape, food, and night photography. The ideas dialog accepts a short request and matches supported scene keywords; unsupported requests fall back to the selected scene.
+- Live on-device luminance checks suggest brighter/softer light or night stabilization. Consecutive readings prevent flickering; old readings expire. Frames are closed immediately after analysis and are not stored or uploaded.
 - No network permission, API credentials, or camera-frame uploads.
 
-This is an Android camera foundation, not full iOS AI parity. Shared Target Match scoring, scene analysis, capture coaching, adaptive learning, online reference providers, and calibration exports are not yet ported. Remembering a grid preference is not model training. Settings report the disconnected AI/provider state.
+This is not full iOS AI parity. Local guidance uses photographic rules and average frame brightness, not a generative model. It does not recognize subjects, semantically understand arbitrary requests, or analyze reference images. Shared Target Match scoring, subject analysis, adaptive learning, online reference providers, and calibration exports are not yet ported. Remembering a grid preference is not model training.
 
 ## Build
 
@@ -32,6 +34,17 @@ The LensPilot Android GitHub workflow runs the same checks and uploads the debug
 5. Background/resume and rotate the phone. Confirm preview orientation and capture remain correct.
 6. Toggle remembering grid preference, restart, and verify opt-out removes the saved preference.
 7. Check narrow screens, landscape, large font sizes, TalkBack labels, and denied/revoked photo access.
+8. Confirm a shot idea appears immediately. Open the lightbulb control, select each scene, try supported keywords, and cycle ideas. With a reference selected, cycle to its comparison idea.
+9. Point at dark and bright areas for at least two seconds and confirm light advice changes. Background the app or open the photo viewer; old light readings must clear. On short landscape screens the camera and controls scroll instead of overlapping.
+
+The pure Java guidance tests can run without an Android SDK:
+
+```sh
+javac -d /tmp/lenspilot-guidance app/src/main/java/ai/lenspilot/android/GuidanceEngine.java tests/GuidanceEngineTest.java
+java -cp /tmp/lenspilot-guidance GuidanceEngineTest
+```
+
+These tests cover unsigned luminance, padded rows/pixel strides, buffer offsets, empty frames, keyword priority, manual fallback, and idea cycling. The Android workflow runs them before publishing the APK.
 
 No physical Android device testing has been performed in the Windows workspace.
 

@@ -23,6 +23,11 @@ jobs:
       - name: Build and lint Android app
         working-directory: android
         run: gradle --no-daemon :app:assembleDebug :app:lintDebug
+      - name: Test local guidance rules
+        working-directory: android
+        run: |
+          javac -d /tmp/lenspilot-guidance app/src/main/java/ai/lenspilot/android/GuidanceEngine.java tests/GuidanceEngineTest.java
+          java -cp /tmp/lenspilot-guidance GuidanceEngineTest
       - uses: actions/upload-artifact@v4
         with:
           name: lenspilot-android-debug

@@ -7,6 +7,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
+import android.os.SystemClock
 import android.provider.MediaStore
 import android.provider.Settings
 import androidx.activity.ComponentActivity
@@ -19,6 +20,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
+import androidx.camera.core.ImageAnalysis
 import androidx.camera.view.CameraController
 import androidx.camera.view.LifecycleCameraController
 import androidx.camera.view.PreviewView
@@ -26,6 +28,9 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -43,8 +48,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -54,6 +61,8 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil.compose.SubcomposeAsyncImage
 import java.util.UUID
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 
 private val Ink = Color(0xFF101313)
 private val Mint = Color(0xFFBAF464)
@@ -74,6 +83,7 @@ class MainActivity : ComponentActivity() {
 @SuppressLint("MissingPermission") // Binding is gated by the permission state, refreshed on every resume.
 private fun CameraScreen() {
     val context = LocalContext.current
+    val compactHeight = LocalConfiguration.current.screenHeightDp < 500
     val owner = LocalLifecycleOwner.current
     val executor = remember(context) { ContextCompat.getMainExecutor(context) }
     val preferences = remember { context.getSharedPreferences("camera_preferences", 0) }
@@ -89,8 +99,23 @@ private fun CameraScreen() {
     var settings by remember { mutableStateOf(false) }
     var cameraError by remember { mutableStateOf<String?>(null) }
     var captureError by remember { mutableStateOf<String?>(null) }
+    var sceneName by rememberSaveable { mutableStateOf("GENERAL") }
+    var instruction by rememberSaveable { mutableStateOf("") }
+    var ideaIndex by rememberSaveable { mutableStateOf(0) }
+    var ideasOpen by remember { mutableStateOf(false) }
+    var showIdea by remember { mutableStateOf(false) }
+    var light by remember { mutableStateOf(GuidanceEngine.Light.UNKNOWN) }
+    var frameAt by remember { mutableStateOf(0L) }
+    var resumed by remember { mutableStateOf(owner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) }
+    val scene = GuidanceEngine.sceneFor(instruction.replace('\n', ' '), GuidanceEngine.Scene.valueOf(sceneName))
+    val lightingTip = GuidanceEngine.lightingTip(light, scene)
+    val idea = GuidanceEngine.idea(scene, reference != null, ideaIndex)
+    val suggestion = if (!showIdea && lightingTip != null) lightingTip else idea
     var permission by remember { mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) }
-    val controller = remember(context) { LifecycleCameraController(context).apply { setEnabledUseCases(CameraController.IMAGE_CAPTURE) } }
+    val controller = remember(context) { LifecycleCameraController(context).apply {
+        setEnabledUseCases(CameraController.IMAGE_CAPTURE or CameraController.IMAGE_ANALYSIS)
+        imageAnalysisBackpressureStrategy = ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST
+    } }
     val permissionPicker = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { permission = it }
     val referencePicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) {
@@ -104,8 +129,10 @@ private fun CameraScreen() {
     DisposableEffect(owner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
+                resumed = true
                 permission = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
             }
+            if (event == Lifecycle.Event.ON_PAUSE) { resumed = false; light = GuidanceEngine.Light.UNKNOWN }
         }
         owner.lifecycle.addObserver(observer)
         onDispose { owner.lifecycle.removeObserver(observer) }
@@ -131,6 +158,42 @@ private fun CameraScreen() {
         }
         onDispose { active = false; controller.unbind() }
     }
+    DisposableEffect(controller, ready, resumed, front, viewer) {
+        val active = AtomicBoolean(true)
+        val analyzer = Executors.newSingleThreadExecutor()
+        light = GuidanceEngine.Light.UNKNOWN
+        frameAt = 0L
+        if (ready && resumed && viewer == null) {
+            var lastRead = 0L
+            var pending = GuidanceEngine.Light.UNKNOWN
+            var repeated = 0
+            controller.setImageAnalysisAnalyzer(analyzer) { image ->
+                try {
+                    val now = SystemClock.elapsedRealtime()
+                    if (active.get() && now - lastRead >= 800) {
+                        lastRead = now
+                        val plane = image.planes.firstOrNull()
+                        val measured = if (plane == null) GuidanceEngine.Light.UNKNOWN else
+                            GuidanceEngine.measure(plane.buffer, image.width, image.height, plane.rowStride, plane.pixelStride)
+                        // Require consecutive readings so auto-exposure changes do not flicker advice.
+                        repeated = if (measured == pending) repeated + 1 else 1
+                        pending = measured
+                        if (repeated >= 2) executor.execute {
+                            if (active.get()) { light = measured; frameAt = now }
+                        }
+                    }
+                } finally { image.close() }
+            }
+        }
+        onDispose { active.set(false); controller.clearImageAnalysisAnalyzer(); analyzer.shutdown() }
+    }
+    LaunchedEffect(light) { showIdea = false }
+    LaunchedEffect(frameAt) {
+        if (frameAt != 0L) {
+            kotlinx.coroutines.delay(4000)
+            light = GuidanceEngine.Light.UNKNOWN
+        }
+    }
     LaunchedEffect(grid, rememberControls) {
         preferences.edit().apply {
             putBoolean("remember", rememberControls)
@@ -138,13 +201,15 @@ private fun CameraScreen() {
         }.apply()
     }
 
-    Column(Modifier.fillMaxSize().background(Ink).safeDrawingPadding()) {
+    Column(Modifier.fillMaxSize().background(Ink).safeDrawingPadding()
+        .then(if (compactHeight) Modifier.verticalScroll(rememberScrollState()) else Modifier)) {
         Row(Modifier.fillMaxWidth().height(60.dp).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("LensPilot", fontSize = 23.sp, modifier = Modifier.weight(1f), color = Paper)
+            ToolIcon("Shot ideas", Icons.Outlined.Lightbulb, { ideasOpen = true }, tint = Mint)
             ToolIcon("Composition grid", Icons.Outlined.GridOn, { grid = !grid }, tint = if (grid) Mint else Paper)
             ToolIcon("Camera settings", Icons.Outlined.Settings, { settings = true })
         }
-        Box(Modifier.fillMaxWidth().weight(1f).clipToBounds().background(Color.Black)) {
+        Box(Modifier.fillMaxWidth().then(if (compactHeight) Modifier.height(220.dp) else Modifier.weight(1f)).clipToBounds().background(Color.Black)) {
             if (permission) {
                 AndroidView(factory = { PreviewView(it).apply {
                     implementationMode = PreviewView.ImplementationMode.COMPATIBLE
@@ -177,6 +242,16 @@ private fun CameraScreen() {
                 }
             }
             Text("PHOTO", Modifier.align(Alignment.BottomStart).padding(16.dp).background(Ink).padding(8.dp), color = Mint, fontSize = 12.sp)
+        }
+        Row(Modifier.fillMaxWidth().background(Color(0xFF202A24)).padding(start = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f).clickable { ideasOpen = true }.padding(vertical = 10.dp)) {
+                Text(if (!showIdea && lightingTip != null) "Light check" else "Shot idea", color = Mint, fontSize = 12.sp)
+                Text(suggestion, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+            ToolIcon("Next shot idea", Icons.Outlined.Refresh, {
+                if (showIdea || lightingTip == null) ideaIndex = (ideaIndex + 1) % 12
+                showIdea = true
+            }, tint = Mint)
         }
         captureError?.let { Text(it, Modifier.padding(horizontal = 16.dp, vertical = 8.dp), color = MaterialTheme.colorScheme.error) }
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -241,10 +316,28 @@ private fun CameraScreen() {
                 Text("Remember grid preference", Modifier.weight(1f))
                 Switch(rememberControls, { rememberControls = it })
             }
-            Text("On-device AI: not connected", Modifier.padding(top = 16.dp))
+            Text("Local guidance: light checks and shot ideas", Modifier.padding(top = 16.dp))
+            Text("Subject recognition: not connected", Modifier.padding(top = 8.dp))
             Text("Online references: not connected", Modifier.padding(top = 8.dp))
         }
     }, confirmButton = { TextButton(onClick = { settings = false }) { Text("Done") } })
+    if (ideasOpen) AlertDialog(onDismissRequest = { ideasOpen = false }, title = { Text("Shot ideas") }, text = {
+        Column(Modifier.verticalScroll(rememberScrollState())) {
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                GuidanceEngine.Scene.values().forEach { choice ->
+                    FilterChip(selected = sceneName == choice.name, onClick = { sceneName = choice.name; instruction = ""; ideaIndex = 0 },
+                        label = { Text(choice.name.lowercase().replaceFirstChar { it.titlecase() }) })
+                }
+            }
+            OutlinedTextField(value = instruction, onValueChange = { instruction = it.take(240); ideaIndex = 0 },
+                label = { Text("Shot request") }, placeholder = { Text("Portrait, food, landscape, night...") },
+                modifier = Modifier.fillMaxWidth(), minLines = 2, maxLines = 3)
+            Text("Local tips / ${scene.name.lowercase()}", color = Mint, modifier = Modifier.padding(top = 16.dp))
+            Text(idea, modifier = Modifier.padding(top = 8.dp))
+            lightingTip?.let { Text(it, modifier = Modifier.padding(top = 12.dp)) }
+            TextButton(onClick = { ideaIndex = (ideaIndex + 1) % 12; showIdea = true }) { Text("Another idea") }
+        }
+    }, confirmButton = { TextButton(onClick = { ideasOpen = false }) { Text("Done") } })
     BackHandler(viewer != null) { viewer = null }
 }
 
