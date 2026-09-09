@@ -54,4 +54,10 @@ public final class SinglePhoneDirectorState: ObservableObject {
     public func clearTargetPreview() {
         targetPreview = nil
     }
+
+    public func clearGuidance() {
+        primaryInstruction = nil
+        targetMatch = nil
+        targetPreview = nil
+    }
 }

@@ -4,6 +4,20 @@ import XCTest
 
 final class SinglePhoneDirectorStateTests: XCTestCase {
     @MainActor
+    func testClearingGuidancePreservesReferenceViewer() {
+        let state = SinglePhoneDirectorState()
+        state.activateReferencePhoto(Self.referencePhoto())
+        state.openReferenceViewer()
+        state.updateGuidance(instruction: "Move left", targetMatch: 0.9)
+        state.clearGuidance()
+        XCTAssertNil(state.primaryInstruction)
+        XCTAssertNil(state.targetMatch)
+        XCTAssertNil(state.targetPreview)
+        XCTAssertNotNil(state.referencePhoto)
+        XCTAssertTrue(state.isReferenceViewerPresented)
+    }
+
+    @MainActor
     func testReferencePopupSelectionOpensFullReferenceOnSamePhone() throws {
         let state = SinglePhoneDirectorState()
         let incomingReference = Self.referencePhoto(

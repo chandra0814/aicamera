@@ -167,6 +167,9 @@ final class CameraScreenViewModel: ObservableObject {
     private var guidanceStabilizer = GuidanceStabilizer()
     private lazy var frameAnalysisCoordinator = CameraFrameAnalysisCoordinator(analyzer: frameAnalyzer)
     private var isFrameAnalysisConnected = false
+    private var isCameraReconfiguring = false
+    private var guidanceExpiryTask: Task<Void, Never>?
+    private var sceneSessionStartedAt = Date()
     private var latestGuidanceAction: GuidanceAction?
     private var hasLoadedOnlineInspiration = false
     private var cancellables: Set<AnyCancellable> = []
@@ -245,6 +248,7 @@ final class CameraScreenViewModel: ObservableObject {
     }
 
     func stop() {
+        invalidateSceneEvidence()
         speechIntentController.stopListening()
         camera.videoDataOutput.setSampleBufferDelegate(nil, queue: nil)
         isFrameAnalysisConnected = false
@@ -254,10 +258,15 @@ final class CameraScreenViewModel: ObservableObject {
     }
 
     func toggleSelfShotCamera() {
+        guard !isCameraReconfiguring else { return }
+        isCameraReconfiguring = true
+        invalidateSceneEvidence()
         usesFrontCameraForSelfShot.toggle()
         guidanceStabilizer.reset()
         Task {
             await configureCamera()
+            invalidateSceneEvidence()
+            isCameraReconfiguring = false
         }
     }
 
@@ -525,6 +534,8 @@ final class CameraScreenViewModel: ObservableObject {
     }
 
     private func handleSceneDebugState(_ debugState: SceneDebugState) {
+        guard isFrameAnalysisConnected, !isCameraReconfiguring,
+              debugState.timestamp >= sceneSessionStartedAt else { return }
         latestSceneDebugState = debugState
         runAi(sceneState: sceneState(from: debugState))
     }
@@ -556,7 +567,30 @@ final class CameraScreenViewModel: ObservableObject {
         }
     }
 
-    private func runAi(sceneState: SceneState) {
+    private func clearLiveGuidance() {
+        guidanceExpiryTask?.cancel()
+        guidanceExpiryTask = nil
+        currentShotSpec = nil
+        currentShotPlan = nil
+        currentTargetMatch = nil
+        currentTargetPreview = nil
+        latestGuidanceAction = nil
+        guidanceStabilizer.reset()
+        directorState.clearGuidance()
+    }
+
+    private func invalidateSceneEvidence() {
+        sceneSessionStartedAt = Date()
+        latestSceneDebugState = nil
+        clearLiveGuidance()
+    }
+
+    private func runAi(sceneState: SceneState?) {
+        guard let sceneState,
+              SceneEvidencePolicy.accepts(frameId: sceneState.frameId, timestamp: sceneState.timestamp) else {
+            clearLiveGuidance()
+            return
+        }
         let capability = deviceCapability ?? fallbackCapability()
         let result = makePersonalizedAiCore().run(
             prompt: intentText,
@@ -576,6 +610,14 @@ final class CameraScreenViewModel: ObservableObject {
             targetMatch: result.targetMatch.overall,
             targetPreview: result.targetPreview
         )
+        guidanceExpiryTask?.cancel()
+        let remaining = min(SceneEvidencePolicy.maximumAge, max(0, SceneEvidencePolicy.maximumAge - Date().timeIntervalSince(sceneState.timestamp)))
+        guidanceExpiryTask = Task { [weak self] in
+            do { try await Task.sleep(nanoseconds: UInt64(remaining * 1_000_000_000)) }
+            catch { return }
+            guard !Task.isCancelled else { return }
+            self?.clearLiveGuidance()
+        }
     }
 
     func activateReferencePhoto(imageData: Data, assetIdentifier: String?) {
@@ -678,7 +720,9 @@ final class CameraScreenViewModel: ObservableObject {
     }
 
     func makeCalibrationSampleExport() -> String {
-        let sample = makeCalibrationCandidate()
+        guard let sample = makeCalibrationCandidate() else {
+            return #"{"error":"fresh_camera_analysis_required"}"#
+        }
 
         do {
             return try calibrationSampleExporter.encodeJSONString(sample)
@@ -688,7 +732,9 @@ final class CameraScreenViewModel: ObservableObject {
     }
 
     func makeReviewedCalibrationSampleExport(review: CalibrationSample.ReviewLabel) -> String {
-        let candidate = lastCalibrationCandidate ?? makeCalibrationCandidate()
+        guard let candidate = lastCalibrationCandidate ?? makeCalibrationCandidate() else {
+            return #"{"error":"fresh_camera_analysis_required"}"#
+        }
 
         do {
             let reviewedSample = try calibrationSamplePromoter.makeReviewedSample(from: candidate, review: review)
@@ -698,8 +744,8 @@ final class CameraScreenViewModel: ObservableObject {
         }
     }
 
-    private func makeCalibrationCandidate() -> CalibrationSample {
-        let sceneState = currentSceneState()
+    private func makeCalibrationCandidate() -> CalibrationSample? {
+        guard let sceneState = currentSceneState() else { return nil }
         let capability = deviceCapability ?? fallbackCapability()
         let result = makePersonalizedAiCore().run(
             prompt: intentText,
@@ -738,7 +784,7 @@ final class CameraScreenViewModel: ObservableObject {
 
         lastCaptureData = bestPhotoData
         lastCalibrationCandidate = makeCalibrationCandidate()
-        recordCalibrationQueueCaptureIfNeeded()
+        if lastCalibrationCandidate != nil { recordCalibrationQueueCaptureIfNeeded() }
         captureReview = CaptureReviewPresentation(
             id: "review_\(UUID().uuidString.lowercased())",
             bestPhotoData: bestPhotoData,
@@ -1260,9 +1306,10 @@ final class CameraScreenViewModel: ObservableObject {
         )
     }
 
-    private func currentSceneState() -> SceneState {
-        guard let latestSceneDebugState else {
-            return placeholderSceneState()
+    private func currentSceneState() -> SceneState? {
+        guard let latestSceneDebugState,
+              SceneEvidencePolicy.accepts(frameId: latestSceneDebugState.frameId, timestamp: latestSceneDebugState.timestamp) else {
+            return nil
         }
 
         return sceneState(from: latestSceneDebugState)
@@ -1272,60 +1319,6 @@ final class CameraScreenViewModel: ObservableObject {
         sceneStateBuilder.makeSceneState(
             from: debugState,
             usesFrontCameraForSelfShot: usesFrontCameraForSelfShot
-        )
-    }
-
-    private func placeholderSceneState() -> SceneState {
-        SceneState(
-            timestamp: Date(),
-            frameId: "placeholder_frame",
-            cameraState: LiveCameraState(
-                lensId: usesFrontCameraForSelfShot ? "front_wide" : "back_wide",
-                focalLength35mmEquivalent: usesFrontCameraForSelfShot ? 24 : 26,
-                zoomFactor: 1,
-                exposureBias: 0,
-                orientation: .portrait,
-                rollDegrees: 3.8,
-                pitchDegrees: 4
-            ),
-            deviceThermal: .nominal,
-            scene: SceneSummary(
-                category: .portrait,
-                confidence: 0.82,
-                lighting: LightingState(
-                    exposureMean: 0.54,
-                    highlightClipping: 0.18,
-                    shadowClipping: 0.08,
-                    faceLightQuality: 0.48,
-                    direction: .frontLeft,
-                    dynamicRangeRisk: 0.34
-                ),
-                horizon: HorizonState(y: 0.47, rollDegrees: 3.8, confidence: 0.81),
-                sky: SkyState(visibleFraction: 0.22, sunsetLikelihood: 0.38, cloudInterest: 0.44, highlightRisk: 0.18)
-            ),
-            subjects: [
-                SubjectObservation(
-                    id: "subject_placeholder",
-                    type: .person,
-                    bounds: NormalizedRectangle(x: 0.42, y: 0.22, width: 0.33, height: 0.58),
-                    segmentationAvailable: true,
-                    pose: PoseState(shouldersAngleDegrees: 4, faceYawDegrees: -8, eyeLineConfidence: 0.78, handAwkwardnessRisk: 0.22),
-                    face: FaceQualityState(eyeOpenProbability: 0.91, expressionStability: 0.76, sharpnessProbability: 0.83, skinExposureScore: 0.72),
-                    distanceEstimateMeters: 2.1,
-                    confidence: 0.9
-                )
-            ],
-            background: BackgroundState(
-                clutterScore: 0.66,
-                brightDistractionScore: 0.34,
-                poleBehindHeadRisk: 0.18,
-                randomPeopleRisk: 0.12,
-                horizonIntersectionRisk: 0.2,
-                cleanerDirection: .left
-            ),
-            motion: MotionState(cameraShake: 0.18, subjectMotion: 0.12, blurRisk: 0.2),
-            composition: CompositionState(subjectPlacementScore: 0.61, headroomScore: 0.72, balanceScore: 0.58, leadingLinesScore: nil, negativeSpaceScore: 0.52),
-            safety: SafetyState(hazards: [], movementGuidanceAllowed: true, confidence: 0.82)
         )
     }
 }

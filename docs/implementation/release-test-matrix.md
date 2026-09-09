@@ -48,7 +48,7 @@ As of 2026-09-09. A = automated check executed locally after this audit's change
 | AND-20 | Offline/no internet, 15-minute use, warm device | Capture works; responsiveness/thermal impact measured | D |
 | AND-21 | Install next version over old APK | Signing compatible and app state preserved | O |
 | IOS-01 | Swift/director/core tests and app build at 719319f | Previously passed; rerun CI for final commit | H |
-| IOS-02 | No frame yet or camera permission denied | No fabricated people, movement or match scores | O |
+| IOS-02 | No frame yet, expired analysis, stop/switch or camera permission denied | No fabricated people, movement or match scores; exports require fresh analysis | D |
 | IOS-03 | Wide-only vs telephoto devices | Actual lens matches selected supported plan | O |
 | IOS-04 | Real burst with deliberate blur/blink differences | Best-shot choice based on actual image measurements | O |
 | IOS-05 | Portrait/landscape and front camera mirroring | Vision observations align with preview | D |

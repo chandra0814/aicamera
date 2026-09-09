@@ -2,6 +2,8 @@
 
 ## Current Audit (2026-09-09)
 
+Follow-up change: iOS no longer constructs a fabricated fallback scene. Live guidance and calibration export require fresh analyzed evidence; stale guidance expires, and stop/switch clears it. Added Swift policy and director-state tests; these new Swift changes still require macOS CI and physical-device verification. Historical passing runs do not verify this follow-up.
+
 The updated local `scripts/test-all.ps1` passed shared validators, backend checks including spoofed forwarding-header/overflow regressions, and Android Java guidance/timer tests. Android 0.3.0 APK compilation/lint, Swift/Xcode and device tests still require CI/hardware. The historical results below do not verify these new mobile changes or prove photographic quality. See the [product audit](product-audit-2026-09-09.md) and [55-case release matrix](release-test-matrix.md).
 
 ## Runnable In This Workspace
