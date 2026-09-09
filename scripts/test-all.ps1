@@ -4,9 +4,11 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $repoRoot
 
 Write-Host "== JSON parse validation =="
-Get-ChildItem -Recurse -Filter *.json | ForEach-Object {
-    $null = Get-Content -Raw -LiteralPath $_.FullName | ConvertFrom-Json
-    Write-Host $_.FullName
+$jsonFiles = git ls-files --cached --others --exclude-standard -- '*.json'
+if ($LASTEXITCODE -ne 0) { throw "Could not enumerate repository JSON files." }
+$jsonFiles | Sort-Object -Unique | ForEach-Object {
+    $null = Get-Content -Raw -LiteralPath (Join-Path $repoRoot $_) | ConvertFrom-Json
+    Write-Host $_
 }
 
 Write-Host "`n== AI core fixture validation =="
@@ -24,6 +26,10 @@ if ($LASTEXITCODE -ne 0) {
     throw "Backend creative API server validation failed with exit code $LASTEXITCODE."
 }
 Pop-Location
+
+Write-Host "`n== Android core tests (JDK required) =="
+& (Join-Path $PSScriptRoot "test-android-core.ps1")
+Write-Host "Android APK build/lint and physical device tests are separate from these JVM checks."
 
 Write-Host "`n== Swift toolchain check =="
 $swift = Get-Command swift -ErrorAction SilentlyContinue

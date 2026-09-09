@@ -7,13 +7,15 @@ Native Android camera foundation for Android 10+ (API 29). Kotlin, Jetpack Compo
 - Real CameraX preview and JPEG capture to Pictures/LensPilot.
 - System photo picker for a reference; tappable thumbnail opens a full-screen viewer with uncropped image.
 - Front/back camera switch, supported-camera flash, composition grid, last-photo review.
+- Off/3s/10s self-timer, visible countdown, cancellation and lifecycle checks before capture. Timers cancel on backgrounding and are not restored after activity recreation.
+- Sharing a captured photo uses the Android chooser and grants read access to the selected photo only.
 - Camera permission request, settings recovery, camera/capture errors, in-progress shutter lock.
 - Opt-in local storage of grid preference; app backups disabled.
 - Visible local shot ideas for general, portrait, landscape, food, and night photography. The ideas dialog accepts a short request and matches supported scene keywords; unsupported requests fall back to the selected scene.
 - Live on-device luminance checks suggest brighter/softer light or night stabilization. Consecutive readings prevent flickering; old readings expire. Frames are closed immediately after analysis and are not stored or uploaded.
 - No network permission, API credentials, or camera-frame uploads.
 
-This is not full iOS AI parity. Local guidance uses photographic rules and average frame brightness, not a generative model. It does not recognize subjects, semantically understand arbitrary requests, or analyze reference images. Shared Target Match scoring, subject analysis, adaptive learning, online reference providers, and calibration exports are not yet ported. Remembering a grid preference is not model training.
+This is not full iOS AI parity. Local guidance uses photographic rules and average frame brightness, not a generative model. Supported requests include more sky, cleaner background, brighter, natural skin/color, and less background blur. Unknown or negated requests explicitly fall back to manual scene ideas. It does not recognize subjects, semantically understand arbitrary requests, or analyze reference images. Shared Target Match scoring, subject analysis, adaptive learning, online reference providers, and calibration exports are not yet ported. Remembering a grid preference is not model training.
 
 ## Build
 
@@ -36,15 +38,17 @@ The LensPilot Android GitHub workflow runs the same checks and uploads the debug
 7. Check narrow screens, landscape, large font sizes, TalkBack labels, and denied/revoked photo access.
 8. Confirm a shot idea appears immediately. Open the lightbulb control, select each scene, try supported keywords, and cycle ideas. With a reference selected, cycle to its comparison idea.
 9. Point at dark and bright areas for at least two seconds and confirm light advice changes. Background the app or open the photo viewer; old light readings must clear. On short landscape screens the camera and controls scroll instead of overlapping.
+10. Cycle the timer through off/3s/10s. Verify one photo per countdown, cancellation via X/Back, and no delayed photo after backgrounding, opening settings, or rotating.
+11. Share a captured image, cancel the chooser, and verify capture remains usable. Try a deleted image and confirm a recoverable error.
 
 The pure Java guidance tests can run without an Android SDK:
 
 ```sh
-javac -d /tmp/lenspilot-guidance app/src/main/java/ai/lenspilot/android/GuidanceEngine.java tests/GuidanceEngineTest.java
+javac --release 17 -d /tmp/lenspilot-guidance app/src/main/java/ai/lenspilot/android/GuidanceEngine.java app/src/main/java/ai/lenspilot/android/CaptureTimer.java tests/GuidanceEngineTest.java
 java -cp /tmp/lenspilot-guidance GuidanceEngineTest
 ```
 
-These tests cover unsigned luminance, padded rows/pixel strides, buffer offsets, empty frames, keyword priority, manual fallback, and idea cycling. The Android workflow runs them before publishing the APK.
+These tests cover unsigned luminance, padded rows/pixel strides, buffer offsets, empty frames, keyword priority, manual fallback, request-specific ideas, negation, idea cycling, and timer cancellation/exactly-once capture. The Android workflow runs them before publishing the APK. On Windows, run `scripts/test-android-core.ps1` from the repository root; it is also included in `scripts/test-all.ps1` and requires a JDK.
 
 No physical Android device testing has been performed in the Windows workspace.
 

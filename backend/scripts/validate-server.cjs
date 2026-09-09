@@ -35,6 +35,7 @@ const serverModule = Function(
   `${serverSource}
 return {
   createLensPilotCreativeHTTPServer,
+  createMemoryRateLimiter,
   describeLensPilotCreativeServerConfig,
   makeLensPilotPhoneRequestSignature,
   lensPilotCreativeServerDefaults,
@@ -53,6 +54,7 @@ return {
 
 const {
   createLensPilotCreativeHTTPServer,
+  createMemoryRateLimiter,
   describeLensPilotCreativeServerConfig,
   makeLensPilotPhoneRequestSignature,
   lensPilotCreativeServerDefaults,
@@ -143,6 +145,15 @@ main().catch((error) => {
 });
 
 async function main() {
+  let rateClock = 0;
+  const boundedLimiter = createMemoryRateLimiter({ windowMs: 1000, maxRequests: 1, maxBuckets: 2, now: () => rateClock });
+  assert(boundedLimiter.take("one").allowed, "First client should pass.");
+  assert(boundedLimiter.take("two").allowed, "Second client should pass.");
+  assert(boundedLimiter.take("overflow-one").allowed, "One shared overflow request should pass.");
+  assert(!boundedLimiter.take("overflow-two").allowed, "New identities must share overflow capacity.");
+  assert(!boundedLimiter.take("one").allowed, "Overflow must not evict an existing client limit.");
+  rateClock = 1000;
+  assert(boundedLimiter.take("one").allowed, "Expired windows must recover.");
   const safeProductionConfig = describeLensPilotCreativeServerConfig({
     openAIAPIKey: "sk-test-server-side",
     expectedClientToken: "client-token",
@@ -485,11 +496,11 @@ async function main() {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          "x-forwarded-for": "198.51.100.10",
+          "x-forwarded-for": "198.51.100.99",
         },
         body: JSON.stringify(safeApiRequest),
       });
-      assert(second.status === 429, "Second request over the limit should be rate-limited.");
+      assert(second.status === 429, "Changing an untrusted forwarding header must not bypass the rate limit.");
       assert(second.headers.get("retry-after") !== null, "Rate-limited responses should include retry-after.");
     }
   );

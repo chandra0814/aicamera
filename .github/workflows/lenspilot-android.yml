@@ -26,7 +26,7 @@ jobs:
       - name: Test local guidance rules
         working-directory: android
         run: |
-          javac -d /tmp/lenspilot-guidance app/src/main/java/ai/lenspilot/android/GuidanceEngine.java tests/GuidanceEngineTest.java
+          javac --release 17 -d /tmp/lenspilot-guidance app/src/main/java/ai/lenspilot/android/GuidanceEngine.java app/src/main/java/ai/lenspilot/android/CaptureTimer.java tests/GuidanceEngineTest.java
           java -cp /tmp/lenspilot-guidance GuidanceEngineTest
       - uses: actions/upload-artifact@v4
         with:

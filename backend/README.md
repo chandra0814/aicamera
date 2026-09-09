@@ -153,3 +153,6 @@ The backend test also validates the root `.env.example` template, production dep
 ## Provider Errors
 
 OpenAI failures stay behind the LensPilot backend boundary. The API returns safe metadata such as `openai_credit_balance_exhausted`, provider HTTP status, sanitized provider error type/code, `retryable`, and `blockedByBilling`; it never forwards provider secrets, raw provider payloads, or client-supplied OpenAI keys back to the phone.
+# Rate-limit deployment boundary
+
+The HTTP runtime keys its local rate limit by the TCP peer, ignoring client-supplied forwarding headers. This prevents callers from bypassing the limit by changing `X-Forwarded-For`. Behind a reverse proxy, callers sharing a proxy peer share a quota. Configure trusted-proxy handling and authenticated per-user quotas before scaling beyond the pilot; do not restore unconditional forwarding-header trust. Storage is capped at 4,096 normal buckets plus one shared overflow bucket, with expired entries removed. These in-memory limits reset on restart and are not distributed across instances.

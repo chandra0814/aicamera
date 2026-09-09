@@ -95,6 +95,9 @@ private fun CameraScreen() {
     var front by rememberSaveable { mutableStateOf(false) }
     var flash by rememberSaveable { mutableStateOf(false) }
     var capturing by remember { mutableStateOf(false) }
+    var timerSeconds by rememberSaveable { mutableStateOf(0) }
+    var countdown by remember { mutableStateOf<Int?>(null) }
+    val captureTimer = remember { CaptureTimer() }
     var ready by remember { mutableStateOf(false) }
     var settings by remember { mutableStateOf(false) }
     var cameraError by remember { mutableStateOf<String?>(null) }
@@ -109,13 +112,50 @@ private fun CameraScreen() {
     var resumed by remember { mutableStateOf(owner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) }
     val scene = GuidanceEngine.sceneFor(instruction.replace('\n', ' '), GuidanceEngine.Scene.valueOf(sceneName))
     val lightingTip = GuidanceEngine.lightingTip(light, scene)
-    val idea = GuidanceEngine.idea(scene, reference != null, ideaIndex)
+    val idea = GuidanceEngine.ideaForRequest(instruction, scene, reference != null, ideaIndex)
     val suggestion = if (!showIdea && lightingTip != null) lightingTip else idea
     var permission by remember { mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) }
     val controller = remember(context) { LifecycleCameraController(context).apply {
         setEnabledUseCases(CameraController.IMAGE_CAPTURE or CameraController.IMAGE_ANALYSIS)
         imageAnalysisBackpressureStrategy = ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST
     } }
+    val canCapture = ready && resumed && permission && viewer == null && !settings && !ideasOpen && !capturing
+    val latestCanCapture by rememberUpdatedState(canCapture)
+    val takePhoto: () -> Unit = {
+        if (latestCanCapture && !capturing && owner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+            capturing = true
+            captureError = null
+            try {
+                controller.imageCaptureFlashMode = if (flash && !front && controller.cameraInfo?.hasFlashUnit() == true) ImageCapture.FLASH_MODE_ON else ImageCapture.FLASH_MODE_OFF
+                val metadata = ContentValues().apply {
+                    put(MediaStore.Images.Media.DISPLAY_NAME, "LensPilot-${UUID.randomUUID()}.jpg")
+                    put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+                    put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/LensPilot")
+                }
+                val output = ImageCapture.OutputFileOptions.Builder(context.contentResolver, MediaStore.Images.Media.EXTERNAL_CONTENT_URI, metadata).build()
+                controller.takePicture(output, executor, object : ImageCapture.OnImageSavedCallback {
+                    override fun onImageSaved(result: ImageCapture.OutputFileResults) {
+                        capturing = false
+                        lastCapture = result.savedUri?.toString()
+                        if (lastCapture == null) captureError = "Photo saved, but its preview is unavailable."
+                    }
+                    override fun onError(exception: ImageCaptureException) { capturing = false; captureError = "Photo could not be saved. Please try again." }
+                })
+            } catch (_: Exception) { capturing = false; captureError = "Capture failed. Please try again." }
+        }
+    }
+    val latestTakePhoto by rememberUpdatedState(takePhoto)
+    LaunchedEffect(countdown != null) {
+        if (countdown != null) try {
+            while (captureTimer.isActive) {
+                val now = SystemClock.elapsedRealtime()
+                if (captureTimer.consumeDue(now, latestCanCapture)) { latestTakePhoto(); break }
+                if (!captureTimer.isActive) break
+                countdown = captureTimer.remainingSeconds(now)
+                kotlinx.coroutines.delay(100)
+            }
+        } finally { captureTimer.cancel(); countdown = null }
+    }
     val permissionPicker = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { permission = it }
     val referencePicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) {
@@ -132,7 +172,10 @@ private fun CameraScreen() {
                 resumed = true
                 permission = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
             }
-            if (event == Lifecycle.Event.ON_PAUSE) { resumed = false; light = GuidanceEngine.Light.UNKNOWN }
+            if (event == Lifecycle.Event.ON_PAUSE) {
+                resumed = false; light = GuidanceEngine.Light.UNKNOWN
+                captureTimer.cancel(); countdown = null
+            }
         }
         owner.lifecycle.addObserver(observer)
         onDispose { owner.lifecycle.removeObserver(observer) }
@@ -241,7 +284,13 @@ private fun CameraScreen() {
                     Text("Reference", Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Ink).padding(6.dp), fontSize = 12.sp)
                 }
             }
-            Text("PHOTO", Modifier.align(Alignment.BottomStart).padding(16.dp).background(Ink).padding(8.dp), color = Mint, fontSize = 12.sp)
+            Text(if (timerSeconds == 0) "PHOTO" else "PHOTO / ${timerSeconds}s", Modifier.align(Alignment.BottomStart).padding(16.dp).background(Ink).padding(8.dp), color = Mint, fontSize = 12.sp)
+            countdown?.let { seconds ->
+                Column(Modifier.align(Alignment.Center).background(Ink).padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(seconds.toString(), fontSize = 40.sp, color = Mint)
+                    ToolIcon("Cancel timer", Icons.Outlined.Close, { captureTimer.cancel(); countdown = null })
+                }
+            }
         }
         Row(Modifier.fillMaxWidth().background(Color(0xFF202A24)).padding(start = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f).clickable { ideasOpen = true }.padding(vertical = 10.dp)) {
@@ -249,17 +298,19 @@ private fun CameraScreen() {
                 Text(suggestion, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
             ToolIcon("Next shot idea", Icons.Outlined.Refresh, {
-                if (showIdea || lightingTip == null) ideaIndex = (ideaIndex + 1) % 12
+                if (showIdea || lightingTip == null) ideaIndex = if (ideaIndex == Int.MAX_VALUE) 0 else ideaIndex + 1
                 showIdea = true
             }, tint = Mint)
         }
         captureError?.let { Text(it, Modifier.padding(horizontal = 16.dp, vertical = 8.dp), color = MaterialTheme.colorScheme.error) }
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = { referencePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) {
+            TextButton(modifier = Modifier.weight(1f), onClick = { referencePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }, enabled = countdown == null && !capturing) {
                 Icon(Icons.Outlined.AddPhotoAlternate, null)
                 Spacer(Modifier.width(8.dp)); Text(if (reference == null) "Add reference" else "Replace reference")
             }
-            Spacer(Modifier.weight(1f))
+            ToolIcon(if (timerSeconds == 0) "Timer off" else "Timer $timerSeconds seconds", Icons.Outlined.Timer, {
+                timerSeconds = when (timerSeconds) { 0 -> 3; 3 -> 10; else -> 0 }
+            }, enabled = countdown == null && !capturing, tint = if (timerSeconds == 0) Paper else Mint)
             if (reference != null) ToolIcon("Remove reference", Icons.Outlined.Close, {
                 reference?.let {
                     try { context.contentResolver.releasePersistableUriPermission(Uri.parse(it), Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (_: SecurityException) { }
@@ -267,36 +318,19 @@ private fun CameraScreen() {
                 reference = null
             })
             ToolIcon(if (flash) "Disable flash" else "Enable flash", if (flash) Icons.Outlined.FlashOn else Icons.Outlined.FlashOff,
-                { flash = !flash }, enabled = ready && !front && !capturing && controller.cameraInfo?.hasFlashUnit() == true)
+                { flash = !flash }, enabled = ready && !front && !capturing && countdown == null && controller.cameraInfo?.hasFlashUnit() == true)
         }
         Row(Modifier.fillMaxWidth().height(104.dp).padding(horizontal = 24.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             if (lastCapture != null) Photo(lastCapture, "Review last capture", Modifier.size(52.dp).clip(RoundedCornerShape(6.dp)).clickable { viewer = lastCapture }, ContentScale.Crop)
             else Icon(Icons.Outlined.PhotoLibrary, "No captures yet", Modifier.size(52.dp).padding(12.dp), tint = Color.Gray)
-            FilledIconButton(enabled = ready && !capturing, onClick = {
-                capturing = true
-                captureError = null
-                try {
-                    controller.imageCaptureFlashMode = if (flash && !front && controller.cameraInfo?.hasFlashUnit() == true) ImageCapture.FLASH_MODE_ON else ImageCapture.FLASH_MODE_OFF
-                    val metadata = ContentValues().apply {
-                        put(MediaStore.Images.Media.DISPLAY_NAME, "LensPilot-${UUID.randomUUID()}.jpg")
-                        put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
-                        put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/LensPilot")
-                    }
-                    val output = ImageCapture.OutputFileOptions.Builder(context.contentResolver, MediaStore.Images.Media.EXTERNAL_CONTENT_URI, metadata).build()
-                    controller.takePicture(output, executor, object : ImageCapture.OnImageSavedCallback {
-                        override fun onImageSaved(result: ImageCapture.OutputFileResults) {
-                            capturing = false
-                            lastCapture = result.savedUri?.toString()
-                            if (lastCapture == null) captureError = "Photo saved, but its preview is unavailable."
-                        }
-                        override fun onError(exception: ImageCaptureException) { capturing = false; captureError = "Photo could not be saved. Please try again." }
-                    })
-                } catch (_: Exception) { capturing = false; captureError = "Capture failed. Please try again." }
+            FilledIconButton(enabled = canCapture && countdown == null, onClick = {
+                if (timerSeconds == 0) takePhoto()
+                else if (captureTimer.start(timerSeconds, SystemClock.elapsedRealtime())) countdown = timerSeconds
             }, modifier = Modifier.size(76.dp).border(2.dp, Paper, CircleShape).padding(5.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = Paper, contentColor = Ink)) {
                 if (capturing) CircularProgressIndicator(Modifier.size(28.dp), color = Ink)
                 else Icon(Icons.Outlined.CameraAlt, "Take photo", Modifier.size(28.dp))
             }
-            ToolIcon("Switch camera", Icons.Outlined.Cameraswitch, { front = !front; flash = false }, enabled = permission && !capturing)
+            ToolIcon("Switch camera", Icons.Outlined.Cameraswitch, { front = !front; flash = false }, enabled = permission && !capturing && countdown == null)
         }
     }
     viewer?.let { uri ->
@@ -305,7 +339,19 @@ private fun CameraScreen() {
                 Photo(uri, if (uri == reference) "Reference photo" else "Captured photo", Modifier.fillMaxSize(), ContentScale.Fit)
                 Row(Modifier.align(Alignment.TopStart).fillMaxWidth().background(Ink), verticalAlignment = Alignment.CenterVertically) {
                     ToolIcon("Close photo", Icons.Outlined.Close, { viewer = null })
-                    Text(if (uri == reference) "Reference" else "Saved to Pictures / LensPilot")
+                    Text(if (uri == reference) "Reference" else "Saved to Pictures / LensPilot", Modifier.weight(1f))
+                    if (uri == lastCapture && uri != reference) ToolIcon("Share photo", Icons.Outlined.Share, {
+                        try {
+                            val photoUri = Uri.parse(uri)
+                            val share = Intent(Intent.ACTION_SEND).apply {
+                                type = "image/jpeg"
+                                putExtra(Intent.EXTRA_STREAM, photoUri)
+                                clipData = android.content.ClipData.newUri(context.contentResolver, "LensPilot photo", photoUri)
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                            context.startActivity(Intent.createChooser(share, "Share photo"))
+                        } catch (_: Exception) { captureError = "Photo could not be shared. Check that it still exists."; viewer = null }
+                    })
                 }
             }
         }
@@ -333,12 +379,16 @@ private fun CameraScreen() {
                 label = { Text("Shot request") }, placeholder = { Text("Portrait, food, landscape, night...") },
                 modifier = Modifier.fillMaxWidth(), minLines = 2, maxLines = 3)
             Text("Local tips / ${scene.name.lowercase()}", color = Mint, modifier = Modifier.padding(top = 16.dp))
+            if (instruction.isNotBlank() && !GuidanceEngine.supportsRequest(instruction)) {
+                Text("Request not recognized. Showing the selected scene's ideas.", modifier = Modifier.padding(top = 8.dp))
+            }
             Text(idea, modifier = Modifier.padding(top = 8.dp))
             lightingTip?.let { Text(it, modifier = Modifier.padding(top = 12.dp)) }
-            TextButton(onClick = { ideaIndex = (ideaIndex + 1) % 12; showIdea = true }) { Text("Another idea") }
+            TextButton(onClick = { ideaIndex = if (ideaIndex == Int.MAX_VALUE) 0 else ideaIndex + 1; showIdea = true }) { Text("Another idea") }
         }
     }, confirmButton = { TextButton(onClick = { ideasOpen = false }) { Text("Done") } })
     BackHandler(viewer != null) { viewer = null }
+    BackHandler(countdown != null) { captureTimer.cancel(); countdown = null }
 }
 
 @Composable

@@ -2,6 +2,8 @@ package ai.lenspilot.android;
 
 import java.nio.ByteBuffer;
 import java.util.Locale;
+import java.util.ArrayList;
+import java.util.List;
 
 /** Local photographic rules; does not detect subjects or interpret reference images. */
 public final class GuidanceEngine {
@@ -31,12 +33,45 @@ public final class GuidanceEngine {
     }
 
     public static Scene sceneFor(String instruction, Scene selected) {
-        String text = instruction.toLowerCase(Locale.ROOT);
+        String text = normalize(instruction);
+        // Do not guess a scene from a negated request; retain the user's explicit selection.
+        if (negated(text)) return selected;
         if (text.matches(".*\\b(night|dark|stars)\\b.*")) return Scene.NIGHT;
         if (text.matches(".*\\b(portrait|selfie|person|face)\\b.*")) return Scene.PORTRAIT;
         if (text.matches(".*\\b(food|meal|dish|coffee)\\b.*")) return Scene.FOOD;
         if (text.matches(".*\\b(landscape|mountain|sky|sunset)\\b.*")) return Scene.LANDSCAPE;
         return selected;
+    }
+
+    private static String normalize(String text) {
+        return text == null ? "" : text.toLowerCase(Locale.ROOT).replaceAll("\\s+", " ").trim();
+    }
+
+    private static boolean negated(String text) {
+        return text.matches(".*\\b(no|not|never|avoid|without|don.t)\\b.*");
+    }
+
+    private static List<String> requestIdeas(String instruction) {
+        String text = normalize(instruction);
+        List<String> ideas = new ArrayList<>();
+        if (negated(text)) return ideas;
+        if (text.contains("more sky")) ideas.add("Place the horizon lower in the frame to include more sky. Keep the phone level.");
+        if (text.contains("cleaner background") || text.contains("less clutter")) ideas.add("Try a simpler backdrop and check the frame edges for distractions.");
+        if (text.contains("brighter")) ideas.add("Try softer, brighter light on the subject while preserving detail in bright areas.");
+        if (text.contains("natural skin") || text.contains("natural color") || text.contains("natural colour")) ideas.add("Use neutral daylight and avoid mixed colored lighting for natural tones.");
+        if (text.contains("less background blur")) ideas.add("Use a wider view and keep the subject closer to the background for more visible detail.");
+        return ideas;
+    }
+
+    public static boolean supportsRequest(String instruction) {
+        return !requestIdeas(instruction).isEmpty() || sceneFor(instruction, Scene.GENERAL) != Scene.GENERAL;
+    }
+
+    public static String ideaForRequest(String instruction, Scene scene, boolean reference, int index) {
+        List<String> requested = requestIdeas(instruction);
+        int baseCount = reference ? 4 : 3;
+        int slot = Math.floorMod(index, requested.size() + baseCount);
+        return slot < requested.size() ? requested.get(slot) : idea(scene, reference, slot - requested.size());
     }
 
     public static String lightingTip(Light light, Scene scene) {

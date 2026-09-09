@@ -4,6 +4,8 @@ LensPilot AI camera prototype with a single-phone iOS capture loop, shared AI co
 
 An initial native [Android camera app](android/README.md) is available in `android/`, with CameraX capture, a same-phone reference popup/viewer, and local grid preferences. Android AI parity is still in progress.
 
+See the [2026-09-09 product/engineering audit](docs/implementation/product-audit-2026-09-09.md) and [55-case release matrix](docs/implementation/release-test-matrix.md) for verified behavior, market comparisons and unresolved release blockers. Android now also includes local request-based ideas, light checks, a self-timer and captured-photo sharing.
+
 ## Creative API
 
 - Server handler: `backend/api/creative-interpretation.mjs`

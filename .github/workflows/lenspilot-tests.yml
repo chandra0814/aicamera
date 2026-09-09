@@ -2,7 +2,7 @@ name: LensPilot Tests
 
 on:
   push:
-    branches: [main]
+    branches: [main, codex/android-camera-foundation]
   pull_request:
     branches: [main]
   workflow_dispatch:

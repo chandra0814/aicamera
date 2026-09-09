@@ -202,7 +202,7 @@ export async function handleLensPilotCreativeHTTPRoute(requestLike, options = {}
     return result;
   };
 
-  const clientKey = clientRateLimitKey(requestLike, headers);
+  const clientKey = clientRateLimitKey(requestLike);
   const rateLimit = rateLimiter.take(clientKey);
   if (!rateLimit.allowed) {
     return completeCreativeRoute(jsonResponse(429, {
@@ -1084,14 +1084,21 @@ function createMemoryReplayGuard({ windowMs, maxEntries, now }) {
   };
 }
 
-function createMemoryRateLimiter({ windowMs, maxRequests, now }) {
+export function createMemoryRateLimiter({ windowMs, maxRequests, now = Date.now, maxBuckets = 4096 }) {
   const buckets = new Map();
+  const overflowKey = Symbol("overflow");
+  const safeMaxBuckets = Math.max(1, Math.min(4096, Math.floor(maxBuckets) || 4096));
   const safeWindowMs = Math.max(1_000, windowMs);
   const safeMaxRequests = Math.max(1, maxRequests);
 
   return {
     take(key) {
       const checkedAt = now();
+      for (const [storedKey, bucket] of buckets) {
+        if (bucket.resetAt <= checkedAt) buckets.delete(storedKey);
+      }
+      // Share a bounded overflow bucket instead of evicting active limits under load.
+      if (!buckets.has(key) && buckets.size >= safeMaxBuckets) key = overflowKey;
       const current = buckets.get(key);
       if (!current || current.resetAt <= checkedAt) {
         const resetAt = checkedAt + safeWindowMs;
@@ -1193,9 +1200,9 @@ function corsResponseHeaders(origin, allowedOrigins) {
   return {};
 }
 
-function clientRateLimitKey(requestLike, headers) {
-  const forwarded = headerValue(headers, "x-forwarded-for");
-  if (forwarded) return forwarded.split(",")[0].trim();
+function clientRateLimitKey(requestLike) {
+  // Forwarding headers are client-controlled without an explicitly trusted proxy policy.
+  // Behind a proxy this deliberately limits the peer in aggregate.
   return requestLike?.socket?.remoteAddress ?? "unknown";
 }
 

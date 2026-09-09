@@ -1,5 +1,9 @@
 # Test Status
 
+## Current Audit (2026-09-09)
+
+The updated local `scripts/test-all.ps1` passed shared validators, backend checks including spoofed forwarding-header/overflow regressions, and Android Java guidance/timer tests. Android 0.3.0 APK compilation/lint, Swift/Xcode and device tests still require CI/hardware. The historical results below do not verify these new mobile changes or prove photographic quality. See the [product audit](product-audit-2026-09-09.md) and [55-case release matrix](release-test-matrix.md).
+
 ## Runnable In This Workspace
 
 - JSON parse validation for all `.json` files.
