@@ -133,16 +133,23 @@ function rectSimilarity(a, b) {
 function validateCaptureCoaching(targetMatchScore) {
   const review = makeCaptureReview(
     [
-      { id: "capture_1", sequenceIndex: 0, byteCount: 18_400 },
-      { id: "capture_2", sequenceIndex: 1, byteCount: 18_940 },
-      { id: "capture_3", sequenceIndex: 2, byteCount: 18_280 },
-      { id: "capture_4", sequenceIndex: 3, byteCount: 18_120 },
+      { id: "capture_1", sequenceIndex: 0, byteCount: 18_400, quality: { sharpness: 0.8, exposure: 0.8 } },
+      { id: "capture_2", sequenceIndex: 1, byteCount: 18_940, quality: { sharpness: 0.6, exposure: 0.8 } },
+      { id: "capture_3", sequenceIndex: 2, byteCount: 18_280, quality: { sharpness: 0.9, exposure: 0.8 } },
+      { id: "capture_4", sequenceIndex: 3, byteCount: 18_120, quality: { sharpness: 0.5, exposure: 0.8 } },
     ],
     targetMatchScore
   );
 
   assert(review.rankedShots.length === 3, "Capture review should keep the top three burst frames.");
   assert(review.rankedShots[0].label === "best", "Capture review should mark the best frame.");
+  assert(review.bestShotId === "capture_3", "Measured detail should determine the best frame, not bytes or order.");
+  const unavailable = makeCaptureReview([
+    { id: "missing", sequenceIndex: 0, byteCount: 999999 },
+    { id: "invalid", sequenceIndex: 1, byteCount: 1, quality: { sharpness: NaN, exposure: 1 } },
+  ], targetMatchScore);
+  assert(unavailable.rankedShots.length === 0 && !unavailable.bestShotId && !unavailable.coachingSummary,
+    "Missing or invalid measurements must not manufacture a ranking.");
   assert(review.coachingSummary.headline === "Needs another pass", "Capture coaching should summarize low target match.");
   assert(review.coachingSummary.topCorrectionReason === "improve_face_light", "Capture coaching should pick the weakest next correction.");
   assert(review.coachingSummary.nextShotInstruction === "Next shot: turn toward cleaner light", "Capture coaching should expose a concrete next shot instruction.");
@@ -162,13 +169,12 @@ function makeCaptureReview(frames, targetMatchScore) {
   }
 
   const rankedShots = frames
+    .filter((frame) => frame.quality && [frame.quality.sharpness, frame.quality.exposure].every((value) => Number.isFinite(value) && value >= 0 && value <= 1))
     .map((frame) => {
-      const qualitySignal = ((frame.byteCount + frame.sequenceIndex * 31) % 23) / 100;
-      const orderPenalty = frame.sequenceIndex * 0.015;
       const candidate = {
         id: frame.id,
-        sharpness: clamp01(0.76 + qualitySignal - orderPenalty),
-        exposure: targetMatchScore.exposure,
+        sharpness: frame.quality.sharpness,
+        exposure: frame.quality.exposure,
         faceQuality: targetMatchScore.pose,
         poseScore: targetMatchScore.pose,
         composition: targetMatchScore.composition,
@@ -203,6 +209,7 @@ function makeCaptureReview(frames, targetMatchScore) {
 
 function makeCaptureCoachingSummary(rankedShots, targetMatchScore) {
   const bestShot = rankedShots[0];
+  if (!bestShot) return undefined;
   const improvementSignals = captureMetricSignals(targetMatchScore)
     .filter((signal) => signal.value < 0.78)
     .sort((a, b) => a.value - b.value || a.id.localeCompare(b.id))

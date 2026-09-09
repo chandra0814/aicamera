@@ -282,6 +282,7 @@ export interface CaptureFrameMetric {
   id: string;
   sequenceIndex: number;
   byteCount: number;
+  quality?: { sharpness: number; exposure: number };
 }
 
 export interface CaptureCoachingSignal {
@@ -756,7 +757,9 @@ export class CaptureReviewBuilder {
       return { rankedShots: [] };
     }
 
-    const candidates = frames.map((frame) => captureCandidateForFrame(frame, targetMatch));
+    const candidates = frames.filter((frame) => frame.quality &&
+      [frame.quality.sharpness, frame.quality.exposure].every((value) => Number.isFinite(value) && value >= 0 && value <= 1)
+    ).map((frame) => captureCandidateForFrame(frame, targetMatch));
     const rankedShots = this.ranker.rank(candidates);
     const coachingSummary = makeCaptureCoachingSummary(rankedShots, targetMatch);
 
@@ -1005,10 +1008,8 @@ function shotReasons(candidate: BestShotCandidate): string[] {
 }
 
 function captureCandidateForFrame(frame: CaptureFrameMetric, targetMatch?: TargetMatchScore): BestShotCandidate {
-  const qualitySignal = ((frame.byteCount + frame.sequenceIndex * 31) % 23) / 100;
-  const orderPenalty = frame.sequenceIndex * 0.015;
-  const sharpness = clamp01(0.76 + qualitySignal - orderPenalty);
-  const exposure = targetMatch?.exposure ?? 0.72;
+  const sharpness = frame.quality!.sharpness;
+  const exposure = frame.quality!.exposure;
   const pose = targetMatch?.pose ?? 0.72;
   const composition = targetMatch?.composition ?? 0.72;
   const background = targetMatch?.background ?? 0.72;

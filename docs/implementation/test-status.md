@@ -58,6 +58,12 @@ The updated local `scripts/test-all.ps1` passed shared validators, backend check
 
 ## Latest Verification
 
+- Windows `scripts/test-all.ps1` passed on 2026-09-09 after captured-image ranking changes: tracked JSON parsing, shared AI fixtures, backend validation, and Android JVM core tests. Swift/Xcode checks were skipped because the toolchain is unavailable locally.
+
+- Captured-image ranking now requires measured sharpness and exposure. iOS decodes each burst photo into a bounded grayscale thumbnail off the main thread; missing or invalid measurements are excluded, with an unranked first-photo fallback if all measurements fail. File size and capture order no longer produce quality scores.
+- New Swift regressions cover pixel detail/clipping, invalid image data, encoded PNG decoding, missing/invalid quality, and ranking independence from byte count/order. These require macOS CI; they have not run on Windows. The TypeScript fixture validator covers measured-detail selection and unavailable ranking, but mirrors implementation logic rather than executing the TypeScript source.
+- Scores remain uncalibrated detail/clipping heuristics, not artistic-quality probabilities. Noise and intentional high/low-key scenes can affect them. Pose, composition, background, and intent still use shared live scene context, not per-capture analysis. Real-device burst validation remains required.
+
 - GitHub Actions run #56 passed AI fixture validation, Swift package tests, and the iOS app build for commit `be89215`.
 - GitHub Actions run #57 passed AI fixture validation, Swift package tests, and the iOS app build for commit `c8f8ba6`.
 - GitHub Actions run #65 passed AI fixture validation, Swift package tests, and the iOS app build for commit `ce343ee`.

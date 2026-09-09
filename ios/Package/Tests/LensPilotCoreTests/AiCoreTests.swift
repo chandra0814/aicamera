@@ -298,10 +298,10 @@ final class AiCoreTests: XCTestCase {
 
         let review = CaptureReviewBuilder().makeReview(
             frames: [
-                CaptureFrameMetric(id: "capture_1", sequenceIndex: 0, byteCount: 18_400),
-                CaptureFrameMetric(id: "capture_2", sequenceIndex: 1, byteCount: 18_940),
-                CaptureFrameMetric(id: "capture_3", sequenceIndex: 2, byteCount: 18_280),
-                CaptureFrameMetric(id: "capture_4", sequenceIndex: 3, byteCount: 18_120)
+                CaptureFrameMetric(id: "capture_1", sequenceIndex: 0, byteCount: 18_400, quality: CapturedImageQuality(sharpness: 0.8, exposure: 0.8)),
+                CaptureFrameMetric(id: "capture_2", sequenceIndex: 1, byteCount: 18_940, quality: CapturedImageQuality(sharpness: 0.8, exposure: 0.8)),
+                CaptureFrameMetric(id: "capture_3", sequenceIndex: 2, byteCount: 18_280, quality: CapturedImageQuality(sharpness: 0.8, exposure: 0.8)),
+                CaptureFrameMetric(id: "capture_4", sequenceIndex: 3, byteCount: 18_120, quality: CapturedImageQuality(sharpness: 0.8, exposure: 0.8))
             ],
             targetMatch: aiResult.targetMatch
         )
@@ -362,8 +362,8 @@ final class AiCoreTests: XCTestCase {
         )
         let captureReview = CaptureReviewBuilder().makeReview(
             frames: [
-                CaptureFrameMetric(id: "diagnostic_1", sequenceIndex: 0, byteCount: 18_800),
-                CaptureFrameMetric(id: "diagnostic_2", sequenceIndex: 1, byteCount: 18_200)
+                CaptureFrameMetric(id: "diagnostic_1", sequenceIndex: 0, byteCount: 18_800, quality: CapturedImageQuality(sharpness: 0.8, exposure: 0.8)),
+                CaptureFrameMetric(id: "diagnostic_2", sequenceIndex: 1, byteCount: 18_200, quality: CapturedImageQuality(sharpness: 0.8, exposure: 0.8))
             ],
             targetMatch: aiResult.targetMatch
         )

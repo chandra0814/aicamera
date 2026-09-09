@@ -518,9 +518,9 @@ final class CameraScreenViewModel: ObservableObject {
         }
 
         let frames = [
-            CaptureFrameMetric(id: "diagnostic_best", sequenceIndex: 0, byteCount: 240_000),
-            CaptureFrameMetric(id: "diagnostic_alt", sequenceIndex: 1, byteCount: 172_000),
-            CaptureFrameMetric(id: "diagnostic_hold", sequenceIndex: 2, byteCount: 160_000)
+            CaptureFrameMetric(id: "diagnostic_best", sequenceIndex: 0, byteCount: 240_000, quality: CapturedImageQuality(sharpness: 0.8, exposure: 0.8)),
+            CaptureFrameMetric(id: "diagnostic_alt", sequenceIndex: 1, byteCount: 172_000, quality: CapturedImageQuality(sharpness: 0.8, exposure: 0.8)),
+            CaptureFrameMetric(id: "diagnostic_hold", sequenceIndex: 2, byteCount: 160_000, quality: CapturedImageQuality(sharpness: 0.8, exposure: 0.8))
         ]
         diagnosticCaptureReview = captureReviewBuilder.makeReview(frames: frames, targetMatch: currentTargetMatch)
         diagnosticMessage = "Capture coaching test generated locally."
@@ -687,7 +687,7 @@ final class CameraScreenViewModel: ObservableObject {
             do {
                 let burstCount = currentShotPlan?.capturePolicy.burstFrameCount ?? 1
                 let frames = try await photoCaptureController.captureBurst(count: burstCount, using: camera.photoOutput)
-                presentCaptureReview(for: frames)
+                await presentCaptureReview(for: frames)
             } catch {
                 errorMessage = "Capture failed: \(error.localizedDescription)"
             }
@@ -764,23 +764,25 @@ final class CameraScreenViewModel: ObservableObject {
         return sample
     }
 
-    private func presentCaptureReview(for frames: [Data]) {
+    private func presentCaptureReview(for frames: [Data]) async {
         guard !frames.isEmpty else {
             errorMessage = "Capture did not return a photo."
             return
         }
 
-        let frameMetrics = frames.enumerated().map { index, data in
-            CaptureFrameMetric(
-                id: "capture_\(index + 1)",
-                sequenceIndex: index,
-                byteCount: data.count
-            )
-        }
+        let frameMetrics = await Task.detached(priority: .userInitiated) {
+            frames.enumerated().map { index, data in
+                CaptureFrameMetric(id: "capture_\(index + 1)", sequenceIndex: index,
+                    byteCount: data.count, quality: CapturedPhotoAnalyzer().quality(of: data))
+            }
+        }.value
         let review = captureReviewBuilder.makeReview(frames: frameMetrics, targetMatch: currentTargetMatch)
         let bestShotId = review.bestShotId ?? frameMetrics[0].id
         let bestIndex = frameMetrics.firstIndex { $0.id == bestShotId } ?? 0
         let bestPhotoData = frames[bestIndex]
+        if review.bestShotId == nil {
+            errorMessage = "Image quality analysis unavailable. Showing the first captured photo without a ranking."
+        }
 
         lastCaptureData = bestPhotoData
         lastCalibrationCandidate = makeCalibrationCandidate()
@@ -791,11 +793,13 @@ final class CameraScreenViewModel: ObservableObject {
             rankedShots: review.rankedShots,
             coachingSummary: review.coachingSummary
         )
-        recordPersonalLearningEvent(
-            outcome: .selectedBestShot,
-            acceptedGuidanceReason: latestGuidanceAction?.reason,
-            onlineReferenceUsed: hasLoadedOnlineInspiration
-        )
+        if review.bestShotId != nil {
+            recordPersonalLearningEvent(
+                outcome: .selectedBestShot,
+                acceptedGuidanceReason: latestGuidanceAction?.reason,
+                onlineReferenceUsed: hasLoadedOnlineInspiration
+            )
+        }
     }
 
     private func makePersonalizedAiCore() -> LensPilotAiCore {

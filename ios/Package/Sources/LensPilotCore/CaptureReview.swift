@@ -4,11 +4,13 @@ public struct CaptureFrameMetric: Codable, Equatable, Sendable, Identifiable {
     public let id: String
     public let sequenceIndex: Int
     public let byteCount: Int
+    public let quality: CapturedImageQuality?
 
-    public init(id: String, sequenceIndex: Int, byteCount: Int) {
+    public init(id: String, sequenceIndex: Int, byteCount: Int, quality: CapturedImageQuality? = nil) {
         self.id = id
         self.sequenceIndex = sequenceIndex
         self.byteCount = byteCount
+        self.quality = quality
     }
 }
 
@@ -106,7 +108,7 @@ public struct CaptureReviewBuilder: Sendable {
             return CaptureReviewResult(rankedShots: [], bestShotId: nil)
         }
 
-        let candidates = frames.map { frame in
+        let candidates = frames.filter { $0.quality?.isValid == true }.map { frame in
             candidate(for: frame, targetMatch: targetMatch)
         }
         let rankedShots = ranker.rank(candidates)
@@ -123,10 +125,8 @@ public struct CaptureReviewBuilder: Sendable {
     }
 
     private func candidate(for frame: CaptureFrameMetric, targetMatch: TargetMatchScore?) -> BestShotCandidate {
-        let qualitySignal = Double((frame.byteCount + frame.sequenceIndex * 31) % 23) / 100
-        let orderPenalty = Double(frame.sequenceIndex) * 0.015
-        let sharpness = clamp01(0.76 + qualitySignal - orderPenalty)
-        let exposure = targetMatch?.exposure ?? 0.72
+        let sharpness = frame.quality!.sharpness
+        let exposure = frame.quality!.exposure
         let pose = targetMatch?.pose ?? 0.72
         let composition = targetMatch?.composition ?? 0.72
         let background = targetMatch?.background ?? 0.72
