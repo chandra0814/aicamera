@@ -643,7 +643,7 @@ function sanitizeAffinityMap(
   const allowed = allowedKeys ? new Set(allowedKeys) : undefined;
   return Object.fromEntries(
     Object.entries(values ?? {})
-      .map(([key, value]) => [sanitizeStorageKey(key), clampAffinity(value)] as const)
+      .map(([key, value]) => [sanitizeStorageKey(key), clampAffinity(value ?? 0)] as const)
       .filter(([key, value]) => key.length > 0 && value !== 0 && (!allowed || allowed.has(key)) && (allowed || !isBlockedFreeformStorageKey(key)))
       .sort(([leftKey, leftValue], [rightKey, rightValue]) => Math.abs(rightValue) - Math.abs(leftValue) || leftKey.localeCompare(rightKey))
       .slice(0, Math.max(0, maxEntries))
@@ -1513,6 +1513,49 @@ export class OnlineInspirationThumbnailMemoryCache {
   clear(): void {
     this.entries.clear();
   }
+}
+
+export function makePersonalVisualLearningInsight(profile: PersonalVisualPreferenceProfile, maxSignals = 8) {
+  const signals: Array<{ id: string; category: string; label: string; score: number }> = [];
+  const append = (values: Partial<Record<string, number>>, category: string, divisor = 1) => {
+    const top = Object.entries(values)
+      .filter((entry): entry is [string, number] => Number.isFinite(entry[1]) && (entry[1] ?? 0) > 0)
+      .sort(([a, av], [b, bv]) => bv - av || a.localeCompare(b))[0];
+    if (top) signals.push({ id: `${category}_${top[0]}`, category,
+      label: displayLearningKey(top[0]), score: Math.min(1, top[1] / Math.max(1, divisor)) });
+  };
+  if (profile.consent.learningEnabled) {
+    append(profile.domainCounts, "domain", profile.totalEvents);
+    append(profile.styleAffinities, "style");
+    append(profile.colorAffinities, "color");
+    append(profile.framingAffinities, "framing");
+    append(profile.guidanceReasonAffinities, "guidance");
+    append(profile.requirementAffinities, "requirement");
+    if (profile.onlineReferenceUsageCount > 0) signals.push({
+      id: "online_reference_public_inspiration", category: "online_reference", label: "Public Inspiration",
+      score: Math.min(1, profile.onlineReferenceUsageCount / Math.max(1, profile.totalEvents)),
+    });
+  }
+  const topSignals = signals.sort((a, b) => b.score - a.score || a.label.localeCompare(b.label))
+    .slice(0, Number.isFinite(maxSignals) ? Math.max(0, Math.floor(maxSignals)) : 8);
+  const status = !profile.consent.learningEnabled ? "disabled"
+    : profile.totalEvents < 3 || !topSignals.length ? "warming_up" : "personalized";
+  return {
+    status,
+    headline: status === "disabled" ? "Local learning is off"
+      : status === "personalized" ? `Personalized from ${profile.totalEvents} local events`
+      : profile.totalEvents === 0 ? "Ready to learn from local choices" : `Learning from ${profile.totalEvents} local events`,
+    eventCount: Math.max(0, profile.totalEvents), topSignals,
+    guidanceBoosts: new PersonalVisualLearningEngine().guidanceCalibration(profile).globalReasonBoosts,
+    onlineReferenceUsageCount: Math.max(0, profile.onlineReferenceUsageCount),
+    privacy: { singlePhoneOnly: true, storesRawPhoto: false, uploadsLiveCameraFrame: false,
+      storesIdentityData: false, cloudPersonalizationSyncAllowed: false },
+  };
+}
+
+function displayLearningKey(key: string): string {
+  return key.replace(/^customer_correction_/, "").replace(/_/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function creativeInputSummary(

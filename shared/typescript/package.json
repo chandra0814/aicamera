@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test": "node scripts/test-production.cjs",
+    "typecheck": "tsc --noEmit",
     "validate": "node -e \"eval(require('node:fs').readFileSync('scripts/validate-ai-core.cjs','utf8'))\" && node -e \"eval(require('node:fs').readFileSync('scripts/validate-ai-benchmarks.cjs','utf8'))\" && node -e \"eval(require('node:fs').readFileSync('scripts/validate-ai-calibration.cjs','utf8'))\" && node -e \"eval(require('node:fs').readFileSync('scripts/validate-calibration-readiness-report.cjs','utf8'))\" && node -e \"eval(require('node:fs').readFileSync('scripts/validate-calibration-session-plan.cjs','utf8'))\" && node -e \"eval(require('node:fs').readFileSync('scripts/validate-calibration-batch-import.cjs','utf8'))\" && node -e \"eval(require('node:fs').readFileSync('scripts/validate-calibration-promotion.cjs','utf8'))\" && node -e \"eval(require('node:fs').readFileSync('scripts/validate-calibration-queue.cjs','utf8'))\" && node -e \"eval(require('node:fs').readFileSync('scripts/validate-personalization.cjs','utf8'))\" && node -e \"eval(require('node:fs').readFileSync('scripts/validate-creative-api.cjs','utf8'))\"",
     "validate:benchmarks": "node -e \"eval(require('node:fs').readFileSync('scripts/validate-ai-benchmarks.cjs','utf8'))\"",
     "validate:calibration": "node -e \"eval(require('node:fs').readFileSync('scripts/validate-ai-calibration.cjs','utf8'))\"",
@@ -18,5 +20,8 @@
   },
   "exports": {
     ".": "./src/index.ts"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
   }
 }

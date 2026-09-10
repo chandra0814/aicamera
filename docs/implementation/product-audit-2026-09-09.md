@@ -4,6 +4,10 @@ Date: 2026-09-09. Baseline: `d63f72f`, branch `codex/android-camera-foundation`.
 
 ## Decision
 
+### Follow-up on 2026-09-10
+
+The historical findings below describe the audit baseline. Fresh-frame gating is now implemented (`9b57f99`), and image-derived capture detail/clipping replaces byte-count scoring (`f183e7b`). All four CI jobs passed for `f183e7b`; real-device/blinded quality validation remains open. Shared TypeScript now has strict compilation and seven tests executing production exports. This uncovered missing learning-insight helpers, a duplicate type export, and optional-value handling, which have been fixed. Legacy mirrored fixtures remain in place; broad production-path and hardware coverage is still incomplete.
+
 Keep LensPilot in development/pilot testing. Its strongest intended position is a single-phone, privacy-first photography director that improves real captures. Current Android guidance is a rules-based prototype; current iOS scoring contains unvalidated proxies. Passing CI does not establish that either app takes better photographs than the built-in camera. The calibration manifest has zero reviewed real captures out of its 24-capture target.
 
 ## Findings ordered by priority

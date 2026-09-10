@@ -58,6 +58,13 @@ The updated local `scripts/test-all.ps1` passed shared validators, backend check
 
 ## Latest Verification
 
+- 2026-09-10 local `scripts/test-all.ps1`: passed JSON parsing (including the npm lockfile), strict TypeScript compilation, seven direct production tests, legacy AI fixtures, backend suite, and Android core checks. Swift remains skipped locally.
+
+- 2026-09-10: commit `f183e7b` passed all four GitHub jobs (AI/backend fixtures, container smoke, Swift package tests, iOS app build) in run [34480950275](https://github.com/chandra0814/aicamera/actions/runs/34480950275).
+- Added strict compilation of all shared TypeScript sources and seven direct production-code tests for capture ranking, invalid measurements, creative interpretation, and consent-gated learning insights. This exposed and fixed a duplicate export, missing learning helpers, and optional affinity handling. Legacy fixture validators remain complementary, not exhaustive production coverage.
+- Shared test setup: run `npm ci --ignore-scripts` in `shared/typescript`, then `npm test` (compiles and executes production exports). `npm run typecheck` checks types without emitting. Configuration follows the [TypeScript compiler configuration guide](https://www.typescriptlang.org/docs/handbook/tsconfig-json.html). CI installs from the pinned lockfile before tests.
+- In this restricted Windows environment, Node needs `NODE_OPTIONS=--preserve-symlinks --preserve-symlinks-main` to avoid ancestor-directory realpath permission errors. This is a local execution workaround, not an app requirement.
+
 - Windows `scripts/test-all.ps1` passed on 2026-09-09 after captured-image ranking changes: tracked JSON parsing, shared AI fixtures, backend validation, and Android JVM core tests. Swift/Xcode checks were skipped because the toolchain is unavailable locally.
 
 - Captured-image ranking now requires measured sharpness and exposure. iOS decodes each burst photo into a bounded grayscale thumbnail off the main thread; missing or invalid measurements are excluded, with an unranked first-photo fallback if all measurements fail. File size and capture order no longer produce quality scores.

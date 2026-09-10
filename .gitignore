@@ -1,4 +1,6 @@
 .env
+node_modules/
+.test-output/
 .env.*
 !.env.example
 ios/App/LensPilotApp/Config/*.generated.xcconfig

@@ -43,6 +43,10 @@ jobs:
 
       - name: Run AI core validation
         working-directory: shared/typescript
+        run: npm ci --ignore-scripts && npm test
+
+      - name: Run legacy AI fixtures
+        working-directory: shared/typescript
         run: npm run validate
 
       - name: Run backend creative API server validation
